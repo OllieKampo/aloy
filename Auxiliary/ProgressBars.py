@@ -30,6 +30,7 @@ from tqdm import tqdm
 class ResourceProgressBar:
     """
     Simple progress bar which displays memory and CPU usage in postfix.
+    The usage statistics are updated ten times per second.
     """
     
     __slots__ = ("__process",
@@ -102,9 +103,9 @@ class ResourceProgressBar:
         ----------
         `n: int = 1` - The number of increments ran since the last update.
         
-        `data: dict[str, str] = {}` - An optional dictionary of additional
-        statistics to display in the progress bar's postfix, given as a
-        mapping between name to value pairs.
+        `data: {dict[str, str] | None} = None` - An optional dictionary
+        of additional statistics to display in the progress bar's postfix,
+        given as a mapping of name to value pairs.
         """
         self.__progress_bar.set_postfix(data | self.__postfix
                                         if data is not None
