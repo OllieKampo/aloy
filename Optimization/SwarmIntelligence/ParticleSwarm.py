@@ -24,45 +24,15 @@
 
 import dataclasses
 from fractions import Fraction
+import math
 from numbers import Real
-from typing import Callable, Optional
+from typing import Callable, Literal, Optional
+from matplotlib import pyplot as plt
 
 import numpy as np
 import numpy.typing as npt
 
-@dataclasses.dataclass
-class Particle:
-    fitness: np.float64
-    position: npt.NDArray[np.float64]
-    velocity: npt.NDArray[np.float64]
-    
-    best_fitness: np.float64
-    best_position: npt.NDArray[np.float64]
-    
-    @property
-    def current(self) -> tuple[np.float64, npt.NDArray[np.float64]]:
-        return (self.fitness, self.position)
-    
-    @property
-    def best(self) -> tuple[np.float64, npt.NDArray[np.float64]]:
-        return (self.best_fitness, self.best_position)
-    
-    @classmethod
-    def initial(cls,
-                fitness: Real,
-                position_vector: npt.NDArray[np.float64],
-                velocity_vector: npt.NDArray[np.float64]
-                ) -> "Particle":
-        """
-        Create a new particle for the initial stage of a particle
-        swarm optimisation process. This sets the particle's personal
-        best known fitness and position to its initial fitness/position.
-        """
-        return cls(fitness,
-                   position_vector,
-                   velocity_vector,
-                   fitness,
-                   position_vector)
+from datahandling.makedata import DataHolder
 
 @dataclasses.dataclass(frozen=True)
 class Dimension:
@@ -84,13 +54,48 @@ class Dimension:
 
 @dataclasses.dataclass(frozen=True)
 class ParticleSwarmSolution:
-    # best: Particle
-    population: list[Particle]
-    # max_fitness_reached: bool = False
-    max_generations_reached: bool = False
+    """
+    Represents the solution of a particle swarm optimisation algorithm.
+    
+    Elements
+    --------
+    `best_position: npt.NDArray[np.float64]` - The best position of the swarm.
+    
+    `best_fitness: np.float64` - The best fitness of the swarm.
+    """
+    
+    ## Particles
+    best_position: npt.NDArray[np.float64]
+    best_fitness: np.float64
+    positions: npt.NDArray[np.float64]
+    fitnesses: npt.NDArray[np.float64]
+    
+    ## Loop variables
+    total_iterations: int
+    stagnated_at_iteration: int
+    
+    ## Stop conditions
+    iterations_limit_reached: bool = False
     stagnation_limit_reached: bool = False
+    fitness_limit_reached: bool = False
+    
+    def __str__(self) -> str:
+        """Return a decscription of the best solution obtained and the stop condition that was reached."""
+        best_parameters = ", ".join(f"{param:.4f}" for param in self.best_position)
+        stop_condition: str = ""
+        if self.iterations_limit_reached:
+            stop_condition = "iterations limit reached"
+        if self.stagnation_limit_reached:
+            stop_condition = "stagnation limit reached"
+            stop_condition += f" (stagnated at iteration {self.stagnated_at_iteration})"
+        if self.fitness_limit_reached:
+            stop_condition = "fitness limit reached"
+        return f"PSO Solution :: best parameters = [{best_parameters}], best fitness = {self.best_fitness}, " \
+               f"total iterations = {self.total_iterations}, stop condition = {stop_condition}"
 
 class ParticleSwarmSystem:
+    """Particle swarm optimisation algorithm."""
+    
     __slots__ = ("__dimensions",
                  "__fitness_function")
     
@@ -99,33 +104,64 @@ class ParticleSwarmSystem:
                  fitness_function: Callable[[npt.NDArray[np.float64]], np.float64]
                  ) -> None:
         """
-        A dimension must be added for each variable in the search space.
+        Create a particle swarm optimisation system from a list of dimensions and an objective function.
+        
+        A dimension must be added for each variable of the objective function (i.e. the search space).
         """
         self.__dimensions: list[Dimension] = dimensions
         self.__fitness_function: Callable[[npt.NDArray[np.float64]], np.float64] = fitness_function
     
-    def set_problem(self,
-                    dimensions: list[Dimension],
-                    fitness_function: Callable[[Particle], list[Real]]
-                    ) -> None:
-        self.__dimensions = dimensions
-        self.__fitness_function = fitness_function
+    @staticmethod
+    def calculate_decay(iteration: int,
+                        iterations_limit: int,
+                        # decay_start: int, TODO: Need to account for this when calculating the decay constant.
+                        # decay_end: int,
+                        initial_value: Fraction,
+                        decay_constant: Fraction,
+                        decay_type: Literal["lin", "pol", "exp"] = "lin"
+                        ) -> Fraction:
+        """Calculate the decay of the particle inertia or personal coefficient."""
+        # decay_iterations: int = min(decay_end, max(0, iteration - decay_start))
+        decay_iterations: int = iteration
+        
+        if decay_type == "lin":
+            primary = max(Fraction(0.0), initial_value - initial_value * (decay_constant * decay_iterations))
+        
+        elif decay_type == "pol":
+            primary = initial_value * ((1.0 - decay_constant) ** decay_iterations)
+        
+        # elif decay_type == "pol-slow":
+        #     primary = initial_value * ((1.0 - decay_constant) ** (iterations_limit - decay_iterations))
+        
+        elif decay_type == "exp":
+            primary = initial_value * math.exp(-(decay_constant * decay_iterations))
+        
+        # elif decay_type == "exp-slow":
+        #     primary = initial_value - initial_value * math.exp(-(decay_constant * (iterations_limit - decay_iterations)))
+        
+        elif "exp-auto":
+            primary = initial_value * (1.0 - (math.log(decay_iterations) / math.log(iterations_limit)))
+        
+        return primary
     
     def run(self,
             total_particles: int,
             
-            inertia: Fraction,
-            inertia_decay: Fraction,
-            
-            personal_coefficient: Fraction,
-            # local_coefficient: Fraction,
-            global_coefficient: Fraction,
-            coefficient_decay: Fraction,
-            
             ## Stop criteria
-            iterations_limit: Optional[int],
-            stagnation_limit: Optional[int],
-            fitness_limit: Real
+            iterations_limit: Optional[int] = 1000,
+            stagnation_limit: Optional[int | float | Fraction] = 0.1,
+            fitness_limit: Optional[Real] = None,
+            
+            ## Particle inertia
+            inertia: Fraction = Fraction(1.0),
+            inertia_decay: Optional[Fraction] = None,
+            inertia_decay_type: Literal["lin", "pol", "exp"] = "lin",
+            
+            ## Particle direction of movement coefficients
+            personal_coefficient: Fraction = Fraction(1.0),
+            coefficient_decay: Optional[Fraction] = None,
+            coefficient_decay_type: Optional[Literal["lin", "pol", "exp"]] = "lin"
+            
             ) -> Optional[ParticleSwarmSolution]:
         """
         Run the particle swarm optimisation algorithm.
@@ -134,90 +170,177 @@ class ParticleSwarmSystem:
         
         `local_coefficient: Fraction` - 
         
-        `global_coefficient: Fraction` - 
+        `global_coefficient: Fraction` - The global (or social) coefficient used in particle velocity updates.
+        A high global coefficient will promote an exploitative search towards the global best position.
+        If not given or None, the global coefficient is 1.0 minus the personal coefficient.
         
-        `decay_constant: Fraction` - 
+        `coefficient_decay: {Fraction | None}` - The decay rate of the local coefficient.
+        The respective gain rate of the global coefficient is 1.0 minus the local coefficient.
+        A high decay constant will cause rapid decay of the local coefficient and gain in the global coefficient.
+        Conversely, a low decay constant will cause slow decay of the local coefficient and gain in the global coefficient.
+        If not given or None, then the decay rate is the ratio of the personal coefficient to the iterations limit.
         
+        `coefficient_decay_type: {Literal["lin", "pol", "exp", "hyp"] | None}` - The decay rate type of the coefficient decay.
+        Linear decay redcues the coefficient linearly with iterations, i.e. reduces by a constant value on each iteration.
+        Exponential decay reduces the coefficient exponentially with iterations, i.e. reduces by a multiple on each iteration.
+        Exponential decay causes a larger changes in the coefficients during early iterations of search than linear decay.
+        If not given or None, then coefficient decay is disabled.
         """
+        if total_particles < 1:
+            raise ValueError(f"Total particles must be at least 1. Got; {total_particles}")
         
+        if all(map(lambda x: x is None, [iterations_limit, stagnation_limit, fitness_limit])):
+            raise ValueError("At least one of the stop conditions must be given and not None.")
+        
+        if isinstance(stagnation_limit, (float, Fraction)):
+            stagnation_limit = int(stagnation_limit * iterations_limit)
+        
+        initial_inertia = Fraction(inertia)
+        inertia = initial_inertia
+        initial_personal_coefficient = Fraction(personal_coefficient)
+        personal_coefficient = initial_personal_coefficient
+        global_coefficient = Fraction(1.0) - personal_coefficient
+        
+        if inertia_decay is None:
+            inertia_decay = Fraction(inertia / iterations_limit)
+        elif not (Fraction(0.0) <= inertia_decay <= Fraction(1.0)):
+            raise ValueError(f"Inertia decay constant be between 0.0 and 1.0. Got; {inertia_decay}")
+        if coefficient_decay is None:
+            coefficient_decay = Fraction(personal_coefficient / iterations_limit)
+        elif not (Fraction(0.0) <= coefficient_decay <= Fraction(1.0)):
+            raise ValueError(f"Coefficient decay constant be between 0.0 and 1.0. Got; {coefficient_decay}")
+        
+        ## Random number generator
         rng = np.random.default_rng()
         
-        particles: list[Particle] = []
+        ## Array of dimensions: (lower_bound, upper_bound, max_velocity)
+        dimensions = np.array([dataclasses.astuple(dimension) for dimension in self.__dimensions])
+        
+        ## Create positions and velocities for each particle
+        position_vectors = rng.random((total_particles, dimensions.shape[0]))
+        position_vectors *= dimensions[:, 1] - dimensions[:, 0]
+        position_vectors += dimensions[:, 0]
+        velocity_vectors = rng.random((total_particles, dimensions.shape[0]))
+        velocity_vectors *= dimensions[:, 2] * 2.0
+        velocity_vectors -= dimensions[:, 2]
+        
+        ## Evaluate fitness of each particle
+        particles_fitness = np.apply_along_axis(self.__fitness_function, 1, position_vectors)
+        
+        ## Personal best fitness and position for each particle (initialise to current fitness)
+        particle_best_fitness = particles_fitness.copy()
+        particle_best_position = position_vectors.copy()
+        
+        ## Global best fitness and position over all particles
+        global_best_index = np.argmax(particles_fitness)
+        global_best_fitness = particles_fitness[global_best_index]
+        global_best_position = position_vectors[global_best_index]
+        
+        ## Loop variables
         iterations: int = 0
         stagnated_iterations: int = 0
-        global_best_fitness: Real = 0.0
-        global_best_position: npt.NDArray[np.float64] = np.zeros(len(self.__dimensions), np.float64)
+        stagnated_at: int = 0
         
-        ## np.uniform to calculate over correct range immediately
-        initial_position_vectors: npt.NDArray[np.float64] = np.random.random((total_particles, len(self.__dimensions)))
-        initial_position_vectors *= [dimension.upper_bound - dimension.lower_bound for dimension in self.__dimensions]
-        initial_position_vectors += [dimension.lower_bound for dimension in self.__dimensions]
+        ## Stop conditions
+        iteration_limit_reached: bool = False
+        stagnation_limit_reached: bool = False
+        fitness_limit_reached: bool = False
         
-        # groups: list[list[Particle]] = []
-        # need group size
+        ## Data structure for storing history of best fitness and position.
+        dataholder = DataHolder(["iteration",
+                                 "global_best_fitness", "global_best_position",
+                                 "personal_coefficient", "global_coefficient"],
+                                converters={"personal_coefficient" : float,
+                                            "global_coefficient" : float})
+        dataholder.add_row([iterations,
+                            global_best_fitness, global_best_position,
+                            personal_coefficient, global_coefficient])
         
-        initial_velocity_vectors: npt.NDArray[np.float64] = np.random.random((total_particles, len(self.__dimensions)))
-        initial_velocity_vectors *= [dimension.max_velocity for dimension in self.__dimensions]
-        initial_velocity_vectors *= 2.0
-        initial_velocity_vectors -= [dimension.max_velocity for dimension in self.__dimensions]
-        
-        for position_vector, velocity_vector in zip(initial_position_vectors, initial_velocity_vectors):
-            fitness = self.__fitness_function(position_vector)
-            particles.append(Particle.initial(fitness, position_vector, velocity_vector))
-            if fitness > global_best_fitness:
-                global_best_fitness = fitness
-                global_best_position = position_vector
-        
-        while (iterations < iterations_limit
-               and stagnated_iterations < stagnation_limit
-               and global_best_fitness < fitness_limit):
+        ## Iterate until some stop condition is reached.
+        while not ((iterations_limit is not None
+                    and (iteration_limit_reached := iterations >= iterations_limit))
+                   or (stagnation_limit is not None
+                       and (stagnation_limit_reached := stagnated_iterations >= stagnation_limit))
+                   or (fitness_limit is not None
+                       and (fitness_limit_reached := global_best_fitness >= fitness_limit))):
             
             if iterations != 0:
-                inertia = inertia * (1.0 - inertia_decay)
-                personal_coefficient = personal_coefficient * (1.0 - coefficient_decay)
-                global_coefficient = (1.0 - personal_coefficient)
+                if inertia_decay_type is not None:
+                    inertia = self.calculate_decay(iterations,
+                                                   iterations_limit,
+                                                   initial_inertia,
+                                                   inertia_decay,
+                                                   inertia_decay_type)
+                
+                if coefficient_decay_type is not None:
+                    personal_coefficient = self.calculate_decay(iterations,
+                                                                iterations_limit,
+                                                                initial_personal_coefficient,
+                                                                coefficient_decay,
+                                                                coefficient_decay_type)
+                    global_coefficient = Fraction(1.0) - personal_coefficient
             
-            ## For each particle we need to generate two random numbers for each dimension
-            update_vectors: np.ndarray = rng.random((total_particles, 2, len(self.__dimensions)))
+            ## For each particle, generate two random numbers for each dimension;
+            ##      - one for the personal best, and one for the global best.
+            update_vectors = rng.random((total_particles, 2, dimensions.shape[0]))
             
-            for particle, particle_update_vector in zip(particles, update_vectors):
-                
-                ## Velocity is updated based on inertia and random contribution of displacement from;
-                ##      - personal best position,
-                ##      - local "friend" group position,
-                ##      - global best position.
-                
-                personal_displacement = particle.best_position - particle.position
-                global_displacement = global_best_position - particle.position
-                
-                new_velocity = (inertia * particle.velocity
-                                + (personal_coefficient * particle_update_vector[0] * personal_displacement)
-                                + (global_coefficient * particle_update_vector[1] * global_displacement))
-                particle.velocity = np.maximum(np.minimum(new_velocity, [dimension.upper_bound for dimension in self.__dimensions]),
-                                               [dimension.lower_bound for dimension in self.__dimensions])
-                
-                ## Position is updated based on previous position and velocity.
-                particle.position = np.maximum(np.minimum(particle.position + particle.velocity, [dimension.upper_bound for dimension in self.__dimensions]),
-                                               [dimension.lower_bound for dimension in self.__dimensions])
-                
-                particle.fitness = self.__fitness_function(particle.position)
-                # print(particle)
-                
-                if particle.fitness > particle.best_fitness:
-                    particle.best_fitness = particle.fitness
-                    particle.best_position = particle.position
-                    if particle.fitness > global_best_fitness:
-                        global_best_fitness = particle.fitness
-                        global_best_position = particle.position
-                
-                print(f"Global fitness: coeff={global_coefficient}, fit={global_best_position}")
-                
+            ## Velocity is updated based on inertia and random contribution of displacement from;
+            ##      - personal best position,
+            ##      - local "friend" group position,
+            ##      - global best position.
+            personal_displacements = particle_best_position - position_vectors
+            global_displacements = global_best_position - position_vectors
+            
+            velocity_vectors = (inertia * velocity_vectors
+                                + (personal_coefficient * update_vectors[:,0] * personal_displacements)
+                                + (global_coefficient * update_vectors[:,1] * global_displacements))
+            velocity_vectors = np.maximum(np.minimum(velocity_vectors, dimensions[:, 2]), -dimensions[:, 2])
+            
+            ## Position is updated based on previous position and velocity.
+            position_vectors = np.maximum(np.minimum(position_vectors + velocity_vectors, dimensions[:, 1]), dimensions[:, 0])
+            
+            ## Evaluate fitness of each particle and update personal best.
+            particles_fitness = np.apply_along_axis(self.__fitness_function, 1, position_vectors)
+            particle_best_index = np.argmax(particles_fitness)
+            particle_best_fitness = particles_fitness[particle_best_index]
+            particle_best_position = position_vectors[particle_best_index]
+            
+            ## Global best fitness and position over all particles.
+            current_best_index = np.argmax(particles_fitness)
+            current_best_fitness = particles_fitness[current_best_index]
+            if current_best_fitness > global_best_fitness:
+                global_best_fitness = current_best_fitness
+                global_best_position = position_vectors[current_best_index]
+            ## Update iterations and stagnation counter.
+                stagnated_iterations = 0
+                stagnated_at = iterations
+            else: stagnated_iterations += 1
             iterations += 1
+            
+            dataholder.add_row([iterations,
+                                global_best_fitness, global_best_position,
+                                personal_coefficient, global_coefficient])
         
-        return ParticleSwarmSolution(particles)
+        return (ParticleSwarmSolution(global_best_position, global_best_fitness,
+                                      position_vectors, particles_fitness,
+                                      iterations, stagnated_at,
+                                      iteration_limit_reached, stagnation_limit_reached, fitness_limit_reached),
+                dataholder.to_dataframe())
 
-psystem = ParticleSwarmSystem([Dimension(0, 100.0, 10.0), Dimension(0, 100.0, 10.0)],
-                              lambda dimensions: (np.float64(dimensions[0]) - 100.0) + (100.0 - np.float64(dimensions[1])))
+if __name__ == "__main__":
+    psystem = ParticleSwarmSystem([Dimension(0, 100000.0, 1000.0), Dimension(0, 100000.0, 1000.0)],
+                                  lambda dimensions: (np.float64(dimensions[0]) - 100000.0) + (1000.0 - np.float64(dimensions[1])))
 
-result = psystem.run(100, 1.0, 0.005, 1.0, 0.0, 0.05, 1000, 100, 10000)
-print(max(result.population, key=lambda p: p.best_fitness), sep="\n")
+    result, data = psystem.run(total_particles=100,
+                               iterations_limit=100,
+                               stagnation_limit=0.1,
+                               coefficient_decay_type="exp-auto")
+    
+    print(result)
+    print(data)
+    
+    fig, (fitness_axes, coefficient_axes) = plt.subplots(1, 2)
+    fitness_axes.plot(data["iteration"], data["global_best_fitness"])
+    coefficient_axes.plot(data["iteration"], data["personal_coefficient"])
+    coefficient_axes.plot(data["iteration"], data["global_coefficient"])
+    plt.show()
