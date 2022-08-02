@@ -97,11 +97,13 @@ class ParticleSwarmSystem:
     """Particle swarm optimisation algorithm."""
     
     __slots__ = ("__dimensions",
-                 "__fitness_function")
+                 "__fitness_function",
+                 "__maximise")
     
     def __init__(self,
                  dimensions: list[Dimension],
-                 fitness_function: Callable[[npt.NDArray[np.float64]], np.float64]
+                 fitness_function: Callable[[npt.NDArray[np.float64]], np.float64],
+                 maximise: bool = True
                  ) -> None:
         """
         Create a particle swarm optimisation system from a list of dimensions and an objective function.
@@ -110,6 +112,7 @@ class ParticleSwarmSystem:
         """
         self.__dimensions: list[Dimension] = dimensions
         self.__fitness_function: Callable[[npt.NDArray[np.float64]], np.float64] = fitness_function
+        self.__maximise: bool = maximise
     
     @staticmethod
     def calculate_decay(iteration: int,
@@ -123,6 +126,8 @@ class ParticleSwarmSystem:
         """Calculate the decay of the particle inertia or personal coefficient."""
         # decay_iterations: int = min(decay_end, max(0, iteration - decay_start))
         decay_iterations: int = iteration
+        
+        iterations_limit -= 1
         
         if decay_type == "lin":
             primary = max(Fraction(0.0), initial_value - initial_value * (decay_constant * decay_iterations))
@@ -139,8 +144,14 @@ class ParticleSwarmSystem:
         # elif decay_type == "exp-slow":
         #     primary = initial_value - initial_value * math.exp(-(decay_constant * (iterations_limit - decay_iterations)))
         
-        elif "exp-auto":
+        elif decay_type == "exp-auto":
             primary = initial_value * (1.0 - (math.log(decay_iterations) / math.log(iterations_limit)))
+        
+        # elif "exp-auto-slow":
+        #     primary = initial_value * (1.0 - (math.log(iterations_limit - decay_iterations) / math.log(iterations_limit)))
+        
+        elif decay_type == "sin":
+            primary = initial_value * ((math.cos(math.pi * (decay_iterations / iterations_limit)) / 2.0) + 0.5)
         
         return primary
     
@@ -216,23 +227,22 @@ class ParticleSwarmSystem:
         ## Array of dimensions: (lower_bound, upper_bound, max_velocity)
         dimensions = np.array([dataclasses.astuple(dimension) for dimension in self.__dimensions])
         
-        ## Create positions and velocities for each particle
-        position_vectors = rng.random((total_particles, dimensions.shape[0]))
-        position_vectors *= dimensions[:, 1] - dimensions[:, 0]
-        position_vectors += dimensions[:, 0]
-        velocity_vectors = rng.random((total_particles, dimensions.shape[0]))
-        velocity_vectors *= dimensions[:, 2] * 2.0
-        velocity_vectors -= dimensions[:, 2]
+        ## Create positions and velocities for each particle:
+        ##   - Arrays have row for each particle and column for each dimension.
+        position_vectors = rng.uniform(dimensions[:,0], dimensions[:,1], (total_particles, dimensions.shape[0]))
+        velocity_vectors = rng.uniform(-dimensions[:,2], dimensions[:,2], (total_particles, dimensions.shape[0]))
         
         ## Evaluate fitness of each particle
         particles_fitness = np.apply_along_axis(self.__fitness_function, 1, position_vectors)
         
         ## Personal best fitness and position for each particle (initialise to current fitness)
-        particle_best_fitness = particles_fitness.copy()
-        particle_best_position = position_vectors.copy()
+        best_particles_fitness = particles_fitness.copy()
+        best_position_vectors = position_vectors.copy()
         
         ## Global best fitness and position over all particles
-        global_best_index = np.argmax(particles_fitness)
+        if self.__maximise:
+            global_best_index = np.argmax(particles_fitness)
+        else: global_best_index = np.argmin(particles_fitness)
         global_best_fitness = particles_fitness[global_best_index]
         global_best_position = position_vectors[global_best_index]
         
@@ -252,9 +262,6 @@ class ParticleSwarmSystem:
                                  "personal_coefficient", "global_coefficient"],
                                 converters={"personal_coefficient" : float,
                                             "global_coefficient" : float})
-        dataholder.add_row([iterations,
-                            global_best_fitness, global_best_position,
-                            personal_coefficient, global_coefficient])
         
         ## Iterate until some stop condition is reached.
         while not ((iterations_limit is not None
@@ -288,7 +295,7 @@ class ParticleSwarmSystem:
             ##      - personal best position,
             ##      - local "friend" group position,
             ##      - global best position.
-            personal_displacements = particle_best_position - position_vectors
+            personal_displacements = best_position_vectors - position_vectors
             global_displacements = global_best_position - position_vectors
             
             velocity_vectors = (inertia * velocity_vectors
@@ -296,22 +303,28 @@ class ParticleSwarmSystem:
                                 + (global_coefficient * update_vectors[:,1] * global_displacements))
             velocity_vectors = np.maximum(np.minimum(velocity_vectors, dimensions[:, 2]), -dimensions[:, 2])
             
-            ## Position is updated based on previous position and velocity.
+            ## Position is updated based on previous position and velocity:
+            ##    - take the maximum of the lower bound of each dimension and the minimum of upper bound of each dimension and the new position plus velocity.
             position_vectors = np.maximum(np.minimum(position_vectors + velocity_vectors, dimensions[:, 1]), dimensions[:, 0])
             
             ## Evaluate fitness of each particle and update personal best.
             particles_fitness = np.apply_along_axis(self.__fitness_function, 1, position_vectors)
-            particle_best_index = np.argmax(particles_fitness)
-            particle_best_fitness = particles_fitness[particle_best_index]
-            particle_best_position = position_vectors[particle_best_index]
+            
+            if self.__maximise:
+                particles_better_than_best = particles_fitness >= best_particles_fitness
+            else: particles_better_than_best = particles_fitness < best_particles_fitness
+            best_particles_fitness[particles_better_than_best] = particles_fitness[particles_better_than_best]
+            best_position_vectors[particles_better_than_best] = position_vectors[particles_better_than_best]
             
             ## Global best fitness and position over all particles.
-            current_best_index = np.argmax(particles_fitness)
+            if self.__maximise:
+                current_best_index = np.argmax(particles_fitness)
+            else: current_best_index = np.argmin(particles_fitness)
             current_best_fitness = particles_fitness[current_best_index]
-            if current_best_fitness > global_best_fitness:
+            if ((self.__maximise and current_best_fitness > global_best_fitness)
+                or (not self.__maximise and current_best_fitness < global_best_fitness)):
                 global_best_fitness = current_best_fitness
                 global_best_position = position_vectors[current_best_index]
-            ## Update iterations and stagnation counter.
                 stagnated_iterations = 0
                 stagnated_at = iterations
             else: stagnated_iterations += 1
@@ -326,21 +339,3 @@ class ParticleSwarmSystem:
                                       iterations, stagnated_at,
                                       iteration_limit_reached, stagnation_limit_reached, fitness_limit_reached),
                 dataholder.to_dataframe())
-
-if __name__ == "__main__":
-    psystem = ParticleSwarmSystem([Dimension(0, 100000.0, 1000.0), Dimension(0, 100000.0, 1000.0)],
-                                  lambda dimensions: (np.float64(dimensions[0]) - 100000.0) + (1000.0 - np.float64(dimensions[1])))
-
-    result, data = psystem.run(total_particles=100,
-                               iterations_limit=100,
-                               stagnation_limit=0.1,
-                               coefficient_decay_type="exp-auto")
-    
-    print(result)
-    print(data)
-    
-    fig, (fitness_axes, coefficient_axes) = plt.subplots(1, 2)
-    fitness_axes.plot(data["iteration"], data["global_best_fitness"])
-    coefficient_axes.plot(data["iteration"], data["personal_coefficient"])
-    coefficient_axes.plot(data["iteration"], data["global_coefficient"])
-    plt.show()
