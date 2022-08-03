@@ -26,7 +26,7 @@ import dataclasses
 from fractions import Fraction
 import math
 from numbers import Real
-from typing import Callable, Literal, Optional
+from typing import Callable, Literal, Optional, Sequence
 from matplotlib import pyplot as plt
 
 import numpy as np
@@ -52,8 +52,13 @@ class Dimension:
     upper_bound: Real
     max_velocity: Real
 
+class OptimizationSolution:
+    __slots__ = ()
+    
+    
+
 @dataclasses.dataclass(frozen=True)
-class ParticleSwarmSolution:
+class ParticleSwarmSolution(OptimizationSolution):
     """
     Represents the solution of a particle swarm optimisation algorithm.
     
@@ -101,7 +106,7 @@ class ParticleSwarmSystem:
                  "__maximise")
     
     def __init__(self,
-                 dimensions: list[Dimension],
+                 dimensions: Sequence[Dimension],
                  fitness_function: Callable[[npt.NDArray[np.float64]], np.float64],
                  maximise: bool = True
                  ) -> None:
@@ -110,50 +115,44 @@ class ParticleSwarmSystem:
         
         A dimension must be added for each variable of the objective function (i.e. the search space).
         """
-        self.__dimensions: list[Dimension] = dimensions
+        self.__dimensions: list[Dimension] = list(dimensions)
         self.__fitness_function: Callable[[npt.NDArray[np.float64]], np.float64] = fitness_function
         self.__maximise: bool = maximise
     
     @staticmethod
     def calculate_decay(iteration: int,
                         iterations_limit: int,
-                        # decay_start: int, TODO: Need to account for this when calculating the decay constant.
-                        # decay_end: int,
+                        decay_start: int,
+                        decay_end: int,
                         initial_value: Fraction,
                         decay_constant: Fraction,
                         decay_type: Literal["lin", "pol", "exp"] = "lin"
                         ) -> Fraction:
         """Calculate the decay of the particle inertia or personal coefficient."""
-        # decay_iterations: int = min(decay_end, max(0, iteration - decay_start))
-        decay_iterations: int = iteration
+        ## Large decay constant should always result in slower decay.
+        ## Decayer should check if the decay constant is correct for the given type.
         
-        iterations_limit -= 1
+        decay_limit: int = min(iterations_limit, decay_end) - 1
+        decay_iterations: int = min(decay_limit - decay_start, max(0, iteration - decay_start))
         
         if decay_type == "lin":
-            primary = max(Fraction(0.0), initial_value - initial_value * (decay_constant * decay_iterations))
+            return max(Fraction(0.0), initial_value - initial_value * (decay_constant * decay_iterations))
         
         elif decay_type == "pol":
-            primary = initial_value * ((1.0 - decay_constant) ** decay_iterations)
-        
-        # elif decay_type == "pol-slow":
-        #     primary = initial_value * ((1.0 - decay_constant) ** (iterations_limit - decay_iterations))
+            return initial_value * (decay_constant ** decay_iterations)
         
         elif decay_type == "exp":
-            primary = initial_value * math.exp(-(decay_constant * decay_iterations))
-        
-        # elif decay_type == "exp-slow":
-        #     primary = initial_value - initial_value * math.exp(-(decay_constant * (iterations_limit - decay_iterations)))
+            return initial_value * math.exp(-((1.0 - decay_constant) * decay_iterations))
         
         elif decay_type == "exp-auto":
-            primary = initial_value * (1.0 - (math.log(decay_iterations) / math.log(iterations_limit)))
-        
-        # elif "exp-auto-slow":
-        #     primary = initial_value * (1.0 - (math.log(iterations_limit - decay_iterations) / math.log(iterations_limit)))
+            if decay_iterations < decay_constant * iterations_limit:
+                return initial_value * (1.0 - (math.log(decay_iterations) / math.log(decay_constant * iterations_limit)))
+            return Fraction(0.0)
         
         elif decay_type == "sin":
-            primary = initial_value * ((math.cos(math.pi * (decay_iterations / iterations_limit)) / 2.0) + 0.5)
-        
-        return primary
+            if decay_iterations < decay_constant * iterations_limit:
+                return initial_value * ((math.cos(math.pi * (decay_iterations / (decay_constant * iterations_limit))) / 2.0) + 0.5)
+            return Fraction(0.0)
     
     def run(self,
             total_particles: int,
