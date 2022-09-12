@@ -22,14 +22,14 @@
 
 """Module defining custom CLI progress bars."""
 
+__all__ = ("ResourceUsageProgressBar")
+
 import os
 import threading
 from time import sleep
 from typing import Optional
 import psutil
 from tqdm import tqdm
-
-__all__ = ("ResourceUsageProgressBar")
 
 class ResourceProgressBar:
     """
