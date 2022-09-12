@@ -22,17 +22,24 @@
 
 """General implementation of a particle swarm optimisation algorithm."""
 
+__all__ = ("Dimension",
+           "ParticleSwarmSolution",
+           "ParticleSwarmSystem")
+
 import dataclasses
-from fractions import Fraction
 import math
+from fractions import Fraction
 from numbers import Real
-from typing import Callable, Literal, Optional, Sequence
-from matplotlib import pyplot as plt
+from typing import Callable, Literal, Sequence
 
 import numpy as np
 import numpy.typing as npt
-
+import sklearn.neighbors as skn
+import sklearn.tree as skt
+import sklearn.svm as sks
 from datahandling.makedata import DataHolder
+from optimization.decayfunctions import DecayFunctionType, get_decay_function
+from auxiliary.progressbars import ResourceProgressBar
 
 @dataclasses.dataclass(frozen=True)
 class Dimension:
@@ -52,13 +59,8 @@ class Dimension:
     upper_bound: Real
     max_velocity: Real
 
-class OptimizationSolution:
-    __slots__ = ()
-    
-    
-
 @dataclasses.dataclass(frozen=True)
-class ParticleSwarmSolution(OptimizationSolution):
+class ParticleSwarmSolution:
     """
     Represents the solution of a particle swarm optimisation algorithm.
     
@@ -99,11 +101,19 @@ class ParticleSwarmSolution(OptimizationSolution):
                f"total iterations = {self.total_iterations}, stop condition = {stop_condition}"
 
 class ParticleSwarmSystem:
-    """Particle swarm optimisation algorithm."""
+    """
+    Particle swarm optimisation algorithm.
     
-    __slots__ = ("__dimensions",
-                 "__fitness_function",
-                 "__maximise")
+    Algorithm
+    ---------
+    
+    There are two coefficients used in particle velocity updates; the personal and global coefficients.
+    
+    """
+    
+    __slots__ = {"__dimensions" : "A list of dimensions of the search space.",
+                 "__fitness_function" : "The objective function to be optimised.",
+                 "__maximise" : "Whether to maximise the objective function or minimise it."}
     
     def __init__(self,
                  dimensions: Sequence[Dimension],
@@ -119,106 +129,162 @@ class ParticleSwarmSystem:
         self.__fitness_function: Callable[[npt.NDArray[np.float64]], np.float64] = fitness_function
         self.__maximise: bool = maximise
     
-    @staticmethod
-    def calculate_decay(iteration: int,
-                        iterations_limit: int,
-                        decay_start: int,
-                        decay_end: int,
-                        initial_value: Fraction,
-                        decay_constant: Fraction,
-                        decay_type: Literal["lin", "pol", "exp"] = "lin"
-                        ) -> Fraction:
-        """Calculate the decay of the particle inertia or personal coefficient."""
-        ## Large decay constant should always result in slower decay.
-        ## Decayer should check if the decay constant is correct for the given type.
-        
-        decay_limit: int = min(iterations_limit, decay_end) - 1
-        decay_iterations: int = min(decay_limit - decay_start, max(0, iteration - decay_start))
-        
-        if decay_type == "lin":
-            return max(Fraction(0.0), initial_value - initial_value * (decay_constant * decay_iterations))
-        
-        elif decay_type == "pol":
-            return initial_value * (decay_constant ** decay_iterations)
-        
-        elif decay_type == "exp":
-            return initial_value * math.exp(-((1.0 - decay_constant) * decay_iterations))
-        
-        elif decay_type == "exp-auto":
-            if decay_iterations < decay_constant * iterations_limit:
-                return initial_value * (1.0 - (math.log(decay_iterations) / math.log(decay_constant * iterations_limit)))
-            return Fraction(0.0)
-        
-        elif decay_type == "sin":
-            if decay_iterations < decay_constant * iterations_limit:
-                return initial_value * ((math.cos(math.pi * (decay_iterations / (decay_constant * iterations_limit))) / 2.0) + 0.5)
-            return Fraction(0.0)
-    
     def run(self,
             total_particles: int,
+            init_strategy: Literal["random", "linspace"] = "random",
             
             ## Stop criteria
-            iterations_limit: Optional[int] = 1000,
-            stagnation_limit: Optional[int | float | Fraction] = 0.1,
-            fitness_limit: Optional[Real] = None,
+            iterations_limit: int | None = 1000,
+            stagnation_limit: int | float | Fraction | None = 0.1,
+            fitness_limit: Real | None = None,
             
             ## Particle inertia
-            inertia: Fraction = Fraction(1.0),
-            inertia_decay: Optional[Fraction] = None,
-            inertia_decay_type: Literal["lin", "pol", "exp"] = "lin",
+            inertia: float = 1.0,
+            final_inertia: float | None = None,
+            inertia_decay: float | None = None,
+            inertia_decay_type: DecayFunctionType | None = "lin",
+            inertia_decay_start: int = 0,
+            inertia_decay_end: int | None = None,
             
             ## Particle direction of movement coefficients
-            personal_coefficient: Fraction = Fraction(1.0),
-            coefficient_decay: Optional[Fraction] = None,
-            coefficient_decay_type: Optional[Literal["lin", "pol", "exp"]] = "lin"
+            personal_coef: float = 1.0,
+            final_personal_coef: float = 0.0,
+            global_coef: float = 0.0,
+            final_global_coef: float = 1.0,
+            coef_decay: float | None = None,
+            coef_decay_type: DecayFunctionType | None = "lin",
+            coef_decay_start: int = 0,
+            coef_decay_end: int | None = None,
             
-            ) -> Optional[ParticleSwarmSolution]:
+            use_neighbourhood: bool = False,
+            neighbour_coef: float = 0.5,
+            final_neighbour_coef: float = 0.0,
+            neighbourhood_update: int = 10,
+            neighbourhood_size: int = 5,
+            neighbourhood_method: Literal["kd_tree", "ball_tree"] = "kd_tree",
+            
+            use_fitness_approximation: bool = False,
+            fitness_approximation_update: int = 10,
+            fitness_approximation_start: int = 0,
+            fitness_approximation_method: Literal["dtr", "svr"] = "dtr",
+            
+            use_tqdm: bool = False
+            
+            ) -> ParticleSwarmSolution | None:
         """
         Run the particle swarm optimisation algorithm.
         
-        `personal_coefficient: Fraction` - 
+        Parameters
+        ----------
+        `total_particles : int` - The total number of particles in the swarm.
         
-        `local_coefficient: Fraction` - 
+        `init_strategy : Literal["random", "linspace"]` - The strategy to use for initialising the particles.
+        If "random", the particles are initialised randomly.
+        If "linspace", the particles are initialised evenly spaced over the search space,
+        the number of points over each dimension is equal to the N-th root of the total number of particles rounded down,
+        where N is the number of dimensions (this means that the actual number of particles).
         
-        `global_coefficient: Fraction` - The global (or social) coefficient used in particle velocity updates.
-        A high global coefficient will promote an exploitative search towards the global best position.
-        If not given or None, the global coefficient is 1.0 minus the personal coefficient.
+        `iterations_limit : int | None = 1000` - The maximum number of iterations to run the algorithm.
+        If None, no limit is imposed.
         
-        `coefficient_decay: {Fraction | None}` - The decay rate of the local coefficient.
-        The respective gain rate of the global coefficient is 1.0 minus the local coefficient.
-        A high decay constant will cause rapid decay of the local coefficient and gain in the global coefficient.
-        Conversely, a low decay constant will cause slow decay of the local coefficient and gain in the global coefficient.
-        If not given or None, then the decay rate is the ratio of the personal coefficient to the iterations limit.
+        `stagnation_limit : int | float | Fraction | None = 0.1` - The maximum number of iterations without improvement in the fitness of the best solution.
+        If a float or Fraction is given, it is interpreted as a percentage of the iterations limit.
+        If None, not limit is imposed.
         
-        `coefficient_decay_type: {Literal["lin", "pol", "exp", "hyp"] | None}` - The decay rate type of the coefficient decay.
-        Linear decay redcues the coefficient linearly with iterations, i.e. reduces by a constant value on each iteration.
-        Exponential decay reduces the coefficient exponentially with iterations, i.e. reduces by a multiple on each iteration.
-        Exponential decay causes a larger changes in the coefficients during early iterations of search than linear decay.
-        If not given or None, then coefficient decay is disabled.
+        `fitness_limit : float | None = None` - The maximum fitness of the best solution.
+        
+        `inertia : float = 1.0` - The inertia of the particles.
+        The inertia defines the contribution of the previous velocity of the particle towards its current velocity.
+        
+        `inertia_decay : float | None = None` - The decay constant of the inertia parameter.
+        
+        `inertia_decay_type : DecayFunctionType | None = "lin"` - The type of decay function to use for the inertia parameter.
+        
+        `inertia_decay_start : int = 0` - The iteration at which the decay of the inertia parameter starts.
+        
+        `inertia_decay_end : int | None = None` - The iteration at which the decay of the inertia parameter ends.
+        
+        `personal_coef : float = 1.0` - The coefficient of the contribution of the personal best position of each particle towards its current velocity.
+        A high personal coefficient will promote a explorative search by allowing each particle to explore their own personal best position in the search space.
+        Whereas a high global coefficient will promote an exploitative search by forcing each particle to explore closer towards the global best position in the search space.
+        
+        `coef_decay: float | None = None` - The decay constant of the personal coefficient.
+        A low decay constant will cause rapid decay of the local coefficient and gain in the global coefficient, and vice versa for a high decay constant.
+        
+        `coef_decay_type: DecayFunctionType | None = "lin"` - The decay rate type of the coefficient decay.
+        
+        `coef_decay_start : int = 0` - The iteration at which the decay of the local coefficient starts.
+        
+        `coef_decay_end : int | None = None` - The iteration at which the decay of the local coefficient ends.
         """
         if total_particles < 1:
             raise ValueError(f"Total particles must be at least 1. Got; {total_particles}")
         
+        ## Check stop conditions.
         if all(map(lambda x: x is None, [iterations_limit, stagnation_limit, fitness_limit])):
-            raise ValueError("At least one of the stop conditions must be given and not None.")
+            raise ValueError("At least one of the stop condition must be given and not None. "
+                             f"Got; {iterations_limit=}, {stagnation_limit=}, {fitness_limit=}")
+        if iterations_limit is not None and iterations_limit < 1:
+            raise ValueError(f"Iterations limit must be at least 1. Got; {iterations_limit}")
+        if stagnation_limit is not None:
+            if stagnation_limit < 0.0:
+                raise ValueError(f"Stagnation limit must be at least 0. Got; {stagnation_limit}")
+            if isinstance(stagnation_limit, (float, Fraction)):
+                if iterations_limit is None:
+                    raise ValueError("Iterations limit must be given if stagnation limit is a fraction.")
+                stagnation_limit = int(stagnation_limit * iterations_limit)
+            if iterations_limit is not None:
+                stagnation_limit = min(iterations_limit, stagnation_limit)
         
-        if isinstance(stagnation_limit, (float, Fraction)):
-            stagnation_limit = int(stagnation_limit * iterations_limit)
+        ## Check inertia and personal coefficient.
+        if not (0.0 <= inertia <= 1.0):
+            raise ValueError(f"Inertia must be between 0.0 and 1.0. Got; {inertia}")
+        if not (0.0 <= personal_coef <= 1.0):
+            raise ValueError(f"Personal coefficient must be between 0.0 and 1.0. Got; {personal_coef}")
+        if not (0.0 <= global_coef <= 1.0):
+            raise ValueError(f"Global coefficient must be between 0.0 and 1.0. Got; {global_coef}")
+        ## TODO: Check initial coefs.
         
-        initial_inertia = Fraction(inertia)
-        inertia = initial_inertia
-        initial_personal_coefficient = Fraction(personal_coefficient)
-        personal_coefficient = initial_personal_coefficient
-        global_coefficient = Fraction(1.0) - personal_coefficient
-        
+        ## If the decay rate is not given or None, then the decay constant is one.
         if inertia_decay is None:
-            inertia_decay = Fraction(inertia / iterations_limit)
-        elif not (Fraction(0.0) <= inertia_decay <= Fraction(1.0)):
-            raise ValueError(f"Inertia decay constant be between 0.0 and 1.0. Got; {inertia_decay}")
-        if coefficient_decay is None:
-            coefficient_decay = Fraction(personal_coefficient / iterations_limit)
-        elif not (Fraction(0.0) <= coefficient_decay <= Fraction(1.0)):
-            raise ValueError(f"Coefficient decay constant be between 0.0 and 1.0. Got; {coefficient_decay}")
+            inertia_decay = 1.0
+        if coef_decay is None:
+            coef_decay = 1.0
+        
+        ## If the final inertia or personal coefficient is not given, then it is zero.
+        if final_inertia is None:
+            final_inertia = 0.0
+        
+        ## If the decay start is less than 0, then raise an error.
+        if inertia_decay_start < 0:
+            raise ValueError(f"Inertia decay start must be at least 0. Got; {inertia_decay_start}")
+        if coef_decay_start < 0:
+            raise ValueError(f"Coefficient decay start must be at least 0. Got; {coef_decay_start}")
+        
+        ## If the decay end is not given, then set it to the iterations limit.
+        if inertia_decay_end is None:
+            inertia_decay_end = iterations_limit
+        if coef_decay_end is None:
+            coef_decay_end = iterations_limit
+        
+        ## If the decay end is less than or equal to the decay start, then raise an error.
+        if inertia_decay_end <= inertia_decay_start:
+            raise ValueError(f"Inertia decay end must be greater than or equal to the inertia decay start. Got; {inertia_decay_end}")
+        if coef_decay_end <= coef_decay_start:
+            raise ValueError(f"Coefficient decay end must be greater than or equal to the coefficient decay start. Got; {coef_decay_end}")
+        
+        ## Get the decay functions for the inertia and coefficients.
+        if inertia_decay_type is not None:
+            inertia_decay_function = get_decay_function(inertia_decay_type, inertia, final_inertia,
+                                                        inertia_decay_start, inertia_decay_end, inertia_decay)
+        if coef_decay_type is not None:
+            personal_coef_decay_function = get_decay_function(coef_decay_type, personal_coef, final_personal_coef,
+                                                              coef_decay_start, coef_decay_end, coef_decay)
+            global_coef_decay_function = get_decay_function(coef_decay_type, global_coef, final_global_coef,
+                                                            coef_decay_start, coef_decay_end, coef_decay)
+            if use_neighbourhood:
+                neighbourhood_coef_decay_function = get_decay_function(coef_decay_type, neighbour_coef, final_neighbour_coef,
+                                                                       coef_decay_start, coef_decay_end, coef_decay)
         
         ## Random number generator
         rng = np.random.default_rng()
@@ -228,8 +294,18 @@ class ParticleSwarmSystem:
         
         ## Create positions and velocities for each particle:
         ##   - Arrays have row for each particle and column for each dimension.
-        position_vectors = rng.uniform(dimensions[:,0], dimensions[:,1], (total_particles, dimensions.shape[0]))
-        velocity_vectors = rng.uniform(-dimensions[:,2], dimensions[:,2], (total_particles, dimensions.shape[0]))
+        total_dimensions: int = dimensions.shape[0]
+        match init_strategy:
+            case "random":
+                position_vectors = rng.uniform(dimensions[:,0], dimensions[:,1], (total_particles, total_dimensions))
+            case "linspace":
+                particles_across_dimensions: int = math.floor(total_particles ** (1.0 / total_dimensions))
+                deterministic_total_particles = int(particles_across_dimensions ** total_dimensions)
+                linspace_across_dimensions = [np.linspace(dimension[0], dimension[1], particles_across_dimensions) for dimension in dimensions]
+                position_vectors = np.dstack(np.meshgrid(*linspace_across_dimensions)).reshape(-1, total_dimensions)
+                if deterministic_total_particles < total_particles:
+                    position_vectors = np.concatenate((position_vectors, rng.uniform(dimensions[:,0], dimensions[:,1], (total_particles - deterministic_total_particles, total_dimensions))))
+        velocity_vectors = rng.uniform(-dimensions[:,2], dimensions[:,2], (total_particles, total_dimensions))
         
         ## Evaluate fitness of each particle
         particles_fitness = np.apply_along_axis(self.__fitness_function, 1, position_vectors)
@@ -245,6 +321,49 @@ class ParticleSwarmSystem:
         global_best_fitness = particles_fitness[global_best_index]
         global_best_position = position_vectors[global_best_index]
         
+        ## K-dimensional tree representing the particle "history" cloud;
+        ##  - https://scikit-learn.org/stable/modules/generated/sklearn.neighbors.KDTree.html
+        ##  - https://scikit-learn.org/stable/modules/neighbors.html#nearest-neighbor-algorithms
+        if use_neighbourhood:
+            ## Keep a record of the best position and fitness for each particle for evaluating the neighbourhood.
+            neighbour_best_particles_fitness = best_particles_fitness.copy()
+            neighbour_best_position_vectors = best_position_vectors.copy()
+            
+            if neighbourhood_update < 1:
+                raise ValueError(f"Neighbourhood update must be at least 1. Got; {neighbourhood_update}")
+            if neighbourhood_size < 1:
+                raise ValueError(f"Neighbourhood size must be at least 1. Got; {neighbourhood_size}")
+            
+            neighbour_cloud: skn.KDTree | skn.BallTree
+            match neighbourhood_method:
+                case "kd_tree":
+                    neighbour_cloud = skn.KDTree(position_vectors)
+                case "ball_tree":
+                    neighbour_cloud = skn.BallTree(position_vectors)
+                case _:
+                    raise ValueError(f"Invalid neighbourhood method. Got; {neighbourhood_method}")
+        
+        ## Decision tree regressor representing an approximation of the fitness function.
+        if use_fitness_approximation:
+            ## Particle position and fitness clouds are a history of the particles' exploration of the search space,
+            ## which is used to build a regression model that approximates the fitness function over the search space.
+            position_cloud = position_vectors.copy()
+            fitness_cloud = particles_fitness.copy()
+            
+            if fitness_approximation_update <= 1:
+                raise ValueError(f"Fitness approximation update rate must be at least 2. Got; {fitness_approximation_update}")
+            if fitness_approximation_start < 0:
+                raise ValueError(f"Fitness approximation start must be at least 0. Got; {fitness_approximation_start}")
+            
+            fitness_approximation_model: skt.DecisionTreeRegressor | sks.SVR
+            match fitness_approximation_method:
+                case "dtr":
+                    fitness_approximation_model = skt.DecisionTreeRegressor()
+                case "svr":
+                    fitness_approximation_model = sks.SVR()
+                case _:
+                    raise ValueError(f"Invalid fitness approximation method. Got; {fitness_approximation_method}")
+        
         ## Loop variables
         iterations: int = 0
         stagnated_iterations: int = 0
@@ -258,9 +377,12 @@ class ParticleSwarmSystem:
         ## Data structure for storing history of best fitness and position.
         dataholder = DataHolder(["iteration",
                                  "global_best_fitness", "global_best_position",
-                                 "personal_coefficient", "global_coefficient"],
-                                converters={"personal_coefficient" : float,
-                                            "global_coefficient" : float})
+                                 "personal_coef", "global_coef"],
+                                converters={"personal_coef" : float,
+                                            "global_coef" : float})
+        
+        if use_tqdm:
+            progress_bar = ResourceProgressBar(total=iterations_limit, desc="Iterations")
         
         ## Iterate until some stop condition is reached.
         while not ((iterations_limit is not None
@@ -272,55 +394,76 @@ class ParticleSwarmSystem:
             
             if iterations != 0:
                 if inertia_decay_type is not None:
-                    inertia = self.calculate_decay(iterations,
-                                                   iterations_limit,
-                                                   initial_inertia,
-                                                   inertia_decay,
-                                                   inertia_decay_type)
-                
-                if coefficient_decay_type is not None:
-                    personal_coefficient = self.calculate_decay(iterations,
-                                                                iterations_limit,
-                                                                initial_personal_coefficient,
-                                                                coefficient_decay,
-                                                                coefficient_decay_type)
-                    global_coefficient = Fraction(1.0) - personal_coefficient
+                    inertia = inertia_decay_function(iterations)
+                if coef_decay_type is not None:
+                    personal_coef = personal_coef_decay_function(iterations)
+                    global_coef = global_coef_decay_function(iterations)
+                    if use_neighbourhood:
+                        neighbourhood_coef = neighbourhood_coef_decay_function(iterations)
             
             ## For each particle, generate two random numbers for each dimension;
             ##      - one for the personal best, and one for the global best.
-            update_vectors = rng.random((total_particles, 2, dimensions.shape[0]))
+            update_vectors = rng.random((total_particles, 3 if use_neighbourhood else 2, total_dimensions))
+            
+            if use_neighbourhood:
+                neighbours_indices = neighbour_cloud.query(position_vectors, k=neighbourhood_size, return_distance=False)
+                neighbours_best_position = neighbour_best_position_vectors[np.argmax(neighbour_best_particles_fitness[np.ravel(neighbours_indices)].reshape(total_particles, neighbourhood_size), axis=1)]
             
             ## Velocity is updated based on inertia and random contribution of displacement from;
             ##      - personal best position,
-            ##      - local "friend" group position,
             ##      - global best position.
             personal_displacements = best_position_vectors - position_vectors
             global_displacements = global_best_position - position_vectors
-            
             velocity_vectors = (inertia * velocity_vectors
-                                + (personal_coefficient * update_vectors[:,0] * personal_displacements)
-                                + (global_coefficient * update_vectors[:,1] * global_displacements))
+                                + (personal_coef * update_vectors[:,0] * personal_displacements)
+                                + (global_coef * update_vectors[:,1] * global_displacements))
+            if use_neighbourhood:
+                neighbour_displacements = neighbours_best_position - position_vectors
+                velocity_vectors += (neighbourhood_coef * update_vectors[:,2] * neighbour_displacements)
             velocity_vectors = np.maximum(np.minimum(velocity_vectors, dimensions[:, 2]), -dimensions[:, 2])
             
             ## Position is updated based on previous position and velocity:
-            ##    - take the maximum of the lower bound of each dimension and the minimum of upper bound of each dimension and the new position plus velocity.
+            ##  - take the maximum of;
+            ##      - the lower bound of each dimension and the minimum of;
+            ##          - the upper bound of each dimension and the new position (old position plus velocity).
             position_vectors = np.maximum(np.minimum(position_vectors + velocity_vectors, dimensions[:, 1]), dimensions[:, 0])
             
             ## Evaluate fitness of each particle and update personal best.
-            particles_fitness = np.apply_along_axis(self.__fitness_function, 1, position_vectors)
+            if use_fitness_approximation:
+                if iterations % fitness_approximation_update == 0 or iterations < fitness_approximation_start:
+                    particles_fitness = np.apply_along_axis(self.__fitness_function, 1, position_vectors) ## TODO: Parallelise!
+                    position_cloud = np.concatenate((position_cloud, position_vectors), axis=0)
+                    fitness_cloud = np.concatenate((fitness_cloud, particles_fitness), axis=0)
+                    if iterations >= fitness_approximation_start:
+                        fitness_approximation_model.fit(position_cloud, fitness_cloud)
+                else:
+                    particles_fitness = fitness_approximation_model.predict(position_vectors)
+            else:
+                particles_fitness = np.apply_along_axis(self.__fitness_function, 1, position_vectors)
             
+            ## Find the personal best fitness and position for each particle.
             if self.__maximise:
                 particles_better_than_best = particles_fitness >= best_particles_fitness
             else: particles_better_than_best = particles_fitness < best_particles_fitness
             best_particles_fitness[particles_better_than_best] = particles_fitness[particles_better_than_best]
             best_position_vectors[particles_better_than_best] = position_vectors[particles_better_than_best]
             
-            ## Global best fitness and position over all particles.
+            ## Update record current particle positions, and their personal best fitness and position, if using neighbourhood.
+            if use_neighbourhood and iterations % neighbourhood_update == 0:
+                match neighbourhood_method:
+                    case "kd_tree":
+                        neighbour_cloud = skn.KDTree(position_vectors)
+                    case "ball_tree":
+                        neighbour_cloud = skn.BallTree(position_vectors)
+                neighbour_best_particles_fitness = best_particles_fitness.copy()
+                neighbour_best_position_vectors = best_position_vectors.copy()
+            
+            ## Find the global best fitness and position over all particles.
             if self.__maximise:
                 current_best_index = np.argmax(particles_fitness)
             else: current_best_index = np.argmin(particles_fitness)
             current_best_fitness = particles_fitness[current_best_index]
-            if ((self.__maximise and current_best_fitness > global_best_fitness)
+            if ((self.__maximise and current_best_fitness >= global_best_fitness)
                 or (not self.__maximise and current_best_fitness < global_best_fitness)):
                 global_best_fitness = current_best_fitness
                 global_best_position = position_vectors[current_best_index]
@@ -329,12 +472,22 @@ class ParticleSwarmSystem:
             else: stagnated_iterations += 1
             iterations += 1
             
+            if use_tqdm:
+                progress_bar.update(data={"Stagnated" : stagnated_iterations})
+            
             dataholder.add_row([iterations,
-                                global_best_fitness, global_best_position,
-                                personal_coefficient, global_coefficient])
+                                global_best_fitness,
+                                global_best_position,
+                                personal_coef,
+                                global_coef])
         
-        return (ParticleSwarmSolution(global_best_position, global_best_fitness,
-                                      position_vectors, particles_fitness,
-                                      iterations, stagnated_at,
-                                      iteration_limit_reached, stagnation_limit_reached, fitness_limit_reached),
+        return (ParticleSwarmSolution(global_best_position,
+                                      global_best_fitness,
+                                      position_vectors,
+                                      particles_fitness,
+                                      iterations,
+                                      stagnated_at,
+                                      iteration_limit_reached,
+                                      stagnation_limit_reached,
+                                      fitness_limit_reached),
                 dataholder.to_dataframe())
