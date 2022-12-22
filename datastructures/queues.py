@@ -20,11 +20,13 @@
 ###########################################################################
 ###########################################################################
 
-"""Module defining priority queue data structures."""
+"""Module defining sorted and priority queue data structures."""
 
-__all__ = ("SortedQueue",
+__all__ = ("JinxQueue",
+           "SortedQueue",
            "PriorityQueue")
 
+from abc import ABCMeta
 import collections.abc
 import heapq
 from dataclasses import dataclass
@@ -32,9 +34,14 @@ from numbers import Real
 from typing import (Callable, Generic, Hashable, Iterable, Iterator, Optional,
                     TypeVar, overload)
 
-from auxiliary.typing import HashableSupportsRichComparison
+from auxiliary.typingutils import HashableSupportsRichComparison
 
 ST = TypeVar("ST", bound=HashableSupportsRichComparison)
+
+class JinxQueue(collections.abc.Collection, metaclass=ABCMeta):
+    """Base class for sorted and priority queues."""
+    
+    pass
 
 @dataclass(frozen=True, order=True)
 class QItem(Generic[ST]):
@@ -46,12 +53,16 @@ class QItem(Generic[ST]):
     def __hash__(self) -> int:
         return hash(self.item)
 
-class SortedQueue(collections.abc.Collection, Generic[ST]):
+class SortedQueue(JinxQueue, Generic[ST]):
     """
     A sorted queue implementation wrapping Python's built-in heap-queue algorithm.
     
-    An additional hash table is used to allow for fast membership tests, at the cost of memory.
-    Similarly, a lazy delete list is used to allow to fast member removal without the need to re-heapify the queue, at the cost of memory.
+    A sorted queue is a queue that maintains and pops its items in sorted order.
+    Optionally, a key function can be provided to define the order of the items.
+    
+    A hash table is used to allow for fast membership tests, at the cost of memory.
+    Similarly, a lazy delete list is used to allow to fast member removal
+    without the need to re-heapify the queue, at the cost of memory.
     
     Iterating over the queue does not necessary yield items in sorted order.
     """
@@ -123,7 +134,7 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
                  key: Optional[Callable[[ST], Real]] = None,
                  min_first: bool = True
                  ) -> None:
-        
+        """Create a sorted queue of items."""
         if len(items) == 1:
             try:
                 iterable = iter(items[0])
@@ -159,23 +170,29 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
         self.__delete: set[ST] = set()
     
     def __str__(self) -> str:
-        return f"Sorted Queue: items = {len(self)}"
+        """Return a string representation of the queue."""
+        return f"Priority Queue with {len(self)} items"
     
     def __repr__(self) -> str:
+        """Return an instantiable string representation of the queue."""
         if not self.__delete:
-            return repr(self.__heap)
-        return repr(list(self))
+            return f"{self.__class__.__name__}({self.__heap!r})"
+        return f"{self.__class__.__name__}({[item for item in self.__heap if item not in self.__delete]})"
     
     def __contains__(self, item: ST) -> bool:
+        """Return whether an item is in the queue."""
         return item in self.__members
     
     def __iter__(self) -> Iterator[ST]:
+        """Return an iterator over the items in the queue."""
         yield from self.__members
     
     def __len__(self) -> int:
+        """Return the number of items in the queue."""
         return len(self.__members)
     
     def __bool__(self) -> bool:
+        """Return True if the queue is not empty."""
         return bool(self.__members)
     
     def push(self, item: ST) -> None:
@@ -215,6 +232,7 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
         ...
     
     def push_all(self, *items: ST | Iterable[ST]) -> None:
+        """Push a series of items onto the queue in-place."""
         if len(items) == 1:
             items = items[0]
         
@@ -278,9 +296,12 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
 VT = TypeVar("VT", bound=HashableSupportsRichComparison)
 QT = TypeVar("QT", bound=Hashable)
 
-class PriorityQueue(collections.abc.MutableMapping, Generic[VT, QT]):
+class PriorityQueue(JinxQueue, collections.abc.MutableMapping, Generic[VT, QT]):
     """
     A priority queue implementation wrapping Python's built-in heap-queue algorithm.
+    
+    A priority queue is a queue where items are popped in priority order.
+    The priority of an item must be given when the item is pushed onto the queue.
     
     A hash table is used to allow for fast membership tests, at the cost of memory.
     Similarly, a lazy delete list is used to allow to fast member removal
@@ -320,7 +341,7 @@ class PriorityQueue(collections.abc.MutableMapping, Generic[VT, QT]):
     def __init__(self,
                  *items: tuple[QT, VT] | Iterable[tuple[QT, VT]]
                  ) -> None:
-        
+        """Create a priority queue of item-priority tuple pairs."""
         if len(items) == 1:
             if not isinstance(items[0], tuple):
                 items = iter(items[0])
@@ -338,33 +359,41 @@ class PriorityQueue(collections.abc.MutableMapping, Generic[VT, QT]):
         self.__delete: set[tuple[VT, QT]] = set()
     
     def __str__(self) -> str:
-        return f"Priority Queue: items = {len(self)}"
+        """Return a string representation of the queue."""
+        return f"Priority Queue with {len(self)} items"
     
     def __repr__(self) -> str:
+        """Return an instantiable string representation of the queue."""
         if not self.__delete:
-            return repr(self.__heap)
-        return repr([item for item in self.__heap
-                     if item not in self.__delete])
+            return f"{self.__class__.__name__}({self.__heap!r})"
+        return f"{self.__class__.__name__}({[item for item in self.__heap if item not in self.__delete]})"
     
     def __contains__(self, item: QT) -> bool:
+        """Return whether an item is in the queue."""
         return item in self.__members
     
     def __getitem__(self, item: QT) -> VT:
+        """Return the priority of an item in the queue."""
         return self.__members[item]
     
     def __setitem__(self, item: QT, priority: VT) -> None:
+        """Push an item onto the queue with given priority in-place."""
         self.push(item, priority)
     
     def __delitem__(self, item: QT) -> None:
+        """Delete an item from the queue."""
         self.remove(item)
     
     def __iter__(self) -> Iterator[QT]:
+        """Return an iterator over the items in the queue."""
         yield from self.__members
     
     def __len__(self) -> int:
+        """Return the number of items in the queue."""
         return len(self.__members)
     
     def __bool__(self) -> bool:
+        """Return True if the queue is not empty."""
         return bool(self.__members)
     
     def push(self, item: QT, priority: VT, /) -> None:
