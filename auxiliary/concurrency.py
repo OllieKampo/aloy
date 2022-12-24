@@ -134,7 +134,29 @@ SP = typing.ParamSpec("SP")
 ST = typing.TypeVar("ST")
 
 def sync(lock: typing.Literal["all", "method"] = "all", group_name: str | None = None) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
-    """Decorate a method to declare it as synchronized in a synchronized class."""
+    """
+    Decorate a method to declare it as synchronized in a synchronized class.
+    
+    Methods can be synchronized with an instance lock or a method lock.
+    
+    Whilst an instance-locked method is running, no other instance-locked or method-locked methods can run.
+    Whilst a method-locked method is running, no instance-locked methods can run.
+    Whilst a method-locked method is running, other method-locked methods can run.
+    
+    Instance-locked methods can call method-locked methods,
+    but method-locked methods cannot call instance-locked methods
+    (as this would require the whole instance to be locked).
+    Method-locked methods can be grouped to all use the same lock if they access the same resources.
+    Method-locked methods can call other method-locked methods, even if they are not in the same group.
+    However, if two method-locked method can call each other, they are automatically add to the same group.
+    
+    Parameters
+    ----------
+    `lock : {"all", "method"} = "all"` - The type of lock to use, "all" creates an instance lock, "method" creates a method lock.
+    
+    `group_name : str | None = None` - The name of the group to add the method to, or None to not add the method to a group.
+    Instance-locked methods cannot be added to a group.
+    """
     def sync_dec(method: typing.Callable[SP, ST]) -> typing.Callable[SP, ST]:
         """Assign the lock name to the method's `__sync__` attribute."""
         if method.__name__.startswith("__") and method.__name__.endswith("__"):
@@ -144,6 +166,8 @@ def sync(lock: typing.Literal["all", "method"] = "all", group_name: str | None =
         if lock not in ("all", "method"):
             raise ValueError("Lock name must be either 'all' or 'method'.")
         method.__sync__ = lock
+        if lock == "all" and group_name is not None:
+            raise ValueError("Instance-locked methods cannot be added to a group.")
         method.__group__ = group_name
         return method
     return sync_dec
@@ -179,22 +203,14 @@ def synchronize_method(lock: typing.Literal["all", "method"] = "all") -> typing.
                     self.__lock__.acquire()
                     
                     ## Attempt to acquire the method lock.
-                    if not self.__method_locks__[method.__name__].acquire(blocking=False):
-                        ## If the method is already locked, then this means two attempts to call
-                        ## this method-locked method were made whilst waiting for the instance-lock,
-                        ## therefore release the instance lock and wait for the method to unlock.
-                        self.__lock__.release()
-                        self.__method_locks__[method.__name__].acquire()
-                        ## Update the state to reflect that a method-locked method is executing.
-                        self.__semaphore__.acquire()
-                        self.__event__.clear()
+                    self.__method_locks__[method.__name__].acquire()
                     
-                    else:
-                        ## Update the state to reflect that a method-locked method is executing.
-                        self.__semaphore__.acquire()
-                        self.__event__.clear()
-                        ## Release the instance lock, no instance-locked methods can be executed
-                        self.__lock__.release()
+                    ## Update the state to reflect that a method-locked method is executing.
+                    self.__semaphore__.acquire()
+                    self.__event__.clear()
+                    
+                    ## Release the instance lock, no instance-locked methods can be executed.
+                    self.__lock__.release()
                     
                 else:
                     self.__method_locks__[method.__name__].acquire()
@@ -236,6 +252,7 @@ class synchronized_meta(type):
                                                    __event__="Event signalling when all method-locked methods are unlocked.")
         
         ## Check through the class's attributes for methods that are to be synchronized.
+        instance_locked_methods: set[str] = set()
         lock_methods: list[str] = []
         lock_methods_groups: ReversableDict[str, str] = ReversableDict()
         all_methods: dict[str, types.FunctionType] = {}
@@ -249,6 +266,7 @@ class synchronized_meta(type):
                             lock_methods_groups[attr_name] = lock_group
                         else: class_dict[attr_name].__group__ = None
                         lock_methods.append(attr_name)
+                    else: instance_locked_methods.add(attr_name)
                     class_dict[attr_name] = synchronize_method(lock_name)(attr)
                 else:
                     class_dict[attr_name].__sync__ = False
@@ -259,6 +277,16 @@ class synchronized_meta(type):
             load_graph: Graph[str] = Graph(directed=True)
             for method_name, method in all_methods.items():
                 load_graph[method_name] = set(loads_functions(method, all_methods.keys()))
+            
+            ## Check that no instance-locked methods are loaded by method-locked methods.
+            for method_name in lock_methods:
+                if instance_locked_methods_intersection := (load_graph[method_name] & instance_locked_methods):
+                    if len(instance_locked_methods_intersection) > 1:
+                        instance_locked_methods_intersection = "', '".join(instance_locked_methods_intersection)
+                        raise ValueError(f"Method-locked method '{method_name}' cannot load or call the instance-locked methods: '{instance_locked_methods_intersection}'.")
+                    else:
+                        instance_locked_methods_intersection = next(iter(instance_locked_methods_intersection))
+                        raise ValueError(f"Method-locked method '{method_name}' cannot load or call the instance-locked method: '{instance_locked_methods_intersection}'.")
             
             ## Group methods that are loaded by each other.
             loop_lock_numbers: ReversableDict[str, int] = ReversableDict()
@@ -278,9 +306,6 @@ class synchronized_meta(type):
                                 looped_methods -= lock_method_group
                         loop_lock_number_current += 1
                     frontier -= path
-        
-        print(lock_methods_groups)
-        print(loop_lock_numbers)
         
         ## Ensure that the class has a lock attribute.
         original_init = class_dict["__init__"]
@@ -350,13 +375,16 @@ class Test(metaclass=synchronized_meta):
         self._p2 = 0
     
     @sync()
+    def k(): pass
+    
+    @sync()
     def increment(self) -> None:
         a = self.value
         sleep(random()*0.1)
         self.value = a + 1
         self.t2()
     
-    @sync(lock="method", group_name="p")
+    @sync(lock="method")
     def t1(self, j = 0) -> None:
         # print(threading.current_thread(), "t1")
         a = self._t1
@@ -364,6 +392,15 @@ class Test(metaclass=synchronized_meta):
         self._t1 = a + 1
         if j < 2: self.t2(j + 1)
         # print(threading.current_thread(), "t1 done")
+    
+    @sync(lock="method")
+    def t2(self, j = 0) -> None:
+        # print(threading.current_thread(), "t2")
+        a = self._t2
+        sleep(random()*0.1)
+        self._t2 = a + 1
+        self.t1(j)
+        # print(threading.current_thread(), "t2 done")
     
     @sync(lock="method", group_name="p")
     def p1(self, j = 0) -> None:
@@ -376,15 +413,6 @@ class Test(metaclass=synchronized_meta):
         a = self._p1
         sleep(random()*0.1)
         self._p1 = a + 1
-    
-    @sync(lock="method")
-    def t2(self, j = 0) -> None:
-        # print(threading.current_thread(), "t2")
-        a = self._t2
-        sleep(random()*0.1)
-        self._t2 = a + 1
-        self.t1(j)
-        # print(threading.current_thread(), "t2 done")
     
     @staticmethod
     def test_static() -> None:
