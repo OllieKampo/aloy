@@ -2,8 +2,7 @@
 ###########################################################################
 ## Module defining priority queue data structures.                       ##
 ##                                                                       ##
-## Copyright (C)  2022  Oliver Michael Kamperis                          ##
-## Email: o.m.kamperis@gmail.com                                         ##
+## Copyright (C) 2022 Oliver Michael Kamperis                            ##
 ##                                                                       ##
 ## This program is free software: you can redistribute it and/or modify  ##
 ## it under the terms of the GNU General Public License as published by  ##
@@ -22,11 +21,22 @@
 
 """Module defining sorted and priority queue data structures."""
 
-__all__ = ("JinxQueue",
-           "SortedQueue",
+__copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
+__license__ = "GPL-3.0"
+
+__all__ = ("SortedQueue",
            "PriorityQueue")
 
-from abc import ABCMeta
+def __dir__() -> tuple[str]:
+    """Get the names of module attributes."""
+    return sorted(__all__)
+
+def __getattr__(name: str) -> object:
+    """Get an attributes from the module."""
+    if name in __all__:
+        return globals()[name]
+    raise AttributeError(f"Module {__name__!r} has no attribute {name!r}.")
+
 import collections.abc
 import heapq
 from dataclasses import dataclass
@@ -38,11 +48,6 @@ from auxiliary.typingutils import HashableSupportsRichComparison
 
 ST = TypeVar("ST", bound=HashableSupportsRichComparison)
 
-class JinxQueue(collections.abc.Collection, metaclass=ABCMeta):
-    """Base class for sorted and priority queues."""
-    
-    pass
-
 @dataclass(frozen=True, order=True)
 class QItem(Generic[ST]):
     """Dataclass for storing custom valued sorted queue items."""
@@ -53,7 +58,7 @@ class QItem(Generic[ST]):
     def __hash__(self) -> int:
         return hash(self.item)
 
-class SortedQueue(JinxQueue, Generic[ST]):
+class SortedQueue(Generic[ST]):
     """
     A sorted queue implementation wrapping Python's built-in heap-queue algorithm.
     
@@ -103,7 +108,7 @@ class SortedQueue(JinxQueue, Generic[ST]):
     
     @overload
     def __init__(self,
-                 iterable: Iterable[ST]
+                 iterable: Iterable[ST], /
                  ) -> None:
         """
         Create a sorted queue from an iterable.
@@ -116,7 +121,7 @@ class SortedQueue(JinxQueue, Generic[ST]):
     
     @overload
     def __init__(self,
-                 iterable: Iterable[ST], *,
+                 iterable: Iterable[ST], /, *,
                  key: Optional[Callable[[ST], Real]] = None,
                  min_first: bool = True
                  ) -> None:
@@ -195,7 +200,7 @@ class SortedQueue(JinxQueue, Generic[ST]):
         """Return True if the queue is not empty."""
         return bool(self.__members)
     
-    def push(self, item: ST) -> None:
+    def push(self, item: ST, /) -> None:
         """
         Push an item onto the queue in-place.
         
@@ -221,7 +226,7 @@ class SortedQueue(JinxQueue, Generic[ST]):
         ...
     
     @overload
-    def push_all(self, items: Iterable[ST]) -> None:
+    def push_all(self, items: Iterable[ST], /) -> None:
         """
         Push an iterable of items onto the queue in-place.
         
@@ -276,7 +281,7 @@ class SortedQueue(JinxQueue, Generic[ST]):
             self.__delete.remove(item)
         raise IndexError("Pop from empty sorted queue.")
     
-    def remove(self, item: ST) -> None:
+    def remove(self, item: ST, /) -> None:
         """
         Remove a given item from the queue.
         
@@ -296,7 +301,7 @@ class SortedQueue(JinxQueue, Generic[ST]):
 VT = TypeVar("VT", bound=HashableSupportsRichComparison)
 QT = TypeVar("QT", bound=Hashable)
 
-class PriorityQueue(JinxQueue, collections.abc.MutableMapping, Generic[VT, QT]):
+class PriorityQueue(collections.abc.MutableMapping, Generic[VT, QT]):
     """
     A priority queue implementation wrapping Python's built-in heap-queue algorithm.
     
@@ -327,7 +332,7 @@ class PriorityQueue(JinxQueue, collections.abc.MutableMapping, Generic[VT, QT]):
     
     @overload
     def __init__(self,
-                 iterable: Iterable[tuple[QT, VT]]
+                 iterable: Iterable[tuple[QT, VT]], /
                  ) -> None:
         """
         Create a priority queue from an iterable of item-priority tuple pairs.
@@ -458,7 +463,7 @@ class PriorityQueue(JinxQueue, collections.abc.MutableMapping, Generic[VT, QT]):
             self.__delete.remove((priority, item))
         raise IndexError("Pop from empty priority queue.")
     
-    def remove(self, item: QT) -> None:
+    def remove(self, item: QT, /) -> None:
         """
         Remove a given item from the queue.
         
