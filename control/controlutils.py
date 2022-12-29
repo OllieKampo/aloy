@@ -31,7 +31,6 @@ import numpy as np
 
 from auxiliary.numpyutils import arg_first_where, get_turning_points
 import control.controllers as controllers
-import control.systems as systems
 
 class ControllerTimer:
     """Class definng controller timers."""
@@ -87,7 +86,7 @@ class ControllerTimer:
         """
         self.__time_last = time.perf_counter()
 
-def simulate_control(control_system: "systems.ControlSystem",
+def simulate_control(control_system: "controllers.ControlledSystem",
                      controller: "controllers.Controller",
                      ticks: int,
                      delta_time: float
