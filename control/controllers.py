@@ -62,7 +62,7 @@ class Controller:
         ...
     
     @abstractmethod
-    def control_output(self, error: float, delta_time: float, abs_tol: float | None = 1e-6) -> float:
+    def control_output(self, error: float, delta_time: float, abs_tol: float | None = None) -> float:
         """
         Get the control output.
         
@@ -224,6 +224,7 @@ class SystemController:
         self.__ticks += 1
         error: float = self.__system.get_error(self.__var_name)
         delta_time: float = self.__timer.get_delta_time() * time_factor
+        print(delta_time)
         output: float = self.__controller.control_output(error, delta_time, abs_tol)
         self.__system.set_output(output, delta_time, self.__var_name)
         return (self.__ticks, error, output, delta_time)
