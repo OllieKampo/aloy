@@ -30,7 +30,7 @@ import time
 import numpy as np
 
 from auxiliary.numpyutils import arg_first_where, get_turning_points
-import control.controllerbases as controllerbases
+import control.controllers as controllers
 import control.systems as systems
 
 class ControllerTimer:
@@ -88,7 +88,7 @@ class ControllerTimer:
         self.__time_last = time.perf_counter()
 
 def simulate_control(control_system: "systems.ControlSystem",
-                     controller: "controllerbases.Controller",
+                     controller: "controllers.Controller",
                      ticks: int,
                      delta_time: float
                      ) -> float:
@@ -105,8 +105,6 @@ def simulate_control(control_system: "systems.ControlSystem",
     
     `delta_time : float` - The time difference between ticks.
     """
-    controller.reset()
-    
     error_values = np.empty(ticks)
     control_outputs = np.empty(ticks)
     time_points = np.linspace(0.0, delta_time * ticks, ticks)
@@ -118,13 +116,11 @@ def simulate_control(control_system: "systems.ControlSystem",
         error_values[tick] = error
         control_outputs[tick] = output
     
-    controller.reset()
-    
     itae = np.absolute(error_values * time_points)
     points = get_turning_points(error_values)
     if points.size > 0:
         peak_index = points[0]
-        itae[peak_index:] *= points.size
+        itae[peak_index:] *= (points.size + 1)
     
     condition = lambda x: x > 0.0 if error_values[0] < 0.0 else x < 0.0
     rise_index = arg_first_where(condition, error_values, axis=0, invalid_val=-1)

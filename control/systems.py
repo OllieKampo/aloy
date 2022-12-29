@@ -22,37 +22,14 @@
 
 """Module defining various benchmark control systems."""
 
-__all__ = ("ControlSystem",
-           "InvertedPendulumSystem")
+__all__ = ("InvertedPendulumSystem",)
 
-from abc import abstractmethod
 from dataclasses import dataclass
 import math
-
-class ControlSystem:
-    """
-    Mixin for creating classes that are controllable by a system controller.
-    
-    Must expose an error getting method and a output setting callback method.
-    """
-    
-    @property
-    def error_variables(self) -> None | str | tuple[str]:
-        """Get the names of the error variables."""
-        return None
-    
-    @abstractmethod
-    def get_error(self, var_name: str | None = None) -> float:
-        """Get the current error from the setpoint(s) for the control system."""
-        raise NotImplementedError
-    
-    @abstractmethod
-    def set_output(self, output: float, delta_time: float, var_name: str | None = None) -> None:
-        """Set the control output(s) to the system."""
-        raise NotImplementedError
+from control.controllers import ControlledSystem
 
 @dataclass
-class InvertedPendulumSystem(ControlSystem):
+class InvertedPendulumSystem(ControlledSystem):
     """A non-linear inverted pendulum system."""
     
     ## Physical properties of the system.
