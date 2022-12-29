@@ -267,7 +267,7 @@ class PIDController(Controller):
         
         ## Only update the integral and derivative errors if the time difference is large enough.
         derivative: float = 0.0
-        if abs_tol is None or abs(delta_time) > abs_tol:
+        if delta_time > 0.0 and (abs_tol is None or delta_time > abs_tol):
             self.__integral += error * delta_time
             if self.__previous_error is not None:
                 self.__previous_derivatives.append((error - self.__previous_error) / delta_time)
