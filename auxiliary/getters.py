@@ -29,7 +29,7 @@ __all__ = ("default_get",
 
 from typing import Iterable, Optional, Sequence, TypeVar, overload
 
-from auxiliary.typing import SupportsRichComparison
+from auxiliary.typingutils import SupportsRichComparison
 from auxiliary.moreitertools import filter_not_none
 
 VT = TypeVar("VT")

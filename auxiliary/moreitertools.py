@@ -40,7 +40,7 @@ from fractions import Fraction
 from numbers import Real
 from typing import Callable, Generic, Iterable, Iterator, Optional, Sequence, Type, TypeVar, final, overload
 
-from auxiliary.typing import SupportsLenAndGetitem, SupportsRichComparison
+from auxiliary.typingutils import SupportsLenAndGetitem, SupportsRichComparison
 
 VT = TypeVar("VT")
 ST = TypeVar("ST", bound=Sequence)
@@ -156,7 +156,7 @@ def all_equal(iterable: Iterable[VT], hint: bool = False) -> bool:
     See: https://stackoverflow.com/questions/3844801/check-if-all-elements-in-a-list-are-identical
     """
     if hint and isinstance(iterable, Sequence):
-        return not iterable or iterable.count(iterable[0]) == len(iterable)
+        return not bool(iterable) or iterable.count(iterable[0]) == len(iterable)
     groups = itertools.groupby(iterable)
     return next(groups, True) and not next(groups, False)
 
@@ -168,8 +168,8 @@ def iter_to_length(iterable: Iterable[Optional[VT]], length: int, fill: VT) -> I
     """
     Yield items from the iterable up to the given length.
     
-    If the fill value is given and not None then instead yield the
-    fill value if the iterable is exhausted before the given length.
+    If the iterable is exhausted before the given length,
+    then instead yield the fill value repeatedly.
     """
     if isinstance(iterable, Sequence):
         if len(iterable) >= length:
@@ -291,12 +291,6 @@ def find_all(iterable: Iterable[VT],
             break
         if condition(index, element):
             yield (index, element)
-
-def filter_replace(iterable: Iterable[VT],
-                   replacement: Callable[[int, VT], VT]
-                   ) -> Iterator[VT]:
-    """Return an iterator over the items of the iterable, where each item is replaced by the result of the replacement function."""
-    yield from (replacement(index, element) for index, element in enumerate(iterable))
 
 def filter_not_none(iterable: Iterable[VT]) -> Iterator[VT]:
     """Return an iterator over the items of the iterable which are not None."""
