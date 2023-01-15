@@ -1,6 +1,6 @@
 ###########################################################################
 ###########################################################################
-## Module defining priority queue data structures.                       ##
+## Module containing priority queue data structures.                     ##
 ##                                                                       ##
 ## Copyright (C) 2022 Oliver Michael Kamperis                            ##
 ##                                                                       ##
@@ -19,7 +19,7 @@
 ###########################################################################
 ###########################################################################
 
-"""Module defining sorted and priority queue data structures."""
+"""Module containing sorted and priority queue data structures."""
 
 __copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
