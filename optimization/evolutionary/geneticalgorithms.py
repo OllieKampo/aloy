@@ -27,17 +27,17 @@ import dataclasses
 import enum
 from fractions import Fraction
 from functools import cached_property
-import functools
 import itertools
 import math
-from numbers import Real
+from numbers import Number, Real
 from random import getrandbits as randbits
 from typing import Any, Callable, Generic, Iterable, Iterator, Literal, Optional, Type, TypeVar
-from numpy import isin, right_shift
-from numpy.random import choice, randint, random_integers, Generator, default_rng
+from numpy.random import choice, random_integers, Generator, default_rng
 
-from auxiliary.ProgressBars import ResourceProgressBar
-from auxiliary.moreitertools import chunk, cycle_for, getitem_zip, max_n
+from auxiliary.progressbars import ResourceProgressBar
+from auxiliary.moreitertools import chunk, ichunk, cycle_for, getitem_zip, max_n
+
+import numpy as np
 
 ## Need to be able to deal with degree of mutation based on the range.
 ## For arbitrary bases, this will be based on the order of the possible values in the base.
@@ -46,10 +46,10 @@ from auxiliary.moreitertools import chunk, cycle_for, getitem_zip, max_n
 ## Can we use multiple chromosomes to encode: membership function limits, rule outputs, and module gains?
 
 ## Numerical gene base type.
-NT = TypeVar("NT", bound=Real)
+NT = TypeVar("NT", bound=Number)
 
 ## Generic gene base type (used for arbitrary base types).
-GT = TypeVar("GT")
+GT = TypeVar("GT", bound=Any)
 
 ## Generic chromosome type (i.e. genotype).
 CT = TypeVar("CT", str, list)
@@ -202,8 +202,6 @@ class ArbitraryBase(GeneBase[list], Generic[GT]):
         """Return the given quantity of random genes."""
         return choice(self.values, quantity).tolist()
 
-
-
 class GeneticEncoder(Generic[ST], metaclass=ABCMeta):
     """
     Base class for genetic encoders.
@@ -221,7 +219,7 @@ class GeneticEncoder(Generic[ST], metaclass=ABCMeta):
     
     def __init__(self,
                  chromosome_length: int = 8,
-                 chunks: int | None = None,
+                 permutation: bool = False,
                  base: BitStringBaseTypes | Literal["bin", "oct", "hex"] | list[GT] | ArbitraryBase = "bin", ## TODO
                  ) -> None:
         """Create a genetic encoder with a given gene length and base type."""
@@ -263,7 +261,32 @@ class GeneticEncoder(Generic[ST], metaclass=ABCMeta):
 
 
 
-class GeneticRecombinator(metaclass=ABCMeta):
+class GeneticOperator(metaclass=ABCMeta):
+    """Base class for genetic operators."""
+    
+    __slots__ = ("__generator",)
+    
+    def __init__(self, rng: Generator | int | None = None) -> None:
+        """
+        Super constructor for genetic operators.
+        
+        Parameters
+        ----------
+        `rng: Generator | int | None` - Either an random number generator instance,
+        or a seed for the selector to create its own, None generates a random seed.
+        """
+        if isinstance(rng, Generator):
+            self.__generator: Generator = rng
+        self.__generator: Generator = default_rng(rng)
+    
+    @property
+    def generator(self) -> Generator:
+        """Get the random number generator used by the genetic operator."""
+        return self.__generator
+
+
+
+class GeneticRecombinator(GeneticOperator):
     """
     Base class for genetic recombination operators.
     
@@ -277,54 +300,184 @@ class GeneticRecombinator(metaclass=ABCMeta):
     Swapped genes or genes sub-sequences should be between those in the same positions in the chromosome.
     
     In permutation recombinators, the offspring chromosomes must be permutations of the parents.
-    In non-perfect permutation recombinators, the offspring chromosomes may not be valid solutions.
-    
-    See: https://en.wikipedia.org/wiki/Recombination_(genetic_algorithm)
     """
     
+    def __init__(self, rng: Generator | int | None = None) -> None:
+        """
+        Super constructor for genetic recombinators.
+        
+        Parameters
+        ----------
+        `rng: Generator | int | None` - Either an random number generator instance,
+        or a seed for the selector to create its own, None generates a random seed.
+        """
+        super().__init__(rng)
+    
     @abstractmethod
-    def recombine(self, chromosome_1: CT, chromosome_2: CT) -> Iterable[CT]:
-        raise NotImplementedError
-
-class PointCrossOver(GeneticRecombinator):
-    def recombine(self, chromosome_1: CT, chromosome_2: CT) -> Iterable[CT]:
-        ## Choose a sub-sequence (in the same place) using two "points", and swap them between the genes.
-        left_point = randint(0, len(chromosome_1))
-        right_point = randint(left_point, len(chromosome_1))
-        return ((chromosome_1[:left_point] + chromosome_2[left_point:right_point] + chromosome_1[right_point:]),
-                (chromosome_2[:left_point] + chromosome_1[left_point:right_point] + chromosome_2[right_point:]))
+    def recombine(self, chromosome_1: CT, chromosome_2: CT) -> tuple[CT, CT]:
+        """Generate two new offspring chromosomes by recombining the given parent chromosomes."""
+        ...
 
 class SplitCrossOver(GeneticRecombinator):
     """
-    Splits a pair of chromosomes into two sub-sequences in the same place, and swaps the pieces between those chromosomes.
+    Class defining split cross-over recombinators.
+    
+    A split cross-over recombinator splits each chromosome into two sub-sequences at a random index
+    over their length and 'crosses-over' (i.e. swaps) those sub-sequences between those chromosomes.
+    
+    Split cross-over is equivalent to, but more efficient than, a one-point cross-over recombinator.
     """
-    def recombine(self, chromosome_1: CT, chromosome_2: CT) -> Iterable[CT]:
-        ## Split the genes in half with a sinlge "point" (in the same place), and swap the sub-sequences.
-        point: int = randint(0, len(chromosome_1))
+    
+    __slots__ = ()
+    
+    def __init__(self, rng: Generator | int | None = None) -> None:
+        """
+        Create a split-crossover recombinator.
+        
+        Parameters
+        ----------
+        `rng: Generator | int | None` - Either an random number generator instance,
+        or a seed for the selector to create its own, None generates a random seed.
+        """
+        super().__init__(rng)
+    
+    def recombine(self, chromosome_1: CT, chromosome_2: CT) -> tuple[CT, CT]:
+        """Generate two new offspring chromosomes by recombining the given parent chromosomes using split cross-over."""
+        point: int = self.generator.integers(1, len(chromosome_1) - 1)
         return ((chromosome_1[:point] + chromosome_2[point:]),
                 (chromosome_2[:point] + chromosome_1[point:]))
 
-class UniformSwapper(GeneticRecombinator):
+class PointCrossOver(GeneticRecombinator):
+    """
+    Class defining N-point cross-over recombinators.
+    
+    An N-point cross-over recombinator chooses N random points (or indicies) over the length
+    of the chromosomes, splits the chromosomes into N + 1 sub-sequences at those points,
+    and 'crosses-over' (i.e. swaps) those sub-sequences between those chromosomes.
+    """
+    
+    __slots__ = ("__points",)
+    
+    def __init__(self, points: int, rng: Generator | int | None = None) -> None:
+        """
+        Create an N-point cross-over recombinator.
+        
+        Parameters
+        ----------
+        `points: int = 1` - The number (N) of points to use for the cross-over.
+        The N + 1 sub-sequences are created by the split and used for the cross-over.
+        
+        `rng: Generator | int | None` - Either an random number generator instance,
+        or a seed for the selector to create its own, None generates a random seed.
+        """
+        super().__init__(rng)
+        if not isinstance(points, int) or points < 1:
+            raise ValueError("Number of points must be an integer greater than zero. "
+                             f"Got; {points} of type {type(points)}.")
+        self.__points: int = points
+    
+    def __get_subsequences(self, chromosome_1: CT, chromosome_2: CT, i: int, lp: int, rp: int) -> tuple[CT, CT]:
+        """Return the sub-sequences of the given chromosomes at the given indices."""
+        if i % 2 == 0: return (chromosome_1[lp:rp], chromosome_2[lp:rp])
+        return (chromosome_2[lp:rp], chromosome_1[lp:rp])
+    
     def recombine(self, chromosome_1: CT, chromosome_2: CT) -> Iterable[CT]:
+        """Generate two new offspring chromosomes by recombining the given parent chromosomes using N-point cross-over."""
+        points = np.zeros(self.__points); points[-1] = len(chromosome_1)
+        points[1:self.__points-1] = self.generator.integers(0, len(chromosome_1), self.__points).sort()
+        sum_func = lambda x: "".join(x) if isinstance(chromosome_1, str) else sum
+        return tuple(map(sum_func, zip(self.__get_subsequences(chromosome_1, chromosome_2, i, lp, rp)
+                                       for i, lp, rp in enumerate(zip(points[:-1], points[1:])))))
+
+class UniformSwapper(GeneticRecombinator):
+    """
+    Class defining uniform-swapper recombinators.
+    
+    A uniform-swapper recombinator iterates over the length of the chromosomes,
+    randomly choosing for each pair of genes at a given index, whether to swap
+    them to the other chromosome or leave them in the original (with 50% probability).
+    """
+    
+    __slots__ = ()
+    
+    def __init__(self, rng: Generator | int | None = None) -> None:
         """
-        For each gene in the chromosomes, randomly select a gene from the first or the second gene, to build a new one.
+        Create a uniform-swapper recombinator.
+        
+        Parameters
+        ----------
+        `rng: Generator | int | None` - Either an random number generator instance,
+        or a seed for the selector to create its own, None generates a random seed.
         """
+        super().__init__(rng)
+    
+    def recombine(self, chromosome_1: CT, chromosome_2: CT) -> tuple[CT, CT]:
+        """Generate two new offspring chromosomes by recombining the given parent chromosomes using uniform swapping."""
         new_chromosome_1: list = []
         new_chromosome_2: list = []
-        for chromosome_1, chromosome_2 in zip(chromosome_1, chromosome_2):
-            if randint(0, 2):
-                new_chromosome_1.append(chromosome_1)
-                new_chromosome_2.append(chromosome_2)
+        choices = self.generator.integers(0, 1, len(chromosome_1))
+        for gene_1, gene_2, choice in zip(chromosome_1, chromosome_2, choices):
+            if choice:
+                new_chromosome_1.append(gene_1)
+                new_chromosome_2.append(gene_2)
             else:
-                new_chromosome_1.append(chromosome_2)
-                new_chromosome_2.append(chromosome_1)
+                new_chromosome_1.append(gene_2)
+                new_chromosome_2.append(gene_1)
         if isinstance(chromosome_1, str):
             return ("".join(new_chromosome_1), "".join(new_chromosome_2))
         return new_chromosome_1, new_chromosome_2
 
+class PermutationSwapper(GeneticRecombinator):
+    """
+    Class defining permutation-swapper recombinators.
+    
+    A permutation-swapper recombinator chooses N random points (or indicies) over the length
+    of the first chromosome, then for each point it swaps the gene at that point in the first
+    chromosome with the gene at the same point in the second chromosome. For either chromosome,
+    if the new gene is already in the chromosome, then its (first) occurance is replaced with
+    the old gene to keep the genes unique (this fails if more than one occurance exists).
+    """
+    
+    __slots__ = ("__swaps",)
+    
+    def __init__(self, swaps: int, rng: Generator | int | None = None) -> None:
+        """
+        Create a permutation-swapper recombinator.
+        
+        Parameters
+        ----------
+        `swaps: int = 1` - The number of swaps to use for the cross-over.
+        The N + 1 sub-sequences are created by the split and used for the cross-over.
+        
+        `rng: Generator | int | None` - Either an random number generator instance,
+        or a seed for the selector to create its own, None generates a random seed.
+        """
+        super().__init__(rng)
+        if not isinstance(swaps, int) or swaps < 1:
+            raise ValueError("Number of swaps must be an integer greater than zero. "
+                             f"Got; {swaps} of type {type(swaps)}.")
+        self.__swaps: int = swaps
+    
+    def recombine(self, chromosome_1: CT, chromosome_2: CT) -> tuple[CT, CT]:
+        """Generate two new offspring chromosomes by recombining the given parent chromosomes using permutation swapping."""
+        new_chromosome_1: list = chromosome_1.copy()
+        new_chromosome_2: list = chromosome_2.copy()
+        swaps = self.generator.integers(0, len(chromosome_1), self.__swaps)
+        for swap_from_index in swaps:
+            gene_1 = chromosome_1[swap_from_index]
+            gene_2 = chromosome_2[swap_from_index]
+            if gene_1 != gene_2:
+                if gene_2 in new_chromosome_1:
+                    new_chromosome_1[chromosome_1.index(gene_2)] = gene_1
+                new_chromosome_1[swap_from_index] = gene_2
+                if gene_1 in new_chromosome_2:
+                    new_chromosome_2[chromosome_2.index(gene_1)] = gene_2
+                new_chromosome_2[swap_from_index] = gene_1
+        return new_chromosome_1, new_chromosome_2
 
 
-class GeneticMutator(metaclass=ABCMeta):
+
+class GeneticMutator(GeneticOperator):
     """
     Base class for genetic mutation operators.
     
@@ -365,42 +518,69 @@ class GeneticMutator(metaclass=ABCMeta):
         - or both of the specialised mutatre methods and not the generic mutate method.
     """
     
+    __slots__ = ("__generator",)
+    
+    def __init__(self, rng: Generator | int | None = None) -> None:
+        """
+        Super constructor for mutation operators.
+        
+        Parameters
+        ----------
+        `rng: Generator | int | None` - Either an random number generator instance,
+        or a seed for the selector to create its own, None generates a random seed.
+        """
+        super().__init__(rng)
+    
+    @property
+    def generator(self) -> Generator:
+        """Get the random number generator used by the selector."""
+        return self.__generator
+    
     def mutate(self, chromosome: CT, base: GeneBase) -> CT:
         """Mutate the given chromosome encoded in the given base."""
         return NotImplemented
     
     def bitstring_mutate(self, chromosome: str, base: BitStringBase) -> str:
-        """Mutate the given chromosome encoded in the given bit-string base."""
-        return self.mutate(chromosome, base)
+        """Point mutate the given chromosome encoded in the given bit-string base."""
+        return "".join(self.mutate(list(chromosome), base.as_numerical_base()))
     
-    def numerical_mutate(self, chromosome: str, base: NumericalBase[NT]) -> list[NT]:
+    def numerical_mutate(self, chromosome: list[NT], base: NumericalBase[NT]) -> list[NT]:
         """Mutate the given chromosome encoded in the given numeric base."""
         return self.mutate(chromosome, base)
     
-    def arbitrary_mutate(self, chromosome: list[Any], base: ArbitraryBase[GT]) -> list[GT]:
+    def arbitrary_mutate(self, chromosome: list[GT], base: ArbitraryBase[GT]) -> list[GT]:
         """Mutate the given chromosome encoded in the given arbitrary base."""
         return self.mutate(chromosome, base)
 
 class PointMutator(GeneticMutator):
     """
-    A point mutator.
+    Class defining point mutators.
     
-    Randomly selects one or more genes in a chromosome (with uniform probability),
-    and changes their values to a different random value.
+    A point mutator randomly selects one or more genes in a chromosome (with uniform probability with replacement),
+    and changes their values to some random value (with uniform probability).
+    In a binary base representation, chosen genes are simply `flipped` to the opposite value.
     
-    In a binary base representation, this simply flips them to the opposite value.
-    
-    Point mutators are not appropriate for permutation problems, as they may commonly produce invalid solutions.
+    Point mutators are simple and efficient, but are not appropriate for permutation problems,
+    since they do not maintain the same set of genes in the chromosome.
     """
     
-    def __init__(self, points: int) -> None:
+    __slots__ = ("__points",)
+    
+    def __init__(self, points: int = 1, rng: Generator | int | None = None) -> None:
         """
-        Insert the random new genes into the chromosome at random positions.
+        Create a point mutator.
+        
+        A point mutator randomly selects one or more genes in a chromosome (with uniform probability with replacement),
+        and changes their values to some random value (with uniform probability).
         
         Parameters
         ----------
-        `points: int` - The number of genes in the chromosome to mutate.
+        `points: int = 1` - The number of genes in the chromosome to point mutate.
+        
+        `rng: Generator | int | None` - Either an random number generator instance,
+        or a seed for the selector to create its own, None generates a random seed.
         """
+        super().__init__(rng)
         if not isinstance(points, int) or points < 1:
             raise ValueError("Number of points must be an integer greater than zero. "
                              f"Got; {points} of type {type(points)}.")
@@ -408,53 +588,139 @@ class PointMutator(GeneticMutator):
     
     def mutate(self, chromosome: CT, base: GeneBase) -> CT:
         """Point mutate the given chromosome encoded in the given base."""
-        for index, gene in zip(randint(len(chromosome), size=self.__points), ## TODO: change to using generator, add generator to base class.
+        for index, gene in zip(self.generator.integers(len(chromosome), size=self.__points),
                                base.random_genes(self.__points)):
             chromosome[index] = gene
-            # chromosome = chromosome[:index] + gene + chromosome[index+1:]
         return chromosome
-    
-    def bitstring_mutate(self, chromosome: str, base: BitStringBase) -> str:
-        return "".join(self.mutate(list(chromosome), base))
 
-class SwapMutator(GeneticMutator):
+class PairSwapMutator(GeneticMutator):
     """
+    CLass defining pair swap mutators.
+    
     Swap the values of random pairs of genes in the chromosome.
     
-    Pick two different genes at random (with uniform probability distribution), and swap their values.
+    Pick N pairs of genes at random (with uniform probability distribution), and swap the values of the genes between each pair.
+    
     This is common in permutation based encodings, where the set of values need to be preserved, but the order can be changed.
-    
-    Swap mutators are appropriate for permutation problems as they always produce valid solutions (given the input is also valid).
-    
-    # In Swap Mutation we select two genes from our chromosome and interchange their values.
     """
     
+    __slots__ = ("__pairs",)
+    
+    def __init__(self, pairs: int = 1, rng: Generator | int | None = None) -> None:
+        """
+        Create a pair swap mutator.
+        
+        A pair swap mutator randomly selects one or more pairs of genes in a chromosome (with uniform probability with replacement),
+        and swap the values of the genes between each pair.
+        
+        Parameters
+        ----------
+        `pairs: int = 1` - The number of pairs of genes in the chromosome to swap mutate.
+        If greater than one, the same gene may be chosen and swapped multiple times.
+        
+        `rng: Generator | int | None` - Either an random number generator instance,
+        or a seed for the selector to create its own, None generates a random seed.
+        """
+        super().__init__(rng)
+        if not isinstance(pairs, int) or pairs < 1:
+            raise ValueError("Number of pairs must be an integer greater than zero. "
+                             f"Got; {pairs} of type {type(pairs)}.")
+        self.__pairs: int = pairs
+        ## Monkey patch the mutate method for the single pair case.
+        if pairs == 1: self.mutate = self.__one_pair_swap_mutate
+    
+    def __one_pair_swap_mutate(self, chromosome: CT, base: GeneBase) -> CT:
+        """Swap mutate the given chromosome encoded in the given base."""
+        index_1, index_2 = self.generator.integers(len(chromosome), size=(self.__pairs * 2))
+        chromosome[index_1], chromosome[index_2] = chromosome[index_2], chromosome[index_1]
+        return chromosome
+    
+    def mutate(self, chromosome: CT, base: GeneBase) -> CT:
+        """Swap mutate the given chromosome encoded in the given base."""
+        pairs = ichunk(self.generator.integers(len(chromosome), size=(self.__pairs * 2)), 2)
+        for index_1, index_2 in pairs:
+            chromosome[index_1], chromosome[index_2] = chromosome[index_2], chromosome[index_1]
+        return chromosome
 
-class ShuffleMutator(GeneticMutator):
+class PoolShuffleMutator(GeneticMutator):
     """
-    Pick two different genes at random (with uniform probability), and shuffle (with uniform probability) the sub-sequence of values between them.
+    Class defining pool shuffle mutators.
     
-    A contiguous sub-sequence of genes is randomly selected, and their values are randomly shuffled.
+    Pool shuffle mutators pick a random set of genes (with uniform probability), and randomly shuffle/scramble (with uniform probability) the values between them.
     
-    A sub-sequence of a random length (chosen from a given probability density function),
-    and a start point of the sub-sequence (chosen with uniform probability).
-    
-    # In Scramble Mutation we select a subset of our genes and scramble their value. The selected genes may not be contiguous (see the second diagram).
+    Pool shuffle mutators are appropriate for permutation problems, where the set of values need to be preserved, but the order can be changed.
     """
     
+    __slots__ = ("__pool_size",)
+    
+    def __init__(self, pool_size: int | float = 0.5, rng: Generator | int | None = None) -> None:
+        """
+        Create a pool shuffle mutator.
+        
+        Parameters
+        ----------
+        `pool_size: int | float = 0.5` - The number of genes in the chromosome to shuffle.
+        Either an integer defining a fixed number of genes, or a float defining a factor
+        of the total number of genes in the chromosome to shuffle.
+        
+        `rng: Generator | int | None` - Either an random number generator instance,
+        or a seed for the selector to create its own, None generates a random seed.
+        
+        Raises
+        ------
+        `ValueError` - If;
+            - the pool size is not a positive integer or float,
+            - the pool size is an integer less than 2,
+            - the pool size is a float less than 0.0 or greater than 1.0.
+        """
+        super().__init__(rng)
+        if (not isinstance(pool_size, (int, float))
+            or (isinstance(pool_size, int) and pool_size < 2)
+            or (isinstance(pool_size, float) and (pool_size < 0.0 or pool_size > 1.0))):
+            raise ValueError("Pool size must be an integer greater than zero, or a float between 0.0 and 1.0."
+                             f"Got; {pool_size} of type {type(pool_size)}.")
+        self.__pool_size: int | float = pool_size
+    
+    def mutate(self, chromosome: CT, base: GeneBase) -> CT:
+        """Shuffle mutate the given chromosome encoded in the given base."""
+        pool_size = self.__pool_size
+        if isinstance(self.__pool_size, float):
+            pool_size = math.ceil(self.__pool_size * len(chromosome))
+        pool = self.generator.integers(len(chromosome), size=pool_size)
+        new_pool = self.generator.permutation(pool)
+        for from_index, to_index in zip(pool, new_pool):
+            chromosome[from_index], chromosome[to_index] = chromosome[to_index], chromosome[from_index]
+        return chromosome
 
-class InversionMutator(GeneticMutator):
+class SequenceShuffleMutator(GeneticMutator):
     """
-    Pick two different genes at random (with uniform probability distribution), and invert the sub-sequence of values between them.
+    Class defining sequence shuffle mutators.
+    
+    Sequence shuffle mutators pick a random sequence of genes (with uniform probability), and shuffle/scramble (with uniform probability) the values between them.
+    
+    Sequence shuffle mutators are appropriate for permutation problems, where the set of values need to be preserved, but the order can be changed.
+    """
+    
+    __slots__ = ("__sequence_length",)
+    
+    def __init__(self, rng: Generator | int | None = None) -> None:
+        super().__init__(rng)
+
+class SequenceInversionMutator(SequenceShuffleMutator):
+    """
+    Class defining inversion mutators.
+    
+    Pick two different genes at random (with uniform probability distribution),
+    and reverse (invert) the order of the contiguous sub-sequence of values between them.
     
     Similar to shuffle, except invert (flip, or pivot around its center) the sub-sequence instead of performing the expensive shuffle operation.
     This still disrupts the order, but mostly preserves adjacency of gene values (within the sub-sequence only).
-    
-    # In Inversion Mutation we select a subset of our genes and reverse their order. The genes have to be contiguous in this case (see the diagram).
     """
     
-
-
+    __slots__ = ("__sequence_length",)
+    
+    def __init__(self, rng: Generator | int | None = None) -> None:
+        super().__init__(rng)
 
 class GeneticSelector(metaclass=ABCMeta):
     """
@@ -672,7 +938,7 @@ class GeneticSystem:
             - The nucleotide bases are any of a set of identifiers; "london", "birmingham", "leeds".
             - Useful when solution length is known, but ordering needs to be optimised.
         
-        - Multiple chromosome representation - TODO Is this what EVs do?
+        - Multiple chromosome representation
     
     2. Selection Scheme and Fitness Function
     
@@ -684,7 +950,9 @@ class GeneticSystem:
         - Elitism in selection:
         - Convergence and diversity biases in selection: Affect selection pressure towards high values of fitness, and thus exploration/exploitation trade-off.
         - Boltzmann decay for biases:
-            ...In Boltzmann selection, a continuously varying temperature controls the rate of selection according to a preset schedule. The temperature starts out high, which means that the selection pressure is low. The temperature is gradually lowered, which gradually increases the selection pressure, thereby allowing the GA to narrow in more closely to the best part of the search space while maintaining the appropriate degree of diversity...
+            ...In Boltzmann selection, a continuously varying temperature controls the rate of selection according to a preset schedule.
+            The temperature starts out high, which means that the selection pressure is low.
+            The temperature is gradually lowered, which gradually increases the selection pressure, thereby allowing the GA to narrow in more closely to the best part of the search space while maintaining the appropriate degree of diversity...
     
     3. Genetic Recombinator
     
@@ -725,46 +993,45 @@ class GeneticSystem:
                  recombinator: GeneticRecombinator,
                  mutator: GeneticMutator
                  ) -> None:
+        """
+        Create a genetic system.
         
+        Parameters
+        ----------
+        `encoder : GeneticEncoder` - An encoder instance.
+        
+        `selector : GeneticSelector` - A selector instance.
+        The selector is used for both population culling and population growth (reproduction) phases.
+        It is used to select which individuals; survive culling to be eligible to reproduce,
+        survive through the reproduction phase, and that get to actually reproduce.
+        
+        `recombinator : GeneticRecombinator` - A recombinator instance.
+        The recombinator is used only in the population growth (reproduction) phase.
+        It is used to combine selected pairs of 'parent' individuals from an existing generation,
+        to generate pairs of new 'child' individuals for the next generation, that are some mix of the parents' genes.
+        
+        `mutator : GeneticMutator` - A mutator instance.
+        
+        """
         self.__encoder: GeneticEncoder = encoder
         self.__selector: GeneticSelector = selector
         self.__recombinator: GeneticRecombinator = recombinator
         self.__mutator: GeneticMutator = mutator
-        
         self.__random_generator: Generator = default_rng()
     
-    @staticmethod
-    def linear_decay(diversity_bias: Fraction, decay: Fraction) -> Fraction:
-        "Decay according to: `max(0.0, initial_diversity_bias - ((1.0 - bias_decay) * generation))`."
-        return max(0.0, diversity_bias - decay)
-    
-    @staticmethod
-    def polynomial_decay(diversity_bias: Fraction, decay: Fraction) -> Fraction:
-        "Decay according to: `initial_diversity_bias ^ (generation / (1.0 - bias_decay))`."
-        return diversity_bias ** (1.0 / (1.0 - decay))
-    
-    @staticmethod
-    def exponential_decay(diversity_bias: Fraction, decay: Fraction) -> Fraction:
-        ## - Diversity bias reduces logarithmically in generations:
-        ##  - diversity_bias_at_generation = initial_diversity_bias * ((1 - bias_decay) ^ generation), (equivalent to initial_diversity_bias * (e ^ (decay_constant * generation)) where decay contant is some large negative number)
-        ##  - reaches to zero in the limit to infinity
-        ## - Convergence bias increases logarithmically in generations:
-        ##  - convergence_bias_at_generation = 1 - (initial_diversity_bias * (bias_decay ^ generation)),
-        ##  - increases to 1 in the limit to infinity
-        "Decay according to: `initial_diversity_bias * ((1.0 - bias_decay) ^ generation)`."
-        return diversity_bias * (1.0 - decay)
-    
-    @staticmethod
-    def get_decay_function(decay_type: "DecayType" | Literal["lin", "pol", "exp"]) -> Callable[[Fraction, Fraction], Fraction]:
-        if isinstance(decay_type, DecayType):
-            return decay_type.value[0]
-        return DecayType[decay_type].value[0]
-    
-    def set_operators(self) -> None:
-        ...
-    
-    def initialise(self) -> None:
-        ...
+    def set_operators(self,
+                      selector: GeneticSelector | None = None,
+                      recombinator: GeneticRecombinator | None = None,
+                      mutator: GeneticMutator | None = None
+                      ) -> None:
+        """
+        Set the genetic operators.
+        
+        A value of None leaves the operator unchanged.
+        """
+        self.__selector: GeneticSelector = selector
+        self.__recombinator: GeneticRecombinator = recombinator
+        self.__mutator: GeneticMutator = mutator
     
     def run(self,
             
@@ -818,12 +1085,11 @@ class GeneticSystem:
             ##      - diverge on stagnation on best fittest towards fitness threshold. Increase proportional to diversity_bias * (stagnated_generations / stagnation_limit). This should try to explore around the solution space when the best fitness gets stuck on a local minima.
             
             ) -> GeneticAlgorithmSolution:
-        
         """
+        Run the genetic algorithm.
         
         Parameters
         ----------
-        
         `survival_factor: Fraction` - Survival factor defines how much culling (equal to 1.0 - survival factor) we have, i.e. how much of the population for a given generation does not survive to the reproduction stage, and are not even considered for selection for recombination/reproduction.
         Low survival factor encourages exploitation of better solutions and speeds up convergence, by culling all but the best individuals, and allowing only the best to reproduce and search (relatively) locally to those best.
         
@@ -858,7 +1124,6 @@ class GeneticSystem:
         
         Stop Conditions
         ---------------
-        
         The algorithm runs until one of the following stop conditions has been reached:
         
             - A solution is found that reaches or exceeds the fitness threshold,
@@ -869,15 +1134,12 @@ class GeneticSystem:
         
         Notes
         -----
-        
         To perform steady state selection for reproduction set;
             - survival_factor = 1.0 - X, where X is fraction of individuals to be culled,
             - survival_elitism_factor = 1.0, such that only the best survive (and the worst are culled) deterministically,
             - disable replacement.
         """
-        
         ## TODO Add tqdm, logging, data collection (with pandas?), and data visualisation.
-        
         if survival_factor >= Fraction(1.0):
             raise ValueError("Survival factor must be less than 1.0."
                              f"Got; {survival_factor=}.")
@@ -912,9 +1174,9 @@ class GeneticSystem:
         stagnated_generations: int = 0
         
         if diversity_bias_decay_type is not None:
-            diversity_bias_decay_function = self.get_decay_function(diversity_bias_decay_type)
+            diversity_bias_decay_function = get_decay_function(diversity_bias_decay_type)
         if mutation_factor_growth_type is not None:
-            mutation_factor_growth_function = self.get_decay_function(mutation_factor_growth_type)
+            mutation_factor_growth_function = get_decay_function(mutation_factor_growth_type)
         
         progress_bar = ResourceProgressBar(initial=1, total=max_generations)
         
@@ -1005,6 +1267,7 @@ class GeneticSystem:
                         ) -> tuple[list[CT], list[Fraction]]:
         """
         Select individuals from the current population to survive to and reproduce for the next generation.
+        
         Individuals that do not survive are said to be culled from the population and do not get a chance to reproduce and propagate features of their genes to the next generation.
         
         The intuition is that individuals with sufficiently low fitness (relativeo the other individuals in the population) will get out competed by better adapted individuals and therefore will not survive to reproduce offspring.
@@ -1023,7 +1286,6 @@ class GeneticSystem:
         
         Parameters
         ----------
-        
         `population: list` -
         
         `fitness_values: list[Fraction]` - 
@@ -1084,7 +1346,6 @@ class GeneticSystem:
         
         Parameters
         ----------
-        
         `elitism_factor: Fraction = Fraction(0.0)` - Factor of best
         fitness portion of the population that are guaranteed to reproduce
         assuming that there is space in the population to do so. This is
@@ -1182,9 +1443,3 @@ class GeneticSystem:
                                                    self.__encoder.base)
         
         return mutated_population
-
-@enum.unique
-class DecayType(enum.Enum):
-    lin = (GeneticSystem.linear_decay,)
-    pol = (GeneticSystem.polynomial_decay,)
-    exp = (GeneticSystem.exponential_decay,)
