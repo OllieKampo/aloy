@@ -1,9 +1,8 @@
 ###########################################################################
 ###########################################################################
-## Functions and classes for concurrency and parallelism.                ##
+## Module containing functions and classes for concurrency/parallelism.  ##
 ##                                                                       ##
-## Copyright (C)  2022  Oliver Michael Kamperis                          ##
-## Email: o.m.kamperis@gmail.com                                         ##
+## Copyright (C) 2022 Oliver Michael Kamperis                            ##
 ##                                                                       ##
 ## This program is free software: you can redistribute it and/or modify  ##
 ## it under the terms of the GNU General Public License as published by  ##
@@ -20,16 +19,30 @@
 ###########################################################################
 ###########################################################################
 
-"""This module contains functions and classes for concurrency and parallelism."""
+"""Module containing functions and classes for concurrency and parallelism."""
 
-__all__ = ("atomic_update", "OwnedRLock", "sync", "synchronized_meta")
+__copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
+__license__ = "GPL-3.0"
+
+__all__ = ("atomic_update",
+           "OwnedRLock",
+           "sync",
+           "synchronized_meta")
+
+def __dir__() -> tuple[str]:
+    """Get the names of module attributes."""
+    return sorted(__all__)
+
+def __getattr__(name: str) -> object:
+    """Get an attributes from the module."""
+    if name in __all__:
+        return globals()[name]
+    raise AttributeError(f"Module {__name__!r} has no attribute {name!r}.")
 
 from collections import defaultdict
 import contextlib
 import functools
-from random import random
 import threading
-from time import sleep
 import types
 import typing
 
@@ -248,7 +261,7 @@ class synchronized_meta(type):
         class_dict = create_if_not_exists_in_slots(class_dict,
                                                    __lock__="Instance-locked method synchronization lock.",
                                                    __method_locks__="Method-locked method synchronization locks.",
-                                                   __semaphore__="Method-locks semaphore (counts number of current locked method-locked methods.",
+                                                   __semaphore__="Method-locks semaphore (counts number of current locked method-locked methods).",
                                                    __event__="Event signalling when all method-locked methods are unlocked.")
         
         ## Check through the class's attributes for methods that are to be synchronized.
@@ -307,7 +320,7 @@ class synchronized_meta(type):
                         loop_lock_number_current += 1
                     frontier -= path
         
-        ## Ensure that the class has a lock attribute.
+        ## Warp the init method to ensure instances get the lock attributes.
         original_init = class_dict["__init__"]
         @functools.wraps(original_init)
         def __init__(self, *args, **kws) -> None:
