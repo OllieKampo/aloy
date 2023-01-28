@@ -1,6 +1,6 @@
 ###########################################################################
 ###########################################################################
-## Base class mixins for controllers.                                    ##
+## Module defining controllers.                                          ##
 ##                                                                       ##
 ## Copyright (C) 2022 Oliver Michael Kamperis                            ##
 ##                                                                       ##
@@ -19,7 +19,7 @@
 ###########################################################################
 ###########################################################################
 
-"""Module defining base class mixins for controllers."""
+"""Module defining controllers."""
 
 __copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
@@ -113,11 +113,11 @@ class ControlledSystem:
 class SystemController:
     """Class defining system controllers."""
     
-    __slots__ = ("__controller",
-                 "__system",
-                 "__var_name",
-                 "__timer",
-                 "__ticks")
+    __slots__ = {"__controller" : "The underlying controller.",
+                 "__system" : "The controlled system.",
+                 "__var_name" : "The name of the error variable to get from the controlled system.",
+                 "__timer" : "The controller timer used to calculate time differences between ticks.",
+                 "__ticks" : "The number of ticks since the last reset."}
     
     def __init__(self,
                  controller: Controller,
@@ -240,22 +240,23 @@ class AutoSystemController:
     """
     Class defining an automatic system controller that runs concurrently in a separate thread.
 
-    The contoller can either be ran indefinitely using `run_forever()`, until an explicit call to `stop()` is made,
-    or it can be ran with loop-like stop conditions using `run_for(iterations, time)` or `run_while(condition)`.
+    The contoller can either be ran indefinitely using `run_forever()` until an explicit call to `stop()` is made,
+    it can also be ran with loop-like stop conditions using `run_for(iterations, time)` or `run_while(condition)`,
+    or it can be ran in a context manager using `context_run_for(iterations, time)` or `context_run_while(condition)`.
     """
 
-    __slots__ = ("__system_controller",
-                 "__atomic_update_lock",
-                 "__in_context",
-                 "__sleep_time",
-                 "__time_factor",
-                 "__data_callback",
-                 "__run_forever",
-                 "__condition",
-                 "__thread",
-                 "__lock",
-                 "__running",
-                 "__stopped")
+    __slots__ = {"__system_controller" : "The underlying system controller.",
+                 "__atomic_update_lock" : "Lock for atomic updates in run methods.",
+                 "__in_context" : "Whether the controller is currently running in a context.",
+                 "__sleep_time" : "The sleep time between control ticks.",
+                 "__time_factor" : "The time factor to use when calculating the time difference.",
+                 "__data_callback" : "The data callback function.",
+                 "__run_forever" : "Whether the controller is currently running indefinitely.",
+                 "__condition" : "The condition to check for loop-like stop conditions.",
+                 "__thread" : "The thread the controller is running in.",
+                 "__lock" : "Lock for atomic updates in the thread.",
+                 "__running" : "Whether the controller is currently running.",
+                 "__stopped" : "Whether the controller has been stopped."}
     
     def __init__(self,
                  system_controller: SystemController
@@ -302,13 +303,13 @@ class AutoSystemController:
     
     def __start(self) -> None:
         """Start the controller thread."""
-        self.__running.set()
         self.__stopped.clear()
+        self.__running.set()
     
     def __stop(self) -> None:
         """Stop the controller thread."""
-        self.__stopped.set()
         self.__running.clear()
+        self.__stopped.set()
     
     def __run(self) -> None:
         """Run the controller thread."""
@@ -348,6 +349,10 @@ class AutoSystemController:
                          condition: Callable[[int, float, float, float, float], bool] | None
                          ) -> None:
         """Set the parameters of the controller."""
+        if tick_rate <= 0:
+            raise ValueError(f"Tick rate must be greater than 0. Got; {tick_rate}.")
+        if time_factor <= 0.0:
+            raise ValueError(f"Time factor must be greater than 0.0. Got; {time_factor}.")
         self.__sleep_time = (1.0 / tick_rate) / time_factor
         self.__time_factor = time_factor
         if callback is not None:
@@ -425,16 +430,17 @@ class AutoSystemController:
         
         Parameters
         ----------
-        `tick_rate : int` - The number of ticks per second.
+        `tick_rate : int = 10` - The tick rate of the controller (ticks per second).
         This is approximate, the actual tick rate may vary, the only
         guarantee is that the tick rate will not exceed the given value.
-        
-        `time_factor : float` - The time factor to use when calculating the delta time.
-        
-        `data_callback : Callable[[int, float, float, float, float], None]` - A callable to
+
+        `time_factor : float = 1.0` - The time factor to use when calculating time differences.
+        The tick rate is multiplied by this value to get the tick rate relative to the time factor.
+
+        `data_callback : Callable[[int, float, float, float, float], None] = None` - A callable to
         callback control data to. Arguments are: `(iteration, error, output, delta time, total time)`.
         
-        `reset : bool` - Whether to also reset the controller state when the context is exited.
+        `reset : bool = True` - Whether to also reset the controller state when the context is exited.
 
         Raises
         ------
@@ -462,13 +468,14 @@ class AutoSystemController:
         
         Parameters
         ----------
-        `tick_rate : int` - The number of ticks per second.
+        `tick_rate : int = 10` - The tick rate of the controller (ticks per second).
         This is approximate, the actual tick rate may vary, the only
         guarantee is that the tick rate will not exceed the given value.
+
+        `time_factor : float = 1.0` - The time factor to use when calculating time differences.
+        The tick rate is multiplied by this value to get the tick rate relative to the time factor.
         
-        `time_factor : float` - The time factor to use when calculating the delta time.
-        
-        `data_callback : Callable[[int, float, float, float, float], None]` - A callable to
+        `data_callback : Callable[[int, float, float, float, float], None] = None` - A callable to
         callback control data to. Arguments are: `(iteration, error, output, delta time, total time)`.
         
         Raises
@@ -498,13 +505,14 @@ class AutoSystemController:
         
         `max_time : float` - The maximum amount of seconds to run for.
         
-        `tick_rate : int` - The number of ticks per second.
+        `tick_rate : int = 10` - The tick rate of the controller (ticks per second).
         This is approximate, the actual tick rate may vary, the only
         guarantee is that the tick rate will not exceed the given value.
+
+        `time_factor : float = 1.0` - The time factor to use when calculating time differences.
+        The tick rate is multiplied by this value to get the tick rate relative to the time factor.
         
-        `time_factor : float` - The time factor to use when calculating the delta time.
-        
-        `data_callback : Callable[[int, float, float, float, float], None]` - A callable to
+        `data_callback : Callable[[int, float, float, float, float], None] = None` - A callable to
         callback control data to. Arguments are: `(iteration, error, output, delta time, total time)`.
         
         Raises
@@ -538,13 +546,14 @@ class AutoSystemController:
         The function signature is `(iterations, error, output, delta time, total time) -> bool`,
         the controller will stop when the condition returns `False`.
         
-        `tick_rate : int` - The number of ticks per second.
+        `tick_rate : int = 10` - The tick rate of the controller (ticks per second).
         This is approximate, the actual tick rate may vary, the only
         guarantee is that the tick rate will not exceed the given value.
+
+        `time_factor : float = 1.0` - The time factor to use when calculating time differences.
+        The tick rate is multiplied by this value to get the tick rate relative to the time factor.
         
-        `time_factor : float` - The time factor to use when calculating the delta time.
-        
-        `data_callback : Callable[[int, float, float, float, float], None]` - A callable to
+        `data_callback : Callable[[int, float, float, float, float], None] = None` - A callable to
         callback control data to. Arguments are: `(iteration, error, output, delta time, total time)`.
         """
         with self.__atomic_update_lock:
