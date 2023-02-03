@@ -43,7 +43,9 @@ from contextlib import contextmanager
 import inspect
 from numbers import Real
 import threading
-from typing import Callable, Optional, final
+import types
+from typing import Callable, Iterable, Literal, Mapping, Optional, final
+import statistics
 
 from control.controlutils import ControllerTimer
 
@@ -87,6 +89,131 @@ class Controller:
     def reset(self) -> None:
         """Reset the controller state."""
         ...
+
+class ModularController(Controller):
+    """
+    Class defining modular controllers.
+    
+    A modular controller is a controller that is composed of multiple
+    other "inner" controllers. The module controller then combines the
+    outputs of the inner controllers to produce a final output.
+    """
+
+    __slots__ = {"__inner_controllers" : "The inner controllers.",
+                 "__latest_output" : "The latest control output.",
+                 "__mode" : "The output combination mode.",
+                 "__weights" : "The output combination weights of the inner controllers.",
+                 "__weights_update_callback" : "The callback to update the weights."}
+    
+    __combiner_functions = {"sum" : sum, "mean" : statistics.mean, "median" : statistics.median}
+
+    def __init__(self,
+                 controllers: Mapping[str, Controller],
+                 mode: Literal["sum", "mean", "median"] = "mean",
+                 weights: Mapping[str, float] | None = None,
+                 ) -> None:
+        """
+        Create a modular controller from a mapping of inner controllers.
+        
+        Parameters
+        ----------
+        `controllers : Mapping[str, Controller]` - The inner controllers.
+        Given as a mapping of controller names to controller instances.
+        
+        `mode : "sum" | "mean" | "median"` - The output combination mode of the inner controller outputs.
+
+        `weights : Mapping[str, float] | None` - The output combination weights of the inner controllers.
+        Given as a mapping of controller names to weights.
+        If not given or  `None`, then all inner controllers are given equal weight.
+        """
+        self.__inner_controllers: dict[str, Controller] = dict(controllers)
+        self.__latest_output: float = 0.0
+        self.__mode: Callable[[list[float]], float] = self.__combiner_functions.get(mode, None)
+        if self.__mode is None:
+            raise ValueError(f"Invalid mode {mode!r}. Choose from {tuple(self.__combiner_functions)!r}.")
+        
+        if weights is None:
+            value: float = 1.0 / len(self.__inner_controllers)
+            self.__weights: dict[str, float] = {name : value for name in self.__inner_controllers}
+        else:
+            self.__weights: dict[str, float] = tuple(weights)
+    
+    @property
+    def inner_controllers(self) -> dict[str, Controller]:
+        """Get the inner controllers."""
+        return self.__inner_controllers
+    
+    @property
+    def latest_output(self) -> float:
+        """Get the latest control output."""
+        return self.__latest_output
+    
+    @property
+    def weights(self) -> dict[str, float]:
+        """Get the output combination weights of the inner controllers."""
+        return types.MappingProxyType(self.__weights)
+    
+    def update_weights(self, weights: Mapping[str, float]) -> None:
+        """
+        Set the output combination weights of the inner controllers.
+        
+        Parameters
+        ----------
+        `weights : Mapping[str, float]` - The output combination weights of the inner controllers.
+        Given as a mapping of controller names to weights.
+        """
+        self.__weights.update(weights)
+    
+    def set_weights_update_callback(self, callback: Callable[[float, Mapping[str, float]], Mapping[str, float]] | None) -> None:
+        """
+        Set a callback to update the output combination weights of the inner controllers.
+
+        The callback is called every time the control output is calculated, with the latest
+        control output and the current weights, and should return the updated weights.
+        If a weight is not present in the returned mapping, then its old value is preserved.
+
+        Parameters
+        ----------
+        `callback : Callable[[float, Mapping[str, float]], Mapping[str, float]]` - The callback to update the weights.
+        The signature is: `callback(latest_output, weights) -> updated_weights`.
+        """
+        self.__weights_update_callback = callback
+
+    @property
+    def mode(self) -> str:
+        """Get the output combination mode."""
+        return self.__mode.__name__
+
+    def control_output(self, error: float, delta_time: float, abs_tol: float | None = None) -> float:
+        """
+        Get the combined control output of the inner controllers.
+
+        Parameters
+        ----------
+        `error : float` - The error to the setpoint.
+        
+        `delta_time : float` - The time difference since the last call.
+        
+        `abs_tol : float` - The absolute tolerance for the time difference.
+        If the time difference is smaller than this value, then the integral
+        and derivative errors are not updated to avoid precision errors.
+        Set to `None` to disable.
+        
+        Returns
+        -------
+        `float` - The combined control output of the inner controllers.
+        """
+        if self.__weights_update_callback is not None:
+            self.__weights.update(self.__weights_update_callback(self.__latest_output, self.__weights))
+        outputs: list[float] = [(controller.control_output(error, delta_time, abs_tol) * self.__weights[name])
+                                for name, controller in self.__inner_controllers.items()]
+        self.__latest_output = self.__mode(outputs)
+        return self.__latest_output
+    
+    def reset(self) -> None:
+        """Reset all inner controllers."""
+        for controller in self.__inner_controllers.values():
+            controller.reset()
 
 class ControlledSystem:
     """
