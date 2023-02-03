@@ -25,18 +25,14 @@ __copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
 
 __all__ = ("Controller",
+           "ModularController",
+           "ControlledSystem",
            "SystemController",
            "AutoSystemController")
 
 def __dir__() -> tuple[str]:
-    """Get the names of module attributes."""
-    return sorted(__all__)
-
-def __getattr__(name: str) -> object:
-    """Get an attributes from the module."""
-    if name in __all__:
-        return globals()[name]
-    raise AttributeError(f"Module {__name__!r} has no attribute {name!r}.")
+    """Get the names of the module attributes."""
+    return __all__
 
 from abc import abstractmethod, abstractproperty
 from contextlib import contextmanager
@@ -44,7 +40,7 @@ import inspect
 from numbers import Real
 import threading
 import types
-from typing import Callable, Iterable, Literal, Mapping, Optional, final
+from typing import Callable, Literal, Mapping, Optional, final
 import statistics
 
 from control.controlutils import ControllerTimer
@@ -164,18 +160,18 @@ class ModularController(Controller):
         """
         self.__weights.update(weights)
     
-    def set_weights_update_callback(self, callback: Callable[[float, Mapping[str, float]], Mapping[str, float]] | None) -> None:
+    def set_weights_update_callback(self, callback: Callable[[float, float, Mapping[str, float]], Mapping[str, float]] | None) -> None:
         """
         Set a callback to update the output combination weights of the inner controllers.
 
-        The callback is called every time the control output is calculated, with the latest
-        control output and the current weights, and should return the updated weights.
+        The callback is called every time the control output is calculated, with the error to the
+        setpoint, latest output, and the current weights as arguments, and must return updated weights.
         If a weight is not present in the returned mapping, then its old value is preserved.
 
         Parameters
         ----------
-        `callback : Callable[[float, Mapping[str, float]], Mapping[str, float]]` - The callback to update the weights.
-        The signature is: `callback(latest_output, weights) -> updated_weights`.
+        `callback : Callable[[float, float, Mapping[str, float]], Mapping[str, float]]` - The callback to update the weights.
+        The signature is: `callback(error, latest_output, weights) -> updated_weights`.
         """
         self.__weights_update_callback = callback
 
@@ -204,7 +200,7 @@ class ModularController(Controller):
         `float` - The combined control output of the inner controllers.
         """
         if self.__weights_update_callback is not None:
-            self.__weights.update(self.__weights_update_callback(self.__latest_output, self.__weights))
+            self.__weights.update(self.__weights_update_callback(error, self.__latest_output, self.__weights))
         outputs: list[float] = [(controller.control_output(error, delta_time, abs_tol) * self.__weights[name])
                                 for name, controller in self.__inner_controllers.items()]
         self.__latest_output = self.__mode(outputs)
