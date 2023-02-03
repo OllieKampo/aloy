@@ -55,10 +55,10 @@ def __extract_args(*args_or_iterable: VT | Iterable[VT]) -> Iterator[VT]:
 class getitem_zip(collections.abc.Sequence, Generic[VT]):
     """A class for a sequence-like zip construct supporting `__len__` and `__getitem__`."""
     
-    __slots__ = ("__sequences",
-                 "__shortest",
-                 "__len",
-                 "__fill")
+    __slots__ = {"__sequences" : "The zipped sequences.",
+                 "__shortest" : "Whether zipping is up to the shortest or longest zipped sequence.",
+                 "__len" : "The resulting length of the zip.",
+                 "__fill" : "The fill value for missing items of shorter sequences."}
     
     @overload
     def __init__(self,
@@ -195,8 +195,8 @@ def cycle_for(sequence: Sequence[VT],
     By default the function checks it the number of cycles has been exceeded after yielding items
     from the sequence. Therefore, if the desired number of cycles is not divisible by the reciprocal
     of the length of the sequence such that `(cycles % (1.0 / len(iterable))) > 0` then; if `preempt`
-    if False the iterator will yield `roundup(len(iterables) * cycles)` number of items, and otherwise
-    if `preempt` is True it will yield `rounddown(len(iterables) * cycles)` number of items.
+    if False the iterator will yield `ceil(len(iterables) * cycles)` number of items, and otherwise
+    if `preempt` is True it will yield `floor(len(iterables) * cycles)` number of items.
     """
     cycles = Fraction(cycles)
     if cycles > 0:
