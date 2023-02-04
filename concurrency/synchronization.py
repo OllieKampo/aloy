@@ -1,6 +1,6 @@
 ###########################################################################
 ###########################################################################
-## Module containing functions and classes for concurrency/parallelism.  ##
+## Module containing functions and classes for synchronization.          ##
 ##                                                                       ##
 ## Copyright (C) 2022 Oliver Michael Kamperis                            ##
 ##                                                                       ##
@@ -19,7 +19,7 @@
 ###########################################################################
 ###########################################################################
 
-"""Module containing functions and classes for concurrency and parallelism."""
+"""Module containing functions and classes for synchronization."""
 
 __copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
@@ -31,13 +31,7 @@ __all__ = ("atomic_update",
 
 def __dir__() -> tuple[str]:
     """Get the names of module attributes."""
-    return sorted(__all__)
-
-def __getattr__(name: str) -> object:
-    """Get an attributes from the module."""
-    if name in __all__:
-        return globals()[name]
-    raise AttributeError(f"Module {__name__!r} has no attribute {name!r}.")
+    return __all__
 
 from collections import defaultdict
 import contextlib
@@ -146,47 +140,70 @@ class OwnedRLock(contextlib.AbstractContextManager):
 SP = typing.ParamSpec("SP")
 ST = typing.TypeVar("ST")
 
-def sync(lock: typing.Literal["all", "method"] = "all", group_name: str | None = None) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
+@typing.overload
+def sync() -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
+    ...
+
+@typing.overload
+def sync(lock: typing.Literal["all", "method"], group_name: str | None = None, /) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
+    ...
+
+@typing.overload
+def sync(*, group_name: str) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
+    ...
+
+def sync(lock: typing.Literal["all", "method"] | None = None, group_name: str | None = None) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
     """
     Decorate a method to declare it as synchronized in a synchronized class.
     
     Methods can be synchronized with an instance lock or a method lock.
     
     Whilst an instance-locked method is running, no other instance-locked or method-locked methods can run.
-    Whilst a method-locked method is running, no instance-locked methods can run.
-    Whilst a method-locked method is running, other method-locked methods can run.
+    Whilst a method-locked method is running, no instance-locked methods can run, but other method-locked methods can run.
     
     Instance-locked methods can call method-locked methods,
     but method-locked methods cannot call instance-locked methods
-    (as this would require the whole instance to be locked).
-    Method-locked methods can be grouped to all use the same lock if they access the same resources.
+    as this would require the whole instance to be locked.
+
+    Method-locked methods can be grouped to use the same lock if they access the same resources.
     Method-locked methods can call other method-locked methods, even if they are not in the same group.
-    However, if two method-locked method can call each other, they are automatically add to the same group.
+    However, if two method-locked methods load or call each other, they are automatically added to the same group, called a loop-lock group, to prevent deadlocks.
     
     Parameters
     ----------
-    `lock : {"all", "method"} = "all"` - The type of lock to use, "all" creates an instance lock, "method" creates a method lock.
+    `lock : "all" | "method" | None = None` - The type of lock to use, "all" creates an instance lock, "method" creates a method lock.
+    If not given or None, "all" is used if `group_name` is not given or None, otherwise "method" is used if `group_name` is given and not None.
     
-    `group_name : str | None = None` - The name of the group to add the method to, or None to not add the method to a group.
+    `group_name : str | None = None` - The name of the group to add the method to.
+    If not given or None, the method is not added to a group.
     Instance-locked methods cannot be added to a group.
     """
+    if lock is None:
+        if group_name is None:
+            lock = "all"
+        else: lock = "method"
+    
     def sync_dec(method: typing.Callable[SP, ST]) -> typing.Callable[SP, ST]:
         """Assign the lock name to the method's `__sync__` attribute."""
         if method.__name__.startswith("__") and method.__name__.endswith("__"):
             raise ValueError("Cannot synchronize a dunder method.")
         if not isinstance(lock, str):
-            raise TypeError("Lock name must be a string.")
+            raise TypeError(f"Lock name must be a string. Got; {lock} of type {type(lock)}.")
         if lock not in ("all", "method"):
-            raise ValueError("Lock name must be either 'all' or 'method'.")
-        method.__sync__ = lock
+            raise ValueError(f"Lock name must be either 'all' or 'method'. Got; {lock!r}.")
+        if group_name is not None and not isinstance(group_name, str):
+            raise TypeError(f"Group name must be a string. Got; {group_name} of type {type(group_name)}.")
         if lock == "all" and group_name is not None:
-            raise ValueError("Instance-locked methods cannot be added to a group.")
+            raise ValueError(f"Instance-locked methods cannot be added to a group. Got; {lock=}, {group_name=}.")
+        method.__sync__ = lock
         method.__group__ = group_name
         return method
+    
     return sync_dec
 
 def synchronize_method(lock: typing.Literal["all", "method"] = "all") -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
     """Decorate a method to synchronize it in a synchronized class."""
+
     def synchronize_method_decorator(method: typing.Callable[SP, ST]) -> typing.Callable[SP, ST]:
         """Return a synchronized method wrapper."""
         if lock == "all":
@@ -249,7 +266,7 @@ def synchronize_method(lock: typing.Literal["all", "method"] = "all") -> typing.
         return synchronize_method_wrapper
     return synchronize_method_decorator
 
-class synchronized_meta(type):
+class SynchronizedMeta(type):
     """Metaclass for synchronizing method calls for a class."""
     
     def __new__(cls, cls_name: str, bases: tuple[str], class_dict: dict) -> type:
@@ -261,7 +278,7 @@ class synchronized_meta(type):
         class_dict = create_if_not_exists_in_slots(class_dict,
                                                    __lock__="Instance-locked method synchronization lock.",
                                                    __method_locks__="Method-locked method synchronization locks.",
-                                                   __semaphore__="Method-locks semaphore (counts number of current locked method-locked methods).",
+                                                   __semaphore__="Method-locks semaphore (counts locked method-locked methods).",
                                                    __event__="Event signalling when all method-locked methods are unlocked.")
         
         ## Check through the class's attributes for methods that are to be synchronized.
@@ -296,10 +313,12 @@ class synchronized_meta(type):
                 if instance_locked_methods_intersection := (load_graph[method_name] & instance_locked_methods):
                     if len(instance_locked_methods_intersection) > 1:
                         instance_locked_methods_intersection = "', '".join(instance_locked_methods_intersection)
-                        raise ValueError(f"Method-locked method '{method_name}' cannot load or call the instance-locked methods: '{instance_locked_methods_intersection}'.")
+                        raise ValueError(f"Method-locked method '{method_name}' cannot load or call \
+                                         the instance-locked methods: '{instance_locked_methods_intersection}'.")
                     else:
                         instance_locked_methods_intersection = next(iter(instance_locked_methods_intersection))
-                        raise ValueError(f"Method-locked method '{method_name}' cannot load or call the instance-locked method: '{instance_locked_methods_intersection}'.")
+                        raise ValueError(f"Method-locked method '{method_name}' cannot load or call \
+                                         the instance-locked method: '{instance_locked_methods_intersection}'.")
             
             ## Group methods that are loaded by each other.
             loop_lock_numbers: ReversableDict[str, int] = ReversableDict()
@@ -307,7 +326,7 @@ class synchronized_meta(type):
             frontier: set[str] = set(lock_methods)
             while frontier:
                 method_name = frontier.pop()
-                if ((path := load_graph.get_path(method_name, method_name, raise_=False)) is not None
+                if ((path := load_graph.get_path(method_name, method_name, find_cycle=True, raise_=False)) is not None
                     and (path := set(path[:-1]))):
                     if looped_methods := (set(lock_methods) & path):
                         loop_lock_numbers.reversed_set(loop_lock_number_current, *looped_methods)
@@ -320,10 +339,10 @@ class synchronized_meta(type):
                         loop_lock_number_current += 1
                     frontier -= path
         
-        ## Warp the init method to ensure instances get the lock attributes.
+        ## Wrap the init method to ensure instances get the lock attributes.
         original_init = class_dict["__init__"]
         @functools.wraps(original_init)
-        def __init__(self, *args, **kws) -> None:
+        def __init__(self, *args, **kwargs) -> None:
             self.__lock__ = OwnedRLock(lock_name="Instance lock")
             self.__method_locks__ = {}
             loop_locks: dict[int, OwnedRLock] = {}
@@ -349,7 +368,7 @@ class synchronized_meta(type):
                     total_method_locks += 1
             self.__semaphore__ = threading.BoundedSemaphore(total_method_locks)
             self.__event__ = threading.Event()
-            original_init(self, *args, **kws)
+            original_init(self, *args, **kwargs)
         class_dict["__init__"] = __init__
         
         ## Ensure that the class has lock status attributes.
@@ -357,7 +376,7 @@ class synchronized_meta(type):
             """Return whether the instance is locked."""
             return self.__lock__.is_locked and self.__event__.is_set()
         class_dict["is_instance_locked"] = is_instance_locked
-        class_dict["lockable_methods"] = property(lambda self: tuple(self.__method_locks__.keys()))
+
         def is_method_locked(self, method_name: str | None = None) -> bool:
             """
             Return whether the method-locked method with the given name is locked.
@@ -370,9 +389,17 @@ class synchronized_meta(type):
                 return self.__method_locks__[method_name].is_locked
             else: raise AttributeError(f"Method '{method_name}' is not method-locked.")
         class_dict["is_method_locked"] = is_method_locked
-        
+        class_dict["lockable_methods"] = property(lambda self: tuple(self.__method_locks__.keys()))
+
+        if lock_methods:
+            class_dict["loop_locks"] = property(lambda self: loop_lock_numbers)
+            class_dict["group_locks"] = property(lambda self: lock_methods_groups)
+        else:
+            class_dict["loop_locks"] = property(lambda self: ReversableDict())
+            class_dict["group_locks"] = property(lambda self: ReversableDict())
+
         return super().__new__(cls, cls_name, bases, class_dict)
     
     def __dir__(self) -> typing.Iterable[str]:
         """Return the attributes of the class."""
-        return super().__dir__() + ["is_instance_locked", "lockable_methods", "is_method_locked"]
+        return super().__dir__() + ["is_instance_locked", "is_method_locked", "lockable_methods", "loop_locks", "group_locks"]
