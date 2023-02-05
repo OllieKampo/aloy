@@ -34,19 +34,19 @@ def __dir__() -> tuple[str]:
 import inspect
 import threading
 import time
-import typing
+from typing import Callable, Protocol, final, runtime_checkable
 
-@typing.runtime_checkable
-class Tickable(typing.Protocol):
+@runtime_checkable
+class Tickable(Protocol):
     """A protocol for tickable objects."""
     
     def tick(self) -> None:
         """Tick the object."""
         ...
 
-@typing.final
+@final
 class ClockThread:
-    """A thread that can be used to run a clock."""
+    """A thread that can be used to run a clock for regularly calling functions at a given tick rate."""
 
     __slots__ = {"__items" : "The items to tick.",
                  "__atomic_update_lock" : "A lock to ensure that start and stop calls are atomic.",
@@ -56,7 +56,7 @@ class ClockThread:
                  "__stopped" : "Event handling whether the clock should stop."}
     
     def __init__(self,
-                 *items: Tickable | typing.Callable[[], None],
+                 *items: Tickable | Callable[[], None],
                  tick_rate: int = 10,
                  check_items: bool = True
                  ) -> None:
@@ -76,12 +76,10 @@ class ClockThread:
 
         `check_items : bool = True` - Whether to check that all items implement `tick()`.
         """
-        ## Scheduled items.
-        self.__items: list[typing.Callable[[], None]] = []
-        self.schedule(*items, check_items=check_items)
-
-        ## Parameters for run methods.
+        ## Schedule items.
         self.__atomic_update_lock = threading.Lock()
+        self.__items: list[Callable[[], None]] = []
+        self.schedule(*items, check_items=check_items)
         self.tick_rate = tick_rate
 
         ## Variables for the clock thread.
@@ -96,7 +94,7 @@ class ClockThread:
         """Return the items scheduled to be ticked by the clock."""
         return self.__items
     
-    def schedule(self, *items: Tickable | typing.Callable[[], None], check_items: bool = True) -> None:
+    def schedule(self, *items: Tickable | Callable[[], None], check_items: bool = True) -> None:
         """Schedule an item to be ticked by the clock."""
         with self.__atomic_update_lock:
             for item in items:
