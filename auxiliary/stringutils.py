@@ -25,9 +25,9 @@
 import collections
 import functools
 import itertools
-import math
 import textwrap
 from typing import Iterable, final
+import warnings
 
 @final
 @functools.total_ordering
@@ -38,6 +38,8 @@ class StringBuilder(collections.abc.Sequence):
     String builders allow efficient string construction by repeated
     concatenation with linear runtime cost, using either the in-place
     addition operator `+=`, or the `append()` and `extend()` methods.
+    Note that the `+` operator creates a new string builder containing
+    a copy of the original string builder and the added string.
     
     In constrast, concatenation on immutable sequences like strings by
     addition (with the `+` or `+=` operators) results in a new object.
@@ -90,7 +92,8 @@ class StringBuilder(collections.abc.Sequence):
     
     def __add__(self, other: str) -> "StringBuilder":
         """Return the concatenation of the string builder and another string as a new string builder."""
-        builder = StringBuilder(self.compile())
+        builder = StringBuilder()
+        builder.extend(self.__strings)
         builder.append(other)
         return builder
     
@@ -112,7 +115,7 @@ class StringBuilder(collections.abc.Sequence):
         """Append a string to the string builder in-place."""
         self.__strings.append(string)
     
-    def extend(self, strings: Iterable[str], sep: str | None = None) -> None:
+    def extend(self, strings: Iterable[str], *, sep: str | None = None) -> None:
         """
         Extend the string builder with a sequence of strings in-place.
         
@@ -130,40 +133,54 @@ class StringBuilder(collections.abc.Sequence):
         return self.__compiled
 
 def center_text(text: str,
-                centering_width: int = 120,
+                wrapping_width: int = 100,
+                centering_width: int | float = 1.2,
+                framing_width: int | float = 1.1,
                 prefix: str = "\n",
                 postfix: str = "\n",
-                framing_width: int | float = 0.8,
                 frame_before: bool = True,
                 frame_after: bool = True,
                 framing_char: str = '=',
                 vbar_left: str = '',
                 vbar_right: str = ''
                 ) -> str:
-    """Center a string for pretty printing to the console."""
+    """
+    Center a string for pretty printing to the console.
+    
+    The string is wrapped to the given `wrapping_width`,
+    centered to the given `centering_width`, and framed
+    to the given `framing_width` with `framing_char`.
+    If `vbar_left` and `vbar_right` are given, they are
+    added to the left and right of each wrapped line.
+    """
     centered_text = StringBuilder()
     
-    if centering_width <= 0:
-        raise ValueError(f"Centering width must be between greater than 0. Got; {centering_width}.")
-    
+    if wrapping_width <= 0:
+        raise ValueError(f"Wrapping width must be between greater than 0. Got; {wrapping_width}.")
+    if isinstance(centering_width, float):
+        centering_width = int(centering_width * wrapping_width)
+    centering_width = max(wrapping_width, centering_width)
     if isinstance(framing_width, float):
-        framing_width = max(0, min(centering_width, int(framing_width * centering_width)))
-    elif framing_width > centering_width:
-        framing_width = centering_width
+        framing_width = int(framing_width * wrapping_width)
+    framing_width = max(0, min(centering_width, framing_width))
     
-    free_space: int = framing_width - (len(vbar_left) + len(vbar_right))
-    if free_space < 0:
-        raise ValueError("Framing width is too small to accommodate the vertical bars.")
-    line_iter = itertools.chain(*[textwrap.wrap(f"{vbar_left + (' ' * math.floor((free_space - len(part)) / 2)):>s}{part}{(' ' * math.ceil((free_space - len(part)) / 2)) + vbar_right:<s}",
-                                                width=centering_width, replace_whitespace=False, drop_whitespace=False) for part in text.split("\n")])
+    free_space: int = wrapping_width - (len(vbar_left) + len(vbar_right))
+    if free_space <= 0:
+        raise ValueError("Wrapping width is too small to accommodate the vertical bars.")
+    elif free_space < wrapping_width * 0.1:
+        warnings.warn("Wrapping width is very small compared to the size of vertical bars.")
+    
+    line_iter = itertools.chain(*[textwrap.wrap(f"{part:^{free_space}}", width=free_space,
+                                                replace_whitespace=False, drop_whitespace=False)
+                                  for part in text.split("\n")])
     
     if prefix:
         centered_text += prefix
     if framing_width != 0 and frame_before:
-        centered_text += f"{(framing_char * framing_width).center(centering_width)}\n"
-    centered_text.extend((line.center(centering_width) for line in line_iter), sep="\n")
+        centered_text += f"{(framing_char * framing_width):^{centering_width}}\n"
+    centered_text.extend((f"{vbar_left}{line}{vbar_right}".center(centering_width) for line in line_iter), sep="\n")
     if framing_width != 0 and frame_after:
-        centered_text += f"\n{(framing_char * framing_width).center(centering_width)}"
+        centered_text += f"\n{(framing_char * framing_width):^{centering_width}}"
     if postfix:
         centered_text += postfix
     
