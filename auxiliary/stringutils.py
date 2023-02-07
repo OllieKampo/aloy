@@ -115,15 +115,27 @@ class StringBuilder(collections.abc.Sequence):
         """Append a string to the string builder in-place."""
         self.__strings.append(string)
     
-    def extend(self, strings: Iterable[str], *, sep: str | None = None) -> None:
+    def append_all(self, *strings: str, sep: str | None = None, end: str | None = None) -> None:
+        """
+        Append a sequence of strings to the string builder in-place.
+        
+        If `sep` is given and not None, it is inserted between each string in the sequence.
+        If `end` is given and not None, it is appended to the end of the sequence.
+        """
+        self.__strings.extend(strings)
+    
+    def extend(self, strings: Iterable[str], *, sep: str | None = None, end: str | None = None) -> None:
         """
         Extend the string builder with a sequence of strings in-place.
         
         If `sep` is given and not None, it is inserted between each string in the sequence.
+        If `end` is given and not None, it is appended to the end of the sequence.
         """
         if sep is not None:
             self.__strings.append(sep.join(strings))
         else: self.__strings.extend(strings)
+        if end is not None:
+            self.__strings.append(end)
     
     def compile(self) -> str:
         """Compile and return the string builder into a string."""
