@@ -295,3 +295,7 @@ def find_all(iterable: Iterable[VT],
 def filter_not_none(iterable: Iterable[VT]) -> Iterator[VT]:
     """Return an iterator over the items of the iterable which are not None."""
     return (arg for arg in iterable if arg is not None)
+
+def alternate(*iterables: Iterable[VT]) -> Iterator[VT]:
+    """Return an iterator which alternates between yielding items from the given iterables."""
+    yield from itertools.chain.from_iterable(itertools.zip_longest(*iterables))

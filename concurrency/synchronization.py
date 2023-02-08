@@ -184,7 +184,7 @@ def sync(lock: typing.Literal["all", "method"] | None = None, group_name: str | 
         else: lock = "method"
     
     def sync_dec(method: typing.Callable[SP, ST]) -> typing.Callable[SP, ST]:
-        """Assign the lock name to the method's `__sync__` attribute."""
+        """Assign the lock name to the method's `__sync__` and `__group__` attributes."""
         if method.__name__.startswith("__") and method.__name__.endswith("__"):
             raise ValueError("Cannot synchronize a dunder method.")
         if not isinstance(lock, str):

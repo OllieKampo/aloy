@@ -23,14 +23,12 @@
 """Module defining utility functions for manipulating strings."""
 
 import collections
-import functools
 import itertools
 import textwrap
-from typing import Iterable, final
+from typing import Iterable, final, overload
 import warnings
 
 @final
-@functools.total_ordering
 class StringBuilder(collections.abc.Sequence):
     """
     Class defining a string builder.
@@ -56,8 +54,8 @@ class StringBuilder(collections.abc.Sequence):
         self.__strings: list[str] = []
     
     def __repr__(self) -> str:
-        """Return the compiled string."""
-        return self.compile()
+        """Return an instansiable string representation of the string builder."""
+        return f"{self.__class__.__name__}({self.__compiled + (''.join(self.__strings))!r})"
     
     def __getitem__(self, index: int) -> str:
         """Return the character at the given index."""
@@ -66,24 +64,18 @@ class StringBuilder(collections.abc.Sequence):
         raise IndexError(f"Index {index} out of range.")
     
     def __len__(self) -> int:
-        """Return the current length of the compiled string."""
-        return len(self.compile())
+        """Return the current length of the string builder."""
+        return len(self.__compiled)
     
-    def __eq__(self, __o: object) -> bool:
-        """Return whether the string builder is equal to another object."""
-        if isinstance(__o, str):
-            return self.compile() == __o
-        elif isinstance(__o, StringBuilder):
-            return self.compile() == __o.compile()
-        return NotImplemented
+    @property
+    def queued_appends(self) -> int:
+        """Return the number of strings queued to be appended."""
+        return len(self.__strings)
     
-    def __lt__(self, __o: object) -> bool:
-        """Return whether the string builder is less than another object."""
-        if isinstance(__o, str):
-            return self.compile() == __o
-        elif isinstance(__o, StringBuilder):
-            return self.compile() == __o.compile()
-        return NotImplemented
+    @property
+    def queued_length(self) -> int:
+        """Return the total length of the strings queued to be appended."""
+        return sum(map(len, self.__strings))
     
     def __iadd__(self, other: str) -> "StringBuilder":
         """Concatenate the string builder with another string in-place."""
@@ -92,15 +84,16 @@ class StringBuilder(collections.abc.Sequence):
     
     def __add__(self, other: str) -> "StringBuilder":
         """Return the concatenation of the string builder and another string as a new string builder."""
-        builder = StringBuilder()
+        builder = StringBuilder(self.__compiled)
         builder.extend(self.__strings)
         builder.append(other)
         return builder
     
     def __radd__(self, other: str) -> "StringBuilder":
         """Return the concatenation of the string builder and another string as a new string builder."""
-        builder = StringBuilder(self.compile())
-        builder.append(other)
+        builder = StringBuilder(other)
+        builder.append(self.__compiled)
+        builder.extend(self.__strings)
         return builder
     
     def __format__(self, __format_spec: str) -> str:
@@ -109,11 +102,15 @@ class StringBuilder(collections.abc.Sequence):
     
     def copy(self) -> "StringBuilder":
         """Return a copy of the string builder."""
-        return self.__class__(self.compile())
+        builder = self.__class__(self.__compiled)
+        builder.extend(self.__strings)
+        return builder
     
-    def append(self, string: str) -> None:
+    def append(self, string: str, *, end: str | None = None) -> None:
         """Append a string to the string builder in-place."""
         self.__strings.append(string)
+        if end is not None:
+            self.__strings.append(end)
     
     def append_all(self, *strings: str, sep: str | None = None, end: str | None = None) -> None:
         """
@@ -122,7 +119,7 @@ class StringBuilder(collections.abc.Sequence):
         If `sep` is given and not None, it is inserted between each string in the sequence.
         If `end` is given and not None, it is appended to the end of the sequence.
         """
-        self.__strings.extend(strings)
+        self.extend(strings, sep=sep, end=end)
     
     def extend(self, strings: Iterable[str], *, sep: str | None = None, end: str | None = None) -> None:
         """
@@ -136,6 +133,33 @@ class StringBuilder(collections.abc.Sequence):
         else: self.__strings.extend(strings)
         if end is not None:
             self.__strings.append(end)
+    
+    @overload
+    def duplicate(self, back: int, times: int = 1, /) -> None: ...
+
+    @overload
+    def duplicate(self, skip: int, back: int, times: int = 1, /) -> None: ...
+
+    def duplicate(self, skip: int, back: int | None = None, times: int | None = None, /) -> None:
+        """
+        Duplicate in-place the last `back` appends to the string
+        builder `times` times ignoring the last `skip` appends.
+        
+        If `back` is negative, it is treated as zero.
+        If `times` is negative, it is treated as zero.
+        """
+        if back is None:
+            back = skip
+            skip = 0
+            times = 1
+        if times is None:
+            times = 1
+        back = min(len(self.__strings), max(back, 0))
+        skip = min(back, max(skip, 0))
+        times = max(times, 0)
+        if skip == 0:
+            self.__strings.extend(self.__strings[-back:] * times)
+        else: self.__strings.extend(self.__strings[-back:-skip] * times)
     
     def compile(self) -> str:
         """Compile and return the string builder into a string."""

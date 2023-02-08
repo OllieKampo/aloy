@@ -10,173 +10,29 @@ import numpy as np
 from auxiliary.getters import default_get
 from datastructures.disjointset import DisjointSet
 
-## https://dev.bostondynamics.com/docs/concepts/autonomy/graphnav_map_structure
+# @enum.unique
+# class DistanceMeasure(enum.Enum):
+#     Euclidean = "Euclidean Distance"
+#     Manhatten = "Manhatten Distance"
+#     Chebyshev = "Chebyshev Distance"
 
-CT = TypeVar("CT", bound=Hashable)
-IT = TypeVar("IT", bound=Hashable)
+# def distance(self, other: "PosVertex[IT, CT]", measure: DistanceMeasure = DistanceMeasure.Euclidean) -> float:
+#     """Returns the distance between this vertex and another vertex."""
+#     if self.dimensions != other.dimensions:
+#         raise ValueError("Cannot measure distance between vertices in different dimensional vector spaces.")
+#     if measure == DistanceMeasure.Euclidean:
+#         return np.linalg.norm(self.at - other.at)
+#     elif measure == DistanceMeasure.Manhatten:
+#         return np.sum(np.abs(self.at - other.at))
+#     elif measure == DistanceMeasure.Chebyshev:
+#         return np.max(np.abs(self.at - other.at))
+#     else:
+#         raise ValueError(f"Unknown distance measure: {measure}")
+
+VT = TypeVar("VT", bound=Hashable)
 WT = TypeVar("WT", bound=Hashable)
 
-@enum.unique
-class DistanceMeasure(enum.Enum):
-    Euclidean = "Euclidean Distance"
-    Manhatten = "Manhatten Distance"
-    Chebyshev = "Chebyshev Distance"
-
-@dataclasses.dataclass(frozen=True)
-class Vertex(Generic[IT]):
-    """
-    Class defining a graph vertex.
-
-    A standard vertex is defined simply by an identifier.
-    The hash of the vertex is the hash of the identifier.
-
-    Fields
-    ------
-    `id : IT` - The vertex identifier.
-    """
-    id: IT
-
-    def __hash__(self) -> int:
-        return hash(self.id)
-
-    @property
-    def as_tuple(self) -> tuple[IT]:
-        return dataclasses.astuple(self)
-
-@dataclasses.dataclass(frozen=True)
-class ValVertex(Vertex[IT],
-                  Generic[IT, WT]):
-    """
-    A class defining a value vertex.
-
-    A value vertex is defined by an identifier and a value.
-
-    Fields
-    ------
-    `id : IT` - The vertex identifier.
-
-    `val : WT` - The vertex value.
-    """
-    val: WT = 0
-    
-    @property
-    def as_tuple(self) -> tuple[IT, WT]:
-        return dataclasses.astuple(self)
-
-@dataclasses.dataclass(frozen=True)
-class PosVertex(Vertex[IT],
-                       Generic[IT, CT]):
-    """
-    Class defining a position vertex.
-
-    A position vertex is defined by an identifier and a position.
-
-    Fields
-    ------
-    `id : IT` - The vertex identifier.
-
-    `pos : numpy.ndarray[CT]` - The vertex position.
-    Accepts any iterable as input, but will be converted to a numpy array.
-
-    Example Usage
-    -------------
-    ```
-    from jinx.graph import PosVertex
-
-    ## Define such a vector in a 2-dimensional vector space.
-    >>> vertex = PosVertex(id="a", pos=(1, 2))
-    >>> vertex
-    PosVertex(id='a', pos=array([1., 2.]))
-    """
-
-    pos: np.ndarray = dataclasses.field(default_factory=lambda: np.array([0.0, 0.0, 0.0]))
-    
-    def __post_init__(self) -> None:
-        """Converts the position to a numpy array if it is not already one."""
-        if not isinstance(self.at, np.ndarray):
-            object.__setattr__(self, "at", np.array(self.at))
-    
-    @property
-    def as_tuple(self) -> tuple[IT, CT]:
-        return dataclasses.astuple(self)
-    
-    @property
-    def dimensions(self) -> int:
-        """Returns the number of dimensions of the coordinate vertex."""
-        return self.at.shape[0]
-    
-    @property
-    def magnitude(self) -> float:
-        """Returns the magnitude of the coordinate vertex."""
-        return np.linalg.norm(self.at)
-    
-    def distance(self, other: "PosVertex[IT, CT]", measure: DistanceMeasure = DistanceMeasure.Euclidean) -> float:
-        """Returns the distance between this vertex and another vertex."""
-        if self.dimensions != other.dimensions:
-            raise ValueError("Cannot measure distance between vertices in different dimensional vector spaces.")
-        if measure == DistanceMeasure.Euclidean:
-            return np.linalg.norm(self.at - other.at)
-        elif measure == DistanceMeasure.Manhatten:
-            return np.sum(np.abs(self.at - other.at))
-        elif measure == DistanceMeasure.Chebyshev:
-            return np.max(np.abs(self.at - other.at))
-        else:
-            raise ValueError(f"Unknown distance measure: {measure}")
-
-@dataclasses.dataclass(frozen=True)
-class PosValVertex(PosVertex[IT, CT],
-                   ValVertex[IT, WT],
-                   Generic[IT, CT, WT]):
-    """
-    Class defining a position value vertex.
-
-    A position value vertex is defined by an identifier, a position, and a value.
-    
-    Fields
-    ------
-    `id : IT` - The vertex identifier.
-
-    `val : WT` - The vertex value.
-
-    `pos : numpy.ndarray[CT]` - The vertex position.
-    Accepts any iterable as input, but will be converted to a numpy array.
-
-    Example Usage:
-    --------------
-    ```
-    from jinx.graph import PosValVertex
-    
-    ## Define such a vector in a 2-dimensional vector space.
-    >>> vertex = PosValVertex(id="a", val=0.5, at=(1, 2))
-    >>> vertex
-    PosValVertex(id='a', val=0.5, pos=array([1., 2.]))
-    ```
-    """
-    
-    @property
-    def as_tuple(self) -> tuple[IT, CT, WT]:
-        return dataclasses.astuple(self)
-
-VT = TypeVar("VT", bound=Hashable, covariant=True)
-
-@dataclasses.dataclass(frozen=True)
-class Edge(Generic[VT]):
-    start: VT
-    end: VT
-    
-    @property
-    def as_tuple(self) -> tuple[VT, VT]:
-        return dataclasses.astuple(self)
-
-@dataclasses.dataclass(frozen=True)
-class WeightedEdge(Edge[VT], Generic[VT, WT]):
-    weight: WT
-    
-    @property
-    def as_tuple(self) -> tuple[VT, VT, WT]:
-        return dataclasses.astuple(self)
-
-class Graph(collections.abc.MutableMapping, Generic[VT]):
+class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
     """
     Represents a graph as a vertex set and an adjacency mapping.
     
@@ -211,7 +67,6 @@ class Graph(collections.abc.MutableMapping, Generic[VT]):
     """
     
     __slots__ = {"__adjacency_mapping" : "The dictionary containing the graph's adjacency mapping.",
-                 "__vertex_values" : "The dictionary containing the graph's vertex values.",
                  "__edge_weights" : "The dictionary containing the graph's edge weights.",
                  "__vertex_data" : "The data attributes of the vertices in the graph.",
                  "__edge_data" : "The data attributes of the edges in the graph.",
@@ -219,9 +74,9 @@ class Graph(collections.abc.MutableMapping, Generic[VT]):
                  "__allow_loops" : "Whether the graph allows loops or not."}
     
     def __init__(self,
-                 graph: Mapping[VT, VT | set[VT] | None] | None = None, *,
-                 vertices: Iterable[VT] | None = None,
-                 edges: Iterable[tuple[VT, VT | set[VT] | None]] | None = None,
+                 graph: Mapping[VT, VT | set[VT] | None] = {}, *,
+                 vertices: Iterable[VT] = [],
+                 edges: Iterable[tuple[VT, VT | set[VT] | None]] = [],
                  vertex_data: Mapping[VT, dict[str, Any]] = {},
                  edge_data: Mapping[tuple[VT, VT], dict[str, Any]] = {},
                  directed: bool = False,
@@ -260,20 +115,20 @@ class Graph(collections.abc.MutableMapping, Generic[VT]):
         `allow_loops : bool` - Whether the graph allows loops or not.
         If True, the graph allows loops, and a vertex can be adjacent to itself.
         """
+        self.__directed: bool = directed
+        self.__allow_loops: bool = allow_loops
+        
         self.__adjacency_mapping: dict[VT, set[VT]] = {}
         for node, connections in itertools.chain(graph.items(), zip(vertices, itertools.repeat(None)), edges):
             self[node] = connections
         self.__edge_weights: dict[tuple[VT, VT], WT] = {}
-        
+
         self.__vertex_data: dict[VT, dict[str, Any]] = {}
         for vertex, data in vertex_data.items():
             self.update_vertex_data(vertex, data)
         self.__edge_data: dict[tuple[VT, VT], dict[str, Any]] = {}
         for edge, data in edge_data.items():
             self.update_edge_data(edge, data)
-        
-        self.__directed: bool = directed
-        self.__allow_loops: bool = allow_loops
     
     def __str__(self) -> str:
         return str(self.__adjacency_mapping)
@@ -323,6 +178,9 @@ class Graph(collections.abc.MutableMapping, Generic[VT]):
         if not self.__directed:
             for connected_vertex in new_connections:
                 self.__adjacency_mapping.setdefault(connected_vertex, set()).add(vertex)
+        else:
+            for connected_vertex in new_connections:
+                self.__adjacency_mapping.setdefault(connected_vertex, set())
     
     def __delitem__(self,
                     vertex_or_edge: VT | tuple[VT, VT]
@@ -435,7 +293,7 @@ class Graph(collections.abc.MutableMapping, Generic[VT]):
         """Get the given data attribute of the given edge."""
         return self.__edge_data[(vertex, adjacent)].get(name, default)
     
-    def edges(self) -> KeysView[Edge[VT]]:
+    def edges(self) -> KeysView[tuple[VT, VT]]:
         """The set of edges in the graph."""
         return self.__edge_weights.keys()
 
@@ -517,13 +375,12 @@ class Graph(collections.abc.MutableMapping, Generic[VT]):
             and not find_cycle):
             return []
         
+        visited: set[VT] = {start_vertex}
         frontier: deque[VT] = deque([start_vertex])
         path: dict[VT, VT | None] = {start_vertex : None}
-        visited: set[VT] = set()
         
         while frontier:
             vertex: VT = frontier.popleft()
-            
             connected_to: set[VT] = self[vertex]
             new_connections: set[VT] = (connected_to - visited)
             
@@ -532,10 +389,10 @@ class Graph(collections.abc.MutableMapping, Generic[VT]):
 
                 if new_vertex == end_vertex:
                     final_path = [new_vertex]
-                    node = vertex
-                    while node is not None:
-                        final_path.append(node)
-                        node = path[node]
+                    v = vertex
+                    while v is not None:
+                        final_path.append(v)
+                        v = path[v]
                     final_path.reverse()
                     return final_path
                 

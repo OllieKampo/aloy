@@ -1,11 +1,13 @@
 from abc import abstractmethod, ABCMeta
 import functools
-from typing import Callable
+from typing import Callable, final
 import _collections_abc
 import threading
 import typing
-from auxiliary.metaclasses import create_if_not_exists_in_slots
 
+import pyglet
+
+from auxiliary.metaclasses import create_if_not_exists_in_slots
 from concurrency.clocks import ClockThread
 
 class Observable(metaclass=ABCMeta):
@@ -18,11 +20,17 @@ class Observable(metaclass=ABCMeta):
                  "__clock" : "The clock that updates the observers.",
                  "__lock" : "Lock that ensure atomic updates to the observable."}
     
-    def __init__(self, tick_rate: int = 10) -> None:
+    def __init__(self, clock: ClockThread | pyglet.clock.Clock | None = None, tick_rate: int = 10) -> None:
         self.__observers: set["Observer"] = set()
         self.__changed: set["Observer"] = set()
         self.__lock = threading.RLock()
-        self.__clock: ClockThread = ClockThread(self.__update_observers, tick_rate=tick_rate)
+        self.__clock: ClockThread | pyglet.clock.Clock = clock
+        if clock is None:
+            self.__clock = ClockThread(self.__update_observers, tick_rate=tick_rate)
+        elif isinstance(clock, ClockThread):
+            self.__clock.schedule(self.__update_observers)
+        elif isinstance(clock, pyglet.clock.Clock):
+            self.__clock.schedule_interval(self.__update_observers, 1.0 / tick_rate)
         self.__clock.start()
     
     @property
@@ -44,10 +52,18 @@ class Observable(metaclass=ABCMeta):
         """Remove observers from this observable."""
         with self.__lock:
             remaining_observers = self.__observers.difference(observers)
+            removed_observers = self.__observers.intersection(observers)
             self.__observers = remaining_observers
-            for observer in remaining_observers:
+            for observer in removed_observers:
                 observer._remove_observable(self)
     
+    def clear_observers(self) -> None:
+        """Clear all observers from this observable."""
+        with self.__lock:
+            for observer in self.__observers:
+                observer._remove_observable(self)
+            self.__observers.clear()
+
     @property
     def tick_rate(self) -> int:
         """Return the tick rate of the internal update clock."""
@@ -79,7 +95,7 @@ class Observable(metaclass=ABCMeta):
         """Update all observers that have been notified."""
         observers = self.__changed.copy()
         for observer in observers:
-            observer._update(self)
+            observer._sync_update_observer(self)
         self.__changed.clear()
     
     def enable_updates(self) -> None:
@@ -110,77 +126,78 @@ def notifies_observables(function: Callable[SP, ST]) -> Callable[SP, ST]:
     @functools.wraps(function)
     def wrapper(self, *args: SP.args, **kwargs: SP.kwargs) -> ST:
         return_value = function(self, *args, **kwargs)
-        with self.__lock__:
-            for observable in self.__observables__:
+        with self.__lock:
+            for observable in self.__observables:
                 observable.notify_all()
         return return_value
     return wrapper
 
-class _ObserverMeta(type):
-    def __new__(cls, cls_name: str, bases: tuple[str], class_dict: dict) -> type:
-        """Metaclass for observer class."""
-        class_dict = create_if_not_exists_in_slots(class_dict,
-                                                   __observables__="The observables being observed or updated.",
-                                                   __lock__="Lock that ensures atomic updates to the observer or updater.")
-        
-        original_init = class_dict["__init__"]
-        @functools.wraps(original_init)
-        def __init__(self, *args, **kwargs) -> None:
-            self.__observables__: list[Observable] = []
-            original_init(self, *args, **kwargs)
-        class_dict["__init__"] = __init__
-        
-        class_dict["__lock__"] = threading.Lock()
-
-        return super().__new__(cls, cls_name, bases, class_dict)
-
-class Observer(_collections_abc.Hashable, metaclass=_ObserverMeta):
+class Observer:
     """
     Mixin for creating observer classes.
     
     Observer classes must implement the `update(observable: Observable) -> None` method and be hashable.
     """
 
+    __slots__ = ("__observables", "__lock")
+
+    def __init__(self) -> None:
+        """Create an observer."""
+        self.__observables: list[Observable] = []
+        self.__lock = threading.RLock()
+    
     @abstractmethod
-    def update(self, observable: Observable) -> None:
+    def update_observer(self, observable: Observable) -> None:
         """Update the observer."""
         raise NotImplementedError
     
-    def _update(self, observable: Observable) -> None:
-        """Update the observer."""
-        with self.__lock__:
-            self.update(observable)
+    @final
+    def _sync_update_observer(self, observable: Observable) -> None:
+        """Synchronized version of the update method called by observables."""
+        with self.__lock:
+            self.update_observer(observable)
     
     @property
     def observables(self) -> list[Observable]:
         """Return the observable being observed."""
-        return self.__observables__
+        return self.__observables
     
+    @final
     def _add_observable(self, observable: Observable) -> None:
         """Add an observable to the observer."""
-        with self.__lock__:
-            self.__observables__.append(observable)
+        with self.__lock:
+            self.__observables.append(observable)
     
+    @final
     def _remove_observable(self, observable: Observable) -> None:
         """Remove an observable from the observer."""
-        with self.__lock__:
-            self.__observables__.remove(observable)
+        with self.__lock:
+            self.__observables.remove(observable)
 
-class Updater(metaclass=_ObserverMeta):
+class Updater:
     """Mixin for creating updater classes."""
+
+    __slots__ = ("__observables", "__lock")
+
+    def __init__(self) -> None:
+        """Create an observer."""
+        self.__observables: list[Observable] = []
+        self.__lock = threading.Lock()
 
     @property
     def observables(self) -> list[Observable]:
         """Return the observables being updated."""
-        return self.__observables__
+        return self.__observables
     
+    @final
     def add_observables(self, *observables: Observable) -> None:
         """Add observables to the updater."""
-        with self.__lock__:
-            self.__observables__.extend(observables)
+        with self.__lock:
+            self.__observables.extend(observables)
     
+    @final
     def remove_observables(self, *observables: Observable) -> None:
         """Remove observables from the updater."""
-        with self.__lock__:
+        with self.__lock:
             for observable in observables:
-                self.__observables__.remove(observable)
+                self.__observables.remove(observable)

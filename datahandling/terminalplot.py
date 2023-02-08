@@ -8,11 +8,15 @@ from auxiliary.stringutils import StringBuilder
 def make_terminal_relplot(x_data: np.ndarray,
                           y_data: np.ndarray,
                           plot_width: int,
-                          plot_height: int,
-                          title: str,
+                          plot_height: int, /,
+                          title: str | None = None,
                           fill: bool = False,
                           markers: list[str] = ["x", "o", "+"],
-                          legend: list[str] | None = None
+                          legend: list[str] | None = None,
+                          x_min: np.number = -np.inf,
+                          x_max: np.number = np.inf,
+                          y_min: np.number = -np.inf,
+                          y_max: np.number = np.inf
                           ) -> str:
     """
     Make a simple relational line plot in the terminal using ASCII characters.
@@ -30,17 +34,10 @@ def make_terminal_relplot(x_data: np.ndarray,
     if y_data.shape[-1] < plot_height:
         warnings.warn("y_data has fewer elements than the plot height. Plot will be sparse.")
     
-    ## Create the string builder and add the title
-    string_builder = StringBuilder(title.center(plot_width * 2))
-    string_builder.append("\n")
-    string_builder.append(("-" * (len(title) + 2)).center(plot_width * 2))
-    if legend is not None:
-        if len(legend) != x_data.shape[0]:
-            raise ValueError("Legend must have the same number of elements as x_data has rows")
-        string_builder.append("\n")
-        string_builder.append((" || ".join((f"{label} [{markers[i % len(markers)]}]"
-                                            for i, label in enumerate(legend)))).center(plot_width * 2))
-    
+    ## Clip the data to the given limits
+    x_data = np.clip(x_data, x_min, x_max)
+    y_data = np.clip(y_data, y_min, y_max)
+
     ## Normalise the data to fit the plot
     x_interval = x_data.max() - x_data.min()
     y_interval = y_data.max() - y_data.min()
@@ -55,23 +52,33 @@ def make_terminal_relplot(x_data: np.ndarray,
         for i in range(normalised_x_data.shape[0]):
             update_grid(normalised_x_data[i], normalised_y_data[i], grid, markers[i % len(markers)], fill)
     
-    ## Add the y-axis, ticks and labels, and the plot itself
+    ## Calculate the left-padding for the y-axis ticks and the x-axis tick gap
     y_tick_padding = len(f"{y_data.max():.2f}")
     x_tick_gap = len(f"{x_data.max():.2f}") + 1
-    string_builder.append("\n")
+
+    ## Create the string builder and add the title and legend
+    string_builder = StringBuilder()
+    if title is not None:
+        string_builder.append_all(" " * (y_tick_padding + 4), ("-" * (len(title) + 2)).center(plot_width * 2))
+        string_builder.append_all("\n", " " * (y_tick_padding + 4), title.center(plot_width * 2), "\n")
+        string_builder.duplicate(4, 7)
+    if legend is not None:
+        if len(legend) != x_data.shape[0]:
+            raise ValueError("Legend must have the same number of elements as x_data has rows")
+        string_builder.append_all("\n", " " * (y_tick_padding + 4))
+        string_builder.append((" || ".join((f"{label} [{markers[i % len(markers)]}]"
+                                            for i, label in enumerate(legend)))).center(plot_width * 2), end="\n")
+    
+    ## Add the y-axis, ticks and labels, and the plot itself
     for index, row in zip(range(plot_height, 0, -1), reversed(grid)):
-        string_builder.append(f"{y_interval * (index / (plot_height - 1)) + y_data.min():<{y_tick_padding}.2f} | ")
-        string_builder.extend(row, sep=" ")
-        string_builder.append("\n")
+        string_builder.append(f" {y_interval * (index / (plot_height - 1)) + y_data.min():<{y_tick_padding}.2f} | ")
+        string_builder.extend(row, sep=" ", end="\n")
     
     ## Add the x-axis, ticks and labels
-    string_builder.append(" " * (y_tick_padding + 1))
-    string_builder.append("=" * ((plot_width * 2) + 2))
-    string_builder.append("\n")
-    string_builder.append(" " * (y_tick_padding + 3))
-    string_builder.extend("^" * math.floor((plot_width * 2) / (x_tick_gap + 1)), sep=(" " * x_tick_gap))
-    string_builder.append("\n")
-    string_builder.append(" " * (y_tick_padding + 3))
+    string_builder.append_all(" " * (y_tick_padding + 2), "=" * ((plot_width * 2) + 2), "\n")
+    string_builder.append(" " * (y_tick_padding + 4))
+    string_builder.extend("^" * math.floor((plot_width * 2) / (x_tick_gap + 1)), sep=(" " * x_tick_gap), end="\n")
+    string_builder.append(" " * (y_tick_padding + 4))
     string_builder.extend(f"{(x_interval * (index / (plot_width - 1))) + x_data.min():<{x_tick_gap + 1}.2f}" for index in range(0, plot_width, (x_tick_gap + 1) // 2))
 
     return string_builder.compile()
@@ -92,8 +99,8 @@ def update_grid(normalised_x_data: np.ndarray,
             grid[index_range[y], x] = marker
 
 if __name__ == "__main__":
-    print(make_terminal_relplot(np.arange(0, 200), np.linspace(1, 40, 200) ** 1.5, 40, 20, "Hello World"))
-    print(make_terminal_relplot(np.arange(0, 200), np.linspace(1, 40, 200) ** 1.5, 40, 20, "Hello World", True))
+    # print(make_terminal_relplot(np.arange(0, 200), np.linspace(1, 40, 200) ** 1.5, 40, 20, "Hello World"), end="\n")
+    # print(make_terminal_relplot(np.arange(0, 200), np.linspace(1, 40, 200) ** 1.5, 40, 20, "Hello World", True), end="\n")
     print(make_terminal_relplot(np.tile(np.arange(0, 200), 3).reshape(3, 200),
                                 np.array([np.linspace(0, 40, 200), (np.linspace(0, 40, 200) ** 1.5), (np.linspace(0, 40, 200) ** 2)]),
-                                40, 20, "Hello World", legend=["y = x * 5", "y = (x * 5) ^ 1.5", "y = (x * 5) ^ 2"]))
+                                40, 20, "Jake is the best <3", legend=["y = x * 5", "y = (x * 5) ^ 1.5", "y = (x * 5) ^ 2"]))
