@@ -10,6 +10,7 @@ def make_terminal_relplot(x_data: np.ndarray,
                           plot_width: int,
                           plot_height: int,
                           title: str,
+                          fill: bool = False,
                           markers: list[str] = ["x", "o", "+"],
                           legend: list[str] | None = None
                           ) -> str:
@@ -49,10 +50,10 @@ def make_terminal_relplot(x_data: np.ndarray,
     ## Create the plot grid, and fill it with the data points
     grid = np.full((plot_height, plot_width), fill_value=" ", dtype=object)
     if normalised_x_data.ndim == 1:
-        grid[normalised_y_data, normalised_x_data] = "x"
+        update_grid(normalised_x_data, normalised_y_data, grid, markers[0], fill)
     else:
         for i in range(normalised_x_data.shape[0]):
-            grid[normalised_y_data[i], normalised_x_data[i]] = markers[i % len(markers)]
+            update_grid(normalised_x_data[i], normalised_y_data[i], grid, markers[i % len(markers)], fill)
     
     ## Add the y-axis, ticks and labels, and the plot itself
     y_tick_padding = len(f"{y_data.max():.2f}")
@@ -75,8 +76,24 @@ def make_terminal_relplot(x_data: np.ndarray,
 
     return string_builder.compile()
 
+def update_grid(normalised_x_data: np.ndarray,
+                normalised_y_data: np.ndarray,
+                grid: np.ndarray,
+                marker: str,
+                fill: bool
+                ) -> None:
+    """Update the grid with the normalised data points."""
+    if not fill:
+        grid[normalised_y_data, normalised_x_data] = marker
+    else:
+        index_range = np.arange(normalised_y_data.shape[0])
+        y_indices = index_range <= normalised_y_data[:,np.newaxis]
+        for y, x in zip(y_indices, normalised_x_data):
+            grid[index_range[y], x] = marker
+
 if __name__ == "__main__":
     print(make_terminal_relplot(np.arange(0, 200), np.linspace(1, 40, 200) ** 1.5, 40, 20, "Hello World"))
+    print(make_terminal_relplot(np.arange(0, 200), np.linspace(1, 40, 200) ** 1.5, 40, 20, "Hello World", True))
     print(make_terminal_relplot(np.tile(np.arange(0, 200), 3).reshape(3, 200),
                                 np.array([np.linspace(0, 40, 200), (np.linspace(0, 40, 200) ** 1.5), (np.linspace(0, 40, 200) ** 2)]),
                                 40, 20, "Hello World", legend=["y = x * 5", "y = (x * 5) ^ 1.5", "y = (x * 5) ^ 2"]))
