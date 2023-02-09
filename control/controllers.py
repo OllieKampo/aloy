@@ -1,23 +1,33 @@
-###########################################################################
-###########################################################################
-## Module defining controllers.                                          ##
-##                                                                       ##
-## Copyright (C) 2022 Oliver Michael Kamperis                            ##
-##                                                                       ##
-## This program is free software: you can redistribute it and/or modify  ##
-## it under the terms of the GNU General Public License as published by  ##
-## the Free Software Foundation, either version 3 of the License, or     ##
-## any later version.                                                    ##
-##                                                                       ##
-## This program is distributed in the hope that it will be useful,       ##
-## but WITHOUT ANY WARRANTY; without even the implied warranty of        ##
-## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          ##
-## GNU General Public License for more details.                          ##
-##                                                                       ##
-## You should have received a copy of the GNU General Public License     ##
-## along with this program. If not, see <https://www.gnu.org/licenses/>. ##
-###########################################################################
-###########################################################################
+############################################################################
+############################################################################
+##                                                                        ##
+##                      ░░░░░██╗██╗███╗░░██╗██╗░░██╗                      ##
+##                      ░░░░░██║██║████╗░██║╚██╗██╔╝                      ##
+##                      ░░░░░██║██║██╔██╗██║░╚███╔╝░                      ##
+##                      ██╗░░██║██║██║╚████║░██╔██╗░                      ##
+##                      ╚█████╔╝██║██║░╚███║██╔╝╚██╗                      ##
+##                      ░╚════╝░╚═╝╚═╝░░╚══╝╚═╝░░╚═╝                      ##
+##                                                                        ##
+############################################################################
+############################################################################
+## Module defining controllers.                                           ##
+##                                                                        ##
+## Copyright (C) 2022 Oliver Michael Kamperis                             ##
+##                                                                        ##
+## This program is free software: you can redistribute it and/or modify   ##
+## it under the terms of the GNU General Public License as published by   ##
+## the Free Software Foundation, either version 3 of the License, or      ##
+## any later version.                                                     ##
+##                                                                        ##
+## This program is distributed in the hope that it will be useful,        ##
+## but WITHOUT ANY WARRANTY; without even the implied warranty of         ##
+## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the           ##
+## GNU General Public License for more details.                           ##
+##                                                                        ##
+## You should have received a copy of the GNU General Public License      ##
+## along with this program. If not, see <https://www.gnu.org/licenses/>.  ##
+############################################################################
+############################################################################
 
 """Module defining controllers."""
 
@@ -86,11 +96,11 @@ class Controller:
         """Reset the controller state."""
         ...
 
-class ModularController(Controller):
+class ControllerCombiner(Controller):
     """
-    Class defining modular controllers.
+    Class defining controller combiners.
     
-    A modular controller is a controller that is composed of multiple
+    A controller combiner is a controller which combines the output of multiple
     other "inner" controllers. The module controller then combines the
     outputs of the inner controllers to produce a final output.
     """
@@ -109,7 +119,7 @@ class ModularController(Controller):
                  weights: Mapping[str, float] | None = None,
                  ) -> None:
         """
-        Create a modular controller from a mapping of inner controllers.
+        Create a controller combiner from a mapping of controllers.
         
         Parameters
         ----------
@@ -347,7 +357,6 @@ class SystemController:
         self.__ticks += 1
         error: float = self.__system.get_error(self.__var_name)
         delta_time: float = self.__timer.get_delta_time() * time_factor
-        print(delta_time)
         output: float = self.__controller.control_output(error, delta_time, abs_tol)
         self.__system.set_output(output, delta_time, self.__var_name)
         return (self.__ticks, error, output, delta_time)
