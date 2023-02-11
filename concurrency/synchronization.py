@@ -24,10 +24,11 @@
 __copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
 
-__all__ = ("atomic_update",
-           "OwnedRLock",
+__all__ = ("OwnedRLock",
+           "atomic_context",
+           "atomic_update",
            "sync",
-           "synchronized_meta")
+           "SynchronizedMeta")
 
 def __dir__() -> tuple[str]:
     """Get the names of module attributes."""
@@ -39,26 +40,12 @@ import functools
 import threading
 import types
 import typing
+import weakref
 
 from auxiliary.metaclasses import create_if_not_exists_in_slots
 from auxiliary.introspection import loads_functions
 from datastructures.graph import Graph
 from datastructures.mappings import ReversableDict
-
-__atomic_updaters: dict[str, threading.RLock] = defaultdict(threading.RLock)
-@contextlib.contextmanager
-def atomic_update(context_name: str, cls: type | None = None, inst: object | None = None) -> None:
-    """Context manager to ensure that only one thread can update the context at a time."""
-    context_name = f"Context: {context_name}"
-    if inst is not None:
-        context_name = f"Instance: {hex(id(inst))}, " + context_name
-    if cls is not None:
-        context_name = f"Class: {cls.__name__}, " + context_name
-    __atomic_updaters[context_name].acquire()
-    try:
-        yield
-    finally:
-        __atomic_updaters[context_name].release()
 
 class OwnedRLock(contextlib.AbstractContextManager):
     """Class defining a reentrant lock that keeps track of its owner and recursion depth."""
@@ -83,13 +70,13 @@ class OwnedRLock(contextlib.AbstractContextManager):
     
     def __str__(self) -> str:
         """Get a simple string representation of the lock."""
-        return f"{'locked' if self.is_locked else 'unlocked'} {self.__class__.__name__} {self.__name}, \
-            owned by={self.__owner}, depth={self.__recursion_depth!s}"
+        return f"{'locked' if self.is_locked else 'unlocked'} {self.__class__.__name__} {self.__name}, " \
+               f"owned by={self.__owner}, depth={self.__recursion_depth!s}"
     
     def __repr__(self) -> str:
         """Get a verbose string representation of the lock."""
-        return f"<{'locked' if self.is_locked else 'unlocked'} {self.__class__.__name__}, name={self.__name}, \
-            owned by={self.__owner}, recursion depth={self.__recursion_depth!s}, lock={self.__lock!r}>"
+        return f"<{'locked' if self.is_locked else 'unlocked'} {self.__class__.__name__}, name={self.__name}, " \
+               f"owned by={self.__owner}, recursion depth={self.__recursion_depth!s}, lock={self.__lock!r}>"
     
     @property
     def name(self) -> str | None:
@@ -115,7 +102,7 @@ class OwnedRLock(contextlib.AbstractContextManager):
     def acquire(self, blocking: bool = True, timeout: float = -1.0) -> bool:
         """Acquire the lock, blocking or non-blocking, with an optional timeout."""
         if result := self.__lock.acquire(blocking, timeout):
-            with atomic_update("is_released", OwnedRLock, self):
+            with atomic_update(f"is_released", OwnedRLock, self):
                 if self.__owner is None:
                     self.__owner = threading.current_thread()
                 self.__recursion_depth += 1
@@ -137,22 +124,124 @@ class OwnedRLock(contextlib.AbstractContextManager):
         """Release the lock when the context manager exits."""
         self.release()
 
+__instance_atomic_updaters: weakref.WeakKeyDictionary[type, \
+    weakref.WeakKeyDictionary[object, dict[str, threading.RLock]]] = weakref.WeakKeyDictionary()
+__class_atomic_updaters: weakref.WeakKeyDictionary[type, dict[str, threading.RLock]] = weakref.WeakKeyDictionary()
+__arbitrary_atomic_updaters: dict[str, threading.RLock] = defaultdict(threading.RLock)
+
+@contextlib.contextmanager
+def atomic_context(context_name: str, /, cls: type | None = None, inst: object | None = None) -> None:
+    """
+    Context manager that ensures atomic updates in the context.
+    
+    Atomic updates ensure that only one thread can update the context at a time.
+    The same thread can enter the same context multiple times.
+
+    Parameters
+    ----------
+    `context_name : str` - The name of the context.
+
+    `cls : type | None = None` - The class of the context.
+
+    `inst : object | None = None` - The instance of the context.
+    If `cls` is not given or None and `inst` is not None,
+    `cls` will be set to `inst.__class__`.
+    """
+    global __instance_atomic_updaters, __class_atomic_updaters, __arbitrary_atomic_updaters
+    if inst is not None:
+        if cls is None:
+            cls = inst.__class__
+        lock_ = __instance_atomic_updaters.setdefault(cls, weakref.WeakKeyDictionary()) \
+            .setdefault(inst, {}).setdefault(context_name, threading.RLock())
+    elif cls is not None:
+        lock_ = __class_atomic_updaters.setdefault(cls, {}).setdefault(context_name, threading.RLock())
+    else:
+        lock_ = __arbitrary_atomic_updaters[context_name]
+    lock_.acquire()
+    try:
+        yield
+    finally:
+        lock_.release()
+
 SP = typing.ParamSpec("SP")
 ST = typing.TypeVar("ST")
+
+def atomic_update(global_lock: str | None = None, method: bool = False) -> typing.Callable[[typing.Callable], typing.Callable]:
+    """
+    Decorate a function to ensure atomic updates in the decorated function.
+    
+    Atomic updates ensure that only one thread can update the context at a time.
+    The same thread can enter the same context multiple times.
+
+    Parameters
+    ----------
+    `global_lock : str | None` - If given and not None, the name of the global lock to use.
+    Whereby, a global lock can be shared between multiple functions.
+    If not given or None, the lock will be a lock unique to the decorated function.
+    
+    `method : bool` - Whether the decorated function is treated as a method.
+    If True, a unique lock will be used by each instance of a class.
+    If False, a single lock will be used by all instances of a class.
+
+    Example Usage
+    -------------
+    >>> class Foo:
+    ...     def __init__(self):
+    ...         self.x = 0
+    ...     @atomic_update("x")
+    ...     def increment_x(self):
+    ...         self.x += 1
+    ...     @atomic_update("x")
+    ...     def decrement_x(self):
+    ...         self.x -= 1
+    >>> foo = Foo()
+    >>> foo.increment_x()
+    >>> foo.x
+    1
+    >>> foo.decrement_x()
+    >>> foo.x
+    0
+    """
+    def decorator(func: typing.Callable[SP, ST]) -> typing.Callable[SP, ST]:
+        if method:
+            if global_lock is not None:
+                lock_name = f"__method_global__ {global_lock}"
+            else:
+                lock_name: str = f"__method_local__ {func.__name__}"
+            @functools.wraps(func)
+            def wrapper(self, *args: SP.args, **kwargs: SP.kwargs) -> ST:
+                with atomic_context(lock_name, inst=self):
+                    return func(self, *args, **kwargs)
+            return wrapper
+        else:
+            if global_lock is not None:
+                lock_name = f"__function_global__ {global_lock}"
+            else:
+                lock_name: str = f"__function_local__ {func.__name__}"
+            @functools.wraps(func)
+            def wrapper(*args: SP.args, **kwargs: SP.kwargs) -> ST:
+                with atomic_context(lock_name):
+                    return func(*args, **kwargs)
+            return wrapper
+    return decorator
 
 @typing.overload
 def sync() -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
     ...
 
 @typing.overload
-def sync(lock: typing.Literal["all", "method"], group_name: str | None = None, /) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
+def sync(lock: typing.Literal["all", "method"],
+         group_name: str | None = None, /
+         ) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
     ...
 
 @typing.overload
 def sync(*, group_name: str) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
     ...
 
-def sync(lock: typing.Literal["all", "method"] | None = None, group_name: str | None = None) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
+def sync(lock: typing.Literal["all", "method"] | None = None,
+         group_name: str | None = None
+         ) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
     """
     Decorate a method to declare it as synchronized in a synchronized class.
     
