@@ -1,0 +1,89 @@
+## Jinx build configuration file
+
+# https://realpython.com/pypi-publish-python-package
+# https://peps.python.org/pep-0621/#specification
+
+# https://packaging.python.org/en/latest/overview/
+# https://packaging.python.org/en/latest/flow/
+# https://packaging.python.org/en/latest/tutorials/packaging-projects/
+# https://packaging.python.org/en/latest/guides/tool-recommendations/
+
+# https://setuptools.pypa.io/en/latest/userguide/pyproject_config.html
+
+# https://realpython.com/pypi-publish-python-package/#poetry
+# https://python-poetry.org/docs/
+# https://python-poetry.org/docs/libraries/
+# https://python-poetry.org/docs/pyproject/
+
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jinx"
+version = "0.0.1"
+description = "A Python package containing algorithms and data structures for AI, ML, and Robotics."
+readme = "README.md"
+authors = [
+    {name = "Ollie Kampo", email = "olliekampo@gmail.com"}
+]
+maintainers = [
+    {name = "Ollie Kampo", email = "olliekampo@gmail.com"}
+]
+# homepage = ""
+repository = "https://github.com/OllieKampo/jinx"
+# documentation = ""
+keywords = ["jinx", "algorithms", "data structures", "ai", "ml", "robotics"]
+license = { file = "LICENSE" }
+# https://pypi.org/classifiers/
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "Natural Language :: English",
+    "Natural Language :: Chinese (Simplified)",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: C++",
+    "Programming Language :: C++ :: 11",
+    "Programming Language :: Rust",
+    "Programming Language :: ASP",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+dependencies = [
+    "numpy>=1.21.2",
+    "pandas>=1.3.3",
+    "scipy>=1.7.1",
+    "scikit-learn>=1.0",
+    "matplotlib>=3.4.3",
+    "seaborn>=0.11.2",
+    "torch>=1.9.1",
+    "gym>=0.19.0",
+
+]
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+dev = [
+    "networkx>=2.6.3",
+    "pytest>=6.2.5"
+]
+
+[project.urls]
+# homepage = ""
+# documentation = ""
+repository = "https://github.com/OllieKampo/jinx"
+# changelog = ""
+
+[project.scripts]
+jinx = "jinx.__main__:main"
+
+[tool.poetry]
+name = "jinx"
