@@ -96,7 +96,7 @@ def simulate_control(control_system: "controllers.ControlledSystem",
     
     Parameters
     ----------
-    `control_system : ControlSystem` - The control system to simulate.
+    `control_system : ControlledSystem` - The control system to simulate.
     
     `controller : Controller` - The controller to use.
     

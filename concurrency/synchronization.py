@@ -1,6 +1,6 @@
 ###########################################################################
 ###########################################################################
-## Module containing functions and classes for concurrency/parallelism.  ##
+## Module containing functions and classes for synchronization.          ##
 ##                                                                       ##
 ## Copyright (C) 2022 Oliver Michael Kamperis                            ##
 ##                                                                       ##
@@ -19,25 +19,20 @@
 ###########################################################################
 ###########################################################################
 
-"""Module containing functions and classes for concurrency and parallelism."""
+"""Module containing functions and classes for synchronization."""
 
 __copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
 
-__all__ = ("atomic_update",
-           "OwnedRLock",
+__all__ = ("OwnedRLock",
+           "atomic_context",
+           "atomic_update",
            "sync",
-           "synchronized_meta")
+           "SynchronizedMeta")
 
 def __dir__() -> tuple[str]:
     """Get the names of module attributes."""
-    return sorted(__all__)
-
-def __getattr__(name: str) -> object:
-    """Get an attributes from the module."""
-    if name in __all__:
-        return globals()[name]
-    raise AttributeError(f"Module {__name__!r} has no attribute {name!r}.")
+    return __all__
 
 from collections import defaultdict
 import contextlib
@@ -45,26 +40,12 @@ import functools
 import threading
 import types
 import typing
+import weakref
 
 from auxiliary.metaclasses import create_if_not_exists_in_slots
 from auxiliary.introspection import loads_functions
 from datastructures.graph import Graph
 from datastructures.mappings import ReversableDict
-
-__atomic_updaters: dict[str, threading.RLock] = defaultdict(threading.RLock)
-@contextlib.contextmanager
-def atomic_update(context_name: str, cls: type | None = None, inst: object | None = None) -> None:
-    """Context manager to ensure that only one thread can update the context at a time."""
-    context_name = f"Context: {context_name}"
-    if inst is not None:
-        context_name = f"Instance: {hex(id(inst))}, " + context_name
-    if cls is not None:
-        context_name = f"Class: {cls.__name__}, " + context_name
-    __atomic_updaters[context_name].acquire()
-    try:
-        yield
-    finally:
-        __atomic_updaters[context_name].release()
 
 class OwnedRLock(contextlib.AbstractContextManager):
     """Class defining a reentrant lock that keeps track of its owner and recursion depth."""
@@ -89,13 +70,13 @@ class OwnedRLock(contextlib.AbstractContextManager):
     
     def __str__(self) -> str:
         """Get a simple string representation of the lock."""
-        return f"{'locked' if self.is_locked else 'unlocked'} {self.__class__.__name__} {self.__name}, \
-            owned by={self.__owner}, depth={self.__recursion_depth!s}"
+        return f"{'locked' if self.is_locked else 'unlocked'} {self.__class__.__name__} {self.__name}, " \
+               f"owned by={self.__owner}, depth={self.__recursion_depth!s}"
     
     def __repr__(self) -> str:
         """Get a verbose string representation of the lock."""
-        return f"<{'locked' if self.is_locked else 'unlocked'} {self.__class__.__name__}, name={self.__name}, \
-            owned by={self.__owner}, recursion depth={self.__recursion_depth!s}, lock={self.__lock!r}>"
+        return f"<{'locked' if self.is_locked else 'unlocked'} {self.__class__.__name__}, name={self.__name}, " \
+               f"owned by={self.__owner}, recursion depth={self.__recursion_depth!s}, lock={self.__lock!r}>"
     
     @property
     def name(self) -> str | None:
@@ -121,7 +102,7 @@ class OwnedRLock(contextlib.AbstractContextManager):
     def acquire(self, blocking: bool = True, timeout: float = -1.0) -> bool:
         """Acquire the lock, blocking or non-blocking, with an optional timeout."""
         if result := self.__lock.acquire(blocking, timeout):
-            with atomic_update("is_released", OwnedRLock, self):
+            with atomic_update(f"is_released", OwnedRLock, self):
                 if self.__owner is None:
                     self.__owner = threading.current_thread()
                 self.__recursion_depth += 1
@@ -143,50 +124,175 @@ class OwnedRLock(contextlib.AbstractContextManager):
         """Release the lock when the context manager exits."""
         self.release()
 
+__instance_atomic_updaters: weakref.WeakKeyDictionary[type, \
+    weakref.WeakKeyDictionary[object, dict[str, threading.RLock]]] = weakref.WeakKeyDictionary()
+__class_atomic_updaters: weakref.WeakKeyDictionary[type, dict[str, threading.RLock]] = weakref.WeakKeyDictionary()
+__arbitrary_atomic_updaters: dict[str, threading.RLock] = defaultdict(threading.RLock)
+
+@contextlib.contextmanager
+def atomic_context(context_name: str, /, cls: type | None = None, inst: object | None = None) -> None:
+    """
+    Context manager that ensures atomic updates in the context.
+    
+    Atomic updates ensure that only one thread can update the context at a time.
+    The same thread can enter the same context multiple times.
+
+    Parameters
+    ----------
+    `context_name : str` - The name of the context.
+
+    `cls : type | None = None` - The class of the context.
+
+    `inst : object | None = None` - The instance of the context.
+    If `cls` is not given or None and `inst` is not None,
+    `cls` will be set to `inst.__class__`.
+    """
+    global __instance_atomic_updaters, __class_atomic_updaters, __arbitrary_atomic_updaters
+    if inst is not None:
+        if cls is None:
+            cls = inst.__class__
+        lock_ = __instance_atomic_updaters.setdefault(cls, weakref.WeakKeyDictionary()) \
+            .setdefault(inst, {}).setdefault(context_name, threading.RLock())
+    elif cls is not None:
+        lock_ = __class_atomic_updaters.setdefault(cls, {}).setdefault(context_name, threading.RLock())
+    else:
+        lock_ = __arbitrary_atomic_updaters[context_name]
+    lock_.acquire()
+    try:
+        yield
+    finally:
+        lock_.release()
+
 SP = typing.ParamSpec("SP")
 ST = typing.TypeVar("ST")
 
-def sync(lock: typing.Literal["all", "method"] = "all", group_name: str | None = None) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
+def atomic_update(global_lock: str | None = None, method: bool = False) -> typing.Callable[[typing.Callable], typing.Callable]:
+    """
+    Decorate a function to ensure atomic updates in the decorated function.
+    
+    Atomic updates ensure that only one thread can update the context at a time.
+    The same thread can enter the same context multiple times.
+
+    Parameters
+    ----------
+    `global_lock : str | None` - If given and not None, the name of the global lock to use.
+    Whereby, a global lock can be shared between multiple functions.
+    If not given or None, the lock will be a lock unique to the decorated function.
+    
+    `method : bool` - Whether the decorated function is treated as a method.
+    If True, a unique lock will be used by each instance of a class.
+    If False, a single lock will be used by all instances of a class.
+
+    Example Usage
+    -------------
+    >>> class Foo:
+    ...     def __init__(self):
+    ...         self.x = 0
+    ...     @atomic_update("x")
+    ...     def increment_x(self):
+    ...         self.x += 1
+    ...     @atomic_update("x")
+    ...     def decrement_x(self):
+    ...         self.x -= 1
+    >>> foo = Foo()
+    >>> foo.increment_x()
+    >>> foo.x
+    1
+    >>> foo.decrement_x()
+    >>> foo.x
+    0
+    """
+    def decorator(func: typing.Callable[SP, ST]) -> typing.Callable[SP, ST]:
+        if method:
+            if global_lock is not None:
+                lock_name = f"__method_global__ {global_lock}"
+            else:
+                lock_name: str = f"__method_local__ {func.__name__}"
+            @functools.wraps(func)
+            def wrapper(self, *args: SP.args, **kwargs: SP.kwargs) -> ST:
+                with atomic_context(lock_name, inst=self):
+                    return func(self, *args, **kwargs)
+            return wrapper
+        else:
+            if global_lock is not None:
+                lock_name = f"__function_global__ {global_lock}"
+            else:
+                lock_name: str = f"__function_local__ {func.__name__}"
+            @functools.wraps(func)
+            def wrapper(*args: SP.args, **kwargs: SP.kwargs) -> ST:
+                with atomic_context(lock_name):
+                    return func(*args, **kwargs)
+            return wrapper
+    return decorator
+
+@typing.overload
+def sync() -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
+    ...
+
+@typing.overload
+def sync(lock: typing.Literal["all", "method"],
+         group_name: str | None = None, /
+         ) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
+    ...
+
+@typing.overload
+def sync(*, group_name: str) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
+    ...
+
+def sync(lock: typing.Literal["all", "method"] | None = None,
+         group_name: str | None = None
+         ) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
     """
     Decorate a method to declare it as synchronized in a synchronized class.
     
     Methods can be synchronized with an instance lock or a method lock.
     
     Whilst an instance-locked method is running, no other instance-locked or method-locked methods can run.
-    Whilst a method-locked method is running, no instance-locked methods can run.
-    Whilst a method-locked method is running, other method-locked methods can run.
+    Whilst a method-locked method is running, no instance-locked methods can run, but other method-locked methods can run.
     
     Instance-locked methods can call method-locked methods,
     but method-locked methods cannot call instance-locked methods
-    (as this would require the whole instance to be locked).
-    Method-locked methods can be grouped to all use the same lock if they access the same resources.
+    as this would require the whole instance to be locked.
+
+    Method-locked methods can be grouped to use the same lock if they access the same resources.
     Method-locked methods can call other method-locked methods, even if they are not in the same group.
-    However, if two method-locked method can call each other, they are automatically add to the same group.
+    However, if two method-locked methods load or call each other, they are automatically added to the same group, called a loop-lock group, to prevent deadlocks.
     
     Parameters
     ----------
-    `lock : {"all", "method"} = "all"` - The type of lock to use, "all" creates an instance lock, "method" creates a method lock.
+    `lock : "all" | "method" | None = None` - The type of lock to use, "all" creates an instance lock, "method" creates a method lock.
+    If not given or None, "all" is used if `group_name` is not given or None, otherwise "method" is used if `group_name` is given and not None.
     
-    `group_name : str | None = None` - The name of the group to add the method to, or None to not add the method to a group.
+    `group_name : str | None = None` - The name of the group to add the method to.
+    If not given or None, the method is not added to a group.
     Instance-locked methods cannot be added to a group.
     """
+    if lock is None:
+        if group_name is None:
+            lock = "all"
+        else: lock = "method"
+    
     def sync_dec(method: typing.Callable[SP, ST]) -> typing.Callable[SP, ST]:
-        """Assign the lock name to the method's `__sync__` attribute."""
+        """Assign the lock name to the method's `__sync__` and `__group__` attributes."""
         if method.__name__.startswith("__") and method.__name__.endswith("__"):
             raise ValueError("Cannot synchronize a dunder method.")
         if not isinstance(lock, str):
-            raise TypeError("Lock name must be a string.")
+            raise TypeError(f"Lock name must be a string. Got; {lock} of type {type(lock)}.")
         if lock not in ("all", "method"):
-            raise ValueError("Lock name must be either 'all' or 'method'.")
-        method.__sync__ = lock
+            raise ValueError(f"Lock name must be either 'all' or 'method'. Got; {lock!r}.")
+        if group_name is not None and not isinstance(group_name, str):
+            raise TypeError(f"Group name must be a string. Got; {group_name} of type {type(group_name)}.")
         if lock == "all" and group_name is not None:
-            raise ValueError("Instance-locked methods cannot be added to a group.")
+            raise ValueError(f"Instance-locked methods cannot be added to a group. Got; {lock=}, {group_name=}.")
+        method.__sync__ = lock
         method.__group__ = group_name
         return method
+    
     return sync_dec
 
 def synchronize_method(lock: typing.Literal["all", "method"] = "all") -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
     """Decorate a method to synchronize it in a synchronized class."""
+
     def synchronize_method_decorator(method: typing.Callable[SP, ST]) -> typing.Callable[SP, ST]:
         """Return a synchronized method wrapper."""
         if lock == "all":
@@ -249,7 +355,7 @@ def synchronize_method(lock: typing.Literal["all", "method"] = "all") -> typing.
         return synchronize_method_wrapper
     return synchronize_method_decorator
 
-class synchronized_meta(type):
+class SynchronizedMeta(type):
     """Metaclass for synchronizing method calls for a class."""
     
     def __new__(cls, cls_name: str, bases: tuple[str], class_dict: dict) -> type:
@@ -261,7 +367,7 @@ class synchronized_meta(type):
         class_dict = create_if_not_exists_in_slots(class_dict,
                                                    __lock__="Instance-locked method synchronization lock.",
                                                    __method_locks__="Method-locked method synchronization locks.",
-                                                   __semaphore__="Method-locks semaphore (counts number of current locked method-locked methods).",
+                                                   __semaphore__="Method-locks semaphore (counts locked method-locked methods).",
                                                    __event__="Event signalling when all method-locked methods are unlocked.")
         
         ## Check through the class's attributes for methods that are to be synchronized.
@@ -296,10 +402,12 @@ class synchronized_meta(type):
                 if instance_locked_methods_intersection := (load_graph[method_name] & instance_locked_methods):
                     if len(instance_locked_methods_intersection) > 1:
                         instance_locked_methods_intersection = "', '".join(instance_locked_methods_intersection)
-                        raise ValueError(f"Method-locked method '{method_name}' cannot load or call the instance-locked methods: '{instance_locked_methods_intersection}'.")
+                        raise ValueError(f"Method-locked method '{method_name}' cannot load or call \
+                                         the instance-locked methods: '{instance_locked_methods_intersection}'.")
                     else:
                         instance_locked_methods_intersection = next(iter(instance_locked_methods_intersection))
-                        raise ValueError(f"Method-locked method '{method_name}' cannot load or call the instance-locked method: '{instance_locked_methods_intersection}'.")
+                        raise ValueError(f"Method-locked method '{method_name}' cannot load or call \
+                                         the instance-locked method: '{instance_locked_methods_intersection}'.")
             
             ## Group methods that are loaded by each other.
             loop_lock_numbers: ReversableDict[str, int] = ReversableDict()
@@ -307,7 +415,7 @@ class synchronized_meta(type):
             frontier: set[str] = set(lock_methods)
             while frontier:
                 method_name = frontier.pop()
-                if ((path := load_graph.get_path(method_name, method_name, raise_=False)) is not None
+                if ((path := load_graph.get_path(method_name, method_name, find_cycle=True, raise_=False)) is not None
                     and (path := set(path[:-1]))):
                     if looped_methods := (set(lock_methods) & path):
                         loop_lock_numbers.reversed_set(loop_lock_number_current, *looped_methods)
@@ -320,10 +428,10 @@ class synchronized_meta(type):
                         loop_lock_number_current += 1
                     frontier -= path
         
-        ## Warp the init method to ensure instances get the lock attributes.
+        ## Wrap the init method to ensure instances get the lock attributes.
         original_init = class_dict["__init__"]
         @functools.wraps(original_init)
-        def __init__(self, *args, **kws) -> None:
+        def __init__(self, *args, **kwargs) -> None:
             self.__lock__ = OwnedRLock(lock_name="Instance lock")
             self.__method_locks__ = {}
             loop_locks: dict[int, OwnedRLock] = {}
@@ -349,7 +457,7 @@ class synchronized_meta(type):
                     total_method_locks += 1
             self.__semaphore__ = threading.BoundedSemaphore(total_method_locks)
             self.__event__ = threading.Event()
-            original_init(self, *args, **kws)
+            original_init(self, *args, **kwargs)
         class_dict["__init__"] = __init__
         
         ## Ensure that the class has lock status attributes.
@@ -357,7 +465,7 @@ class synchronized_meta(type):
             """Return whether the instance is locked."""
             return self.__lock__.is_locked and self.__event__.is_set()
         class_dict["is_instance_locked"] = is_instance_locked
-        class_dict["lockable_methods"] = property(lambda self: tuple(self.__method_locks__.keys()))
+
         def is_method_locked(self, method_name: str | None = None) -> bool:
             """
             Return whether the method-locked method with the given name is locked.
@@ -370,9 +478,17 @@ class synchronized_meta(type):
                 return self.__method_locks__[method_name].is_locked
             else: raise AttributeError(f"Method '{method_name}' is not method-locked.")
         class_dict["is_method_locked"] = is_method_locked
-        
+        class_dict["lockable_methods"] = property(lambda self: tuple(self.__method_locks__.keys()))
+
+        if lock_methods:
+            class_dict["loop_locks"] = property(lambda self: loop_lock_numbers)
+            class_dict["group_locks"] = property(lambda self: lock_methods_groups)
+        else:
+            class_dict["loop_locks"] = property(lambda self: ReversableDict())
+            class_dict["group_locks"] = property(lambda self: ReversableDict())
+
         return super().__new__(cls, cls_name, bases, class_dict)
     
     def __dir__(self) -> typing.Iterable[str]:
         """Return the attributes of the class."""
-        return super().__dir__() + ["is_instance_locked", "lockable_methods", "is_method_locked"]
+        return super().__dir__() + ["is_instance_locked", "is_method_locked", "lockable_methods", "loop_locks", "group_locks"]
