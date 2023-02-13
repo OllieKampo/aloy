@@ -46,7 +46,14 @@ import statistics
 from control.controlutils import ControllerTimer
 
 class Controller:
-    """Base class mixin for creating controller classes."""
+    """
+    Base class mixin for creating controller classes.
+
+    The abstract methods `control_output` and `reset`, and the abstract
+    property `latest_output`, must be implemented by subclasses.
+
+    This class defines no instance variables and an empty `__slots__`.
+    """
     
     __slots__ = ()
     
@@ -101,8 +108,10 @@ class ControllerCombiner(Controller):
                  "__weights" : "The output combination weights of the inner controllers.",
                  "__weights_update_callback" : "The callback to update the weights."}
     
-    __combiner_functions = {"sum" : sum, "mean" : statistics.mean, "median" : statistics.median}
-
+    __combiner_functions = {"sum" : sum,
+                            "mean" : statistics.mean,
+                            "median" : statistics.median}
+    
     def __init__(self,
                  controllers: Mapping[str, Controller],
                  mode: Literal["sum", "mean", "median"] = "mean",
@@ -213,9 +222,18 @@ class ControllerCombiner(Controller):
 
 class ControlledSystem:
     """
-    Mixin for creating classes that are controllable by a system controller.
+    Base class mixin for creating controlled system classes.
     
-    Must expose an error getting method and a output setting callback method.
+    A controlled system exposes an interface that makes it controllable by a system controller.
+    
+    Must expose the error getting and output setting callback methods:
+        - `get_error(var_name: str | None = None) -> float`
+        - `set_output(output: float, delta_time: float, var_name: str | None = None) -> None`
+    
+    Can optionally expose the available error variable names:
+        - `error_variables: None | str | tuple[str]`
+    
+    This class defines no instance variables and an empty `__slots__`.
     """
     
     @property
@@ -234,7 +252,13 @@ class ControlledSystem:
         raise NotImplementedError
 
 class SystemController:
-    """Class defining system controllers."""
+    """
+    Class defining system controllers.
+    
+    The `SystemController` does not inherit from the `Controller` class.
+    Instead, a system controller encapsulates a standard controller,
+    allowing the prior to control that latter.
+    """
     
     __slots__ = {"__controller" : "The underlying controller.",
                  "__system" : "The controlled system.",
@@ -248,7 +272,7 @@ class SystemController:
                  error_var_name: str | None = None
                  ) -> None:
         """
-        Create a PID system controller.
+        Create a new system controller from a controller and a controlled system.
         
         In contrast to the standard controller, a system controller also
         takes a controlled system as input. The control error is taken from,
@@ -275,32 +299,33 @@ class SystemController:
     @classmethod
     def from_getsetter(cls,
                        controller: Controller,
-                       getter: Callable[[], float],
-                       setter: Callable[[float, float], None],
+                       getter: Callable[[str], float],
+                       setter: Callable[[float, float, str], None],
                        ) -> "SystemController":
         """
         Create a system controller from getter and setter callbacks.
         
         This is a convenience method for creating a PID system controller
-        from `get_error()` and `set_output()` functions that are not
+        from `get_error(...)` and `set_output(...)` functions that are not
         attached to a control system.
 
         Parameters
         ----------
         `controller : Controller` - The controller to use.
 
-        `getter : Callable[[], float]` - The error getter function.
-        Must take no arguments and return the error as a float.
+        `getter : Callable[[str], float]` - The error getter function.
+        Takes the name of the error variable as an argument and returns the error.
 
-        `setter : Callable[[float, float], None]` - The output setter function.
-        Must take the control output and the time difference since the last call as arguments.
+        `setter : Callable[[float, float, str], None]` - The output setter function.
+        Must take the control output, the time difference since the last call,
+        and the name of the error variable as arguments.
         """
         system = type("getter_setter_system", (ControlledSystem,), {"get_error" : getter, "set_output" : setter})
         return cls(controller, system)
     
     def __repr__(self) -> str:
         """Get the string representation of the system controller instance."""
-        return f"{self.__class__.__name__}(controller={self.__controller!r}, system={self.__system!r}, error_var_name={self.__var_name!r})"
+        return f"{self.__class__.__name__}({self.__controller!r}, {self.__system!r}, {self.__var_name!r})"
     
     @property
     def system(self) -> ControlledSystem:
