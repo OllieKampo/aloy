@@ -47,6 +47,7 @@ from auxiliary.introspection import loads_functions
 from datastructures.graph import Graph
 from datastructures.mappings import ReversableDict
 
+@typing.final
 class OwnedRLock(contextlib.AbstractContextManager):
     """Class defining a reentrant lock that keeps track of its owner and recursion depth."""
     
@@ -102,21 +103,19 @@ class OwnedRLock(contextlib.AbstractContextManager):
     def acquire(self, blocking: bool = True, timeout: float = -1.0) -> bool:
         """Acquire the lock, blocking or non-blocking, with an optional timeout."""
         if result := self.__lock.acquire(blocking, timeout):
-            with atomic_update(f"is_released", OwnedRLock, self):
-                if self.__owner is None:
-                    self.__owner = threading.current_thread()
-                self.__recursion_depth += 1
+            if self.__owner is None:
+                self.__owner = threading.current_thread()
+            self.__recursion_depth += 1
         return result
     
     @functools.wraps(threading._RLock.release, assigned=("__doc__",))
     def release(self) -> None:
-        """Release the lock, if it is currently locked by the current thread."""
-        if self.__owner is not None:
-            with atomic_update("is_released", OwnedRLock, self):
-                self.__lock.release()
-                self.__recursion_depth -= 1
-                if self.__recursion_depth == 0:
-                    self.__owner = None
+        """Release the lock, if it is locked by the current thread."""
+        if self.__owner is threading.current_thread():
+            self.__lock.release()
+            self.__recursion_depth -= 1
+            if self.__recursion_depth == 0:
+                self.__owner = None
     
     __enter__ = acquire
     
