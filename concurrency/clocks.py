@@ -35,6 +35,9 @@ import inspect
 import threading
 import time
 from typing import Callable, Protocol, final, runtime_checkable
+import warnings
+
+import numpy as np
 
 @runtime_checkable
 class Tickable(Protocol):
@@ -67,7 +70,7 @@ class ClockThread:
         ----------
         `*items : Tickable | Callable[[], None]` - The items to tick.
         Must be either;
-            - A tickable object implementing `tick()`, see `jinx.concurrency.clocks.Tickable`,
+            - A tickable object implementing `tick()`, see the protocol `jinx.concurrency.clocks.Tickable`,
             - A callable object that takes no parameters.
         
         `tick_rate : int = 10` - The tick rate of the clock in ticks per second.
@@ -90,7 +93,7 @@ class ClockThread:
         self.__thread.start()
     
     @property
-    def items(self) -> list[Tickable]:
+    def items(self) -> list[Callable[[], None]]:
         """Return the items scheduled to be ticked by the clock."""
         return self.__items
     
@@ -109,6 +112,14 @@ class ClockThread:
                     if not (num_params := len(inspect.signature(item).parameters)) == 0:
                         raise ValueError(f"Function {item!r} must take no parameters. Got {num_params}.")
     
+    def unschedule(self, *items: Tickable | Callable[[], None]) -> None:
+        """Unschedule an item from being ticked by the clock."""
+        with self.__atomic_update_lock:
+            for item in items:
+                if isinstance(item, Tickable):
+                    item = item.tick
+                self.__items.remove(item)
+    
     @property
     def tick_rate(self) -> int:
         """Return the tick rate of the clock."""
@@ -125,14 +136,38 @@ class ClockThread:
         """Run the clock."""
         while True:
             self.__running.wait()
+
             sleep_time: float = self.__sleep_time
+            start_sleep_time: float = time.perf_counter()
+            delayed_ticks: int = 0
+            ticks_since_last_delayed_tick: int = 0
+
             while not self.__stopped.wait(sleep_time):
-                start_time: float = time.perf_counter()
-                for item in self.__items:
-                    item()
-                sleep_time = self.__sleep_time - (time.perf_counter() - start_time)
-                if sleep_time < 0.0:
+                actual_sleep_time = time.perf_counter() - start_sleep_time
+                if actual_sleep_time > sleep_time * 1.05:
+                    delayed_ticks += 1
+                    if (delayed_ticks % 100) == 0:
+                        warnings.warn(f"Unable to reach tick rate of {self.tick_rate} for {delayed_ticks} ticks.")
+                elif delayed_ticks > 0 and ticks_since_last_delayed_tick < 5:
+                    ticks_since_last_delayed_tick += 1
+                elif ticks_since_last_delayed_tick == 5:
+                    delayed_ticks = 0
+                    ticks_since_last_delayed_tick = 0
+                
+                start_update_time = time.perf_counter()
+                with self.__atomic_update_lock:
+                    for item in self.__items:
+                        item()
+                update_time = time.perf_counter() - start_update_time
+                
+                if update_time > actual_sleep_time:
                     sleep_time = 0.0
+                    warnings.warn(f"Tick rate of {self.tick_rate} is too high for the scheduled items. "
+                                  f"Actual interval time = {actual_sleep_time:.3f} seconds, items tick time = {update_time:.3f} seconds.")
+                else:
+                    sleep_time = (sleep_time + self.__sleep_time) - (actual_sleep_time + update_time)
+                
+                start_sleep_time = time.perf_counter()
     
     def start(self) -> None:
         """Start the clock."""
@@ -147,3 +182,21 @@ class ClockThread:
             if self.__running.is_set():
                 self.__stopped.set()
                 self.__running.wait()
+
+if __name__ == "__main__":
+    import time
+    import threading
+
+    class Test:
+        def __init__(self, name: str) -> None:
+            self.name = name
+            self.value = 0
+        
+        def tick(self) -> None:
+            self.value += 1
+            sorted(np.random.random(10000))
+            print("Tick", self.name, self.value)
+    
+    clock = ClockThread(Test("A"), Test("B"), Test("C"), tick_rate=10)
+    clock.start()
+    time.sleep(100)
