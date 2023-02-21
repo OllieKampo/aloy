@@ -114,7 +114,7 @@ class StringBuilder(collections.abc.Sequence):
     
     def append_all(self, *strings: str, sep: str | None = None, end: str | None = None) -> None:
         """
-        Append a sequence of strings to the string builder in-place.
+        Append all of a sequence of strings to the string builder in-place.
         
         If `sep` is given and not None, it is inserted between each string in the sequence.
         If `end` is given and not None, it is appended to the end of the sequence.
@@ -172,13 +172,13 @@ def center_text(text: str,
                 wrapping_width: int = 100,
                 centering_width: int | float = 1.2,
                 framing_width: int | float = 1.1,
-                prefix: str = "\n",
-                postfix: str = "\n",
+                framing_char: str = '=',
                 frame_before: bool = True,
                 frame_after: bool = True,
-                framing_char: str = '=',
                 vbar_left: str = '',
-                vbar_right: str = ''
+                vbar_right: str = '',
+                prefix: str = "\n",
+                postfix: str = "\n"
                 ) -> str:
     """
     Center a string for pretty printing to the console.
@@ -192,7 +192,7 @@ def center_text(text: str,
     centered_text = StringBuilder()
     
     if wrapping_width <= 0:
-        raise ValueError(f"Wrapping width must be between greater than 0. Got; {wrapping_width}.")
+        raise ValueError(f"Wrapping width must be greater than 0. Got; {wrapping_width}.")
     if isinstance(centering_width, float):
         centering_width = int(centering_width * wrapping_width)
     centering_width = max(wrapping_width, centering_width)
