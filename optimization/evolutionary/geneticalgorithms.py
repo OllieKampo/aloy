@@ -39,6 +39,8 @@ from auxiliary.moreitertools import chunk, ichunk, cycle_for, getitem_zip, max_n
 
 import numpy as np
 
+from optimization.decayfunctions import get_decay_function
+
 ## Need to be able to deal with degree of mutation based on the range.
 ## For arbitrary bases, this will be based on the order of the possible values in the base.
 
@@ -870,30 +872,9 @@ class TournamentSelector(GeneticSelector):
             return self.__inner_selector.scale(fitness)
         return super().scale(fitness)
 
-# class SUSselector(Selector):
-#     def __init__(self, requires_sorted_fitness: bool) -> None:
-#         """Create a new Stochastic Universal Sampler (SUS) selector."""
-#         super().__init__(requires_sorted_fitness)
-    
-#     def select(self, population: list[Chromosome], fitness: list[Real], quantity: int, generator: Generator) -> list[Chromosome]:
-#         """Select a given quantity of chromosomes from the population."""
-#         self.validate(population, fitness, quantity)
-#         return generator.choice(population, quantity, p=fitness)
-#     #         pop_size: int = len(population)
-#     #         chunk_size: int = max(min_chunk_size, math.floor(pop_size / quantity))
-#     #         selected: list[str] = []
-#     #         ## This doesn't actually account for the fitness values.
-#     #         while len(selected) != quantity:
-#     #             selected.extend(gene for gene in range(0, pop_size, self.__random_generator.choice(chunk_size)))
-#     #         return selected
-
-
-
 # class SelectorCombiner(Selector):
 #     """Can combine multiple selection schemes and transition between using different ones a various stages of the search."""
 #     pass
-
-
 
 @dataclasses.dataclass(frozen=True)
 class GeneticAlgorithmSolution:
@@ -1050,6 +1031,7 @@ class GeneticSystem:
             survival_factor: Fraction, 
             # survival_factor_rate: Optional[Fraction],
             # survival_factor_rate_type: Optional["DecayType" | Literal["lin", "pol", "exp"]],
+            
             survival_elitism_factor: Optional[Fraction], ## Fraction of the surviving that are the elite.
             # survival_elitism_growth: Optional[Fraction],
             # survival_elitism_growth_type: Optional["DecayType" | Literal["lin", "pol", "exp"]],
@@ -1059,16 +1041,25 @@ class GeneticSystem:
             
             replacement: bool,
             reproduction_elitism_factor: Fraction,
-            reproduction_elitism_growth: Fraction,
-            reproduction_elitism_growth_type: Optional["DecayType" | Literal["lin", "pol", "exp"]],
-            
+            reproduction_elitism_factor_final: Fraction,
+            reproduction_elitism_factor_growth_type: Optional["DecayType" | Literal["lin", "pol", "exp"]],
+            reproduction_elitism_factor_growth_start: int,
+            reproduction_elitism_factor_growth_end: int,
+            reproduction_elitism_factor_growth_rate: Fraction,
+
             mutation_factor: Fraction,
-            mutation_factor_growth: Fraction,
+            mutation_factor_final: Fraction,
             mutation_factor_growth_type: Optional["DecayType" | Literal["lin", "pol", "exp"]],
-            mutation_distribution: Literal["uniform", "half_logistic", "trunc_exponential"],
-            mutation_step_size: Fraction,
-            mutation_step_size_decay: Fraction,
-            mutation_step_size_decay_type: Optional["DecayType" | Literal["lin", "pol", "exp"]],
+            mutation_factor_growth_start: int,
+            mutation_factor_growth_end: int,
+            mutation_factor_growth_rate: Fraction,
+
+            mutation_strength: Fraction,
+            mutation_strength_final: Fraction,
+            mutation_strength_decay_type: Literal["lin", "pol", "exp"],
+            mutation_strength_decay_start: int,
+            mutation_strength_decay_end: int,
+            mutation_strength_decay_rate: Fraction,
             
             max_generations: Optional[int],
             fitness_threshold: Optional[Fraction],
@@ -1077,13 +1068,16 @@ class GeneticSystem:
             stagnation_proportion: Optional[Fraction | int] = 0.10, ## TODO Could use numpy.allclose
             
             ## These are used only for proportional fitness
-            diversity_bias: Optional[Fraction] = Fraction(0.95),
-            diversity_bias_decay: Optional[int | Fraction] = 100,
-            diversity_bias_decay_type: "DecayType" | Literal["lin", "pol", "exp", "hl-exp"] = "exp" # ["threshold-converge", "stagnation-diverge"]
+            diversity_bias: float = 0.95,
+            diversity_bias_final: float = 0.05,
+            diversity_bias_decay_type: Literal["lin", "pol", "exp", "sin"] = "exp", # ["threshold-converge", "stagnation-diverge"]
             ##      - converge towards fitness threshold - proportional to difference between mean fitness and fitness threshold,
             ##      - converge on rate of change towards fitness threshold,
             ##      - diverge on stagnation on best fittest towards fitness threshold. Increase proportional to diversity_bias * (stagnated_generations / stagnation_limit). This should try to explore around the solution space when the best fitness gets stuck on a local minima.
-            
+            diversity_bias_decay_start: int = 0,
+            diversity_bias_decay_end: int | None = None,
+            diversity_bias_decay_rate: float = 0.1
+
             ) -> GeneticAlgorithmSolution:
         """
         Run the genetic algorithm.
@@ -1173,26 +1167,31 @@ class GeneticSystem:
         best_fitness_achieved: Fraction = max_fitness
         stagnated_generations: int = 0
         
+        get_df = get_decay_function
+        diversity_bias_decay_function = None
+        mutation_factor_growth_function = None
+
         if diversity_bias_decay_type is not None:
-            diversity_bias_decay_function = get_decay_function(diversity_bias_decay_type)
+            diversity_bias_decay_func = get_df(diversity_bias_decay_type, diversity_bias, diversity_bias_final,
+                                               diversity_bias_decay_start, diversity_bias_decay_end, diversity_bias_decay_rate)
         if mutation_factor_growth_type is not None:
-            mutation_factor_growth_function = get_decay_function(mutation_factor_growth_type)
+            mutation_factor_growth_func = get_df(mutation_factor_growth_type, mutation_factor, mutation_factor_final,
+                                                 mutation_factor_growth_start, mutation_factor_growth_end, mutation_factor_growth_rate)
+        if mutation_strength_decay_type is not None:
+            mutation_strength_decay_func = get_df(mutation_strength_decay_type, mutation_strength, mutation_strength_final,
+                                                  mutation_strength_decay_start, mutation_strength_decay_end, mutation_strength_decay_rate)
         
         progress_bar = ResourceProgressBar(initial=1, total=max_generations)
         
         while not (generation >= max_generations):
             if diversity_bias is not None:
-                ## Update the convergence and diversity biases;
-                ##      - Convergence increases by the decay factor,
-                ##      - Diversity reduces by the decay factor.
-                if diversity_bias_decay is not None and diversity_bias_decay_type is not None:
-                    diversity_bias = diversity_bias_decay_function(diversity_bias, diversity_bias_decay)
+                if diversity_bias_decay_function is not None:
+                    diversity_bias = diversity_bias_decay_function(generation)
                 
-                ## Apply biases to the fitness values;
-                ##      - Diversity bias increases low fitness, encouraging exploration,
-                ##        Individuals gain fitness directly proportional to diversity bias and how much worse than the maximum fitness.
-                fitness_values = [fitness
-                                  + ((max_fitness - fitness) * diversity_bias)
+                ## Apply biases to the fitness values to encourage exploration;
+                ##      Individuals gain fitness directly proportional to diversity
+                ##      bias and how much worse they are than the maximum fitness.
+                fitness_values = [fitness + (diversity_bias * (max_fitness - fitness))
                                   for fitness in fitness_values]
             
             ## Applying scaling to the fitness values.
@@ -1212,9 +1211,9 @@ class GeneticSystem:
             population = self.grow_population(population, fitness_values, desired_population_size, replacement)
             
             ## Randomly mutate the grown population
-            if generation != 0:
-                mutation_factor = mutation_factor_growth_function(mutation_factor, mutation_factor_growth)
-            mutated_population: list[CT] = self.mutate_population(population, fitness_values, mutation_distribution)
+            if generation != 0 and mutation_factor_growth_function is not None:
+                mutation_factor = mutation_factor_growth_function(generation)
+            mutated_population: list[CT] = self.mutate_population(population, mutation_factor, fitness_values, uniform_mutation_selection, mutate_all)
             
             ## Update the population and fitness values with the new generation.
             population = mutated_population
@@ -1270,7 +1269,7 @@ class GeneticSystem:
         
         Individuals that do not survive are said to be culled from the population and do not get a chance to reproduce and propagate features of their genes to the next generation.
         
-        The intuition is that individuals with sufficiently low fitness (relativeo the other individuals in the population) will get out competed by better adapted individuals and therefore will not survive to reproduce offspring.
+        The intuition is that individuals with sufficiently low fitness (relative to the other individuals in the population) will get out competed by better adapted individuals and therefore will not survive to reproduce offspring.
         The assumption, is that such individuals don't have genes with desirable features, and therefore we don't want them in the gene pool at all.
         
         Reproduction with replacement might be considered similar to population culling and reproduction without replacement,
@@ -1402,22 +1401,25 @@ class GeneticSystem:
     
     def mutate_population(self,
                           population: list[CT],
-                          mutation_factor: Fraction = Fraction(1),
-                          mutate_all: bool = True
+                          mutation_factor: Fraction,
+                          fitness_values: list[Fraction],
+                          uniform_selection: bool,
+                          mutate_all: bool
                           ) -> list[CT]:
         """
         Mutate the population.
         
         By default, mutates each individual in the population exactly once.
-        If `mutation_factor` is an integer greater than one, then mutate
-        each individual a multiple of times equal to the factor.
-        If `mutation_factor` is not an integer then randomly choose a number
-        of individuals from the population to mutate (with replacement)
-        equal to the non-integer part of the factor, i.e. `math.floor(len(population) * (mutation_factor % 1.0))`.
-        If `mutate_all` is False then instead randomly choose a number of
-        individuals from the population to mutate (with replacement) equal to `math.floor(len(population) * mutation_factor)`.
+
+        If `mutation_factor` is an integer greater than one and `mutate_all` is True
+        then mutate each individual a multiple of times equal to the integer part of
+        the factor, i.e. `math.floor(mutation_factor)`, then randomly choose a number
+        of individuals from the population to mutate (with replacement) proportional to the
+        non-integer part of the factor, i.e. `math.floor(len(population) * (mutation_factor % 1.0))`.
+
+        If `mutate_all` is False then instead randomly choose a number of individuals from the
+        population to mutate (with replacement) equal to `math.floor(len(population) * mutation_factor)`.
         """
-        ##
         mutations_quantity: int = math.floor(len(population) * mutation_factor)
         mutated_population: list[CT] = population
         
@@ -1428,17 +1430,22 @@ class GeneticSystem:
         else:
             mutate = self.__mutator.arbitrary_mutate
         
+        ## Deterministically select each individual in the population
+        ## a multiple of times equal to the integer part of the factor.
         if (mutate_all and mutations_quantity >= len(population)):
             cycles: int = mutations_quantity // len(population)
             for index in cycle_for(range(len(population)), cycles):
                 mutated_population[index] = mutate(mutated_population[index],
                                                    self.__encoder.base)
             mutations_quantity -= len(population) * cycles
-            # else: mutations_quantity %= len(population) ## TODO
         
-        if (not mutate_all
-            or mutations_quantity != 0):
-            for index in self.__random_generator.choice(len(population), mutations_quantity):
+        ## Randomly select individuals from the population to account for the rest of the factor.
+        if not mutate_all or mutations_quantity != 0:
+            if uniform_selection:
+                choices = self.__random_generator.choice(len(population), mutations_quantity)
+            else:
+                choices = self.__selector.select(range(len(population)), fitness_values, mutations_quantity)
+            for index in choices:
                 mutated_population[index] = mutate(mutated_population[index],
                                                    self.__encoder.base)
         
