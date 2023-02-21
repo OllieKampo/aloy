@@ -190,8 +190,12 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
             ## If the specified item is an edge, remove the connection from the first vertex to the second.
             vertex, connected_vertex = vertex_or_edge
             self.__adjacency_mapping[vertex].discard(connected_vertex)
+            self.__edge_data.pop(vertex_or_edge, None)
+            self.__edge_weights.pop(vertex_or_edge, None)
             if not self.__directed:
                 self.__adjacency_mapping[connected_vertex].discard(vertex)
+                self.__edge_data.pop((connected_vertex, vertex), None)
+                self.__edge_weights.pop((connected_vertex, vertex), None)
         else:
             ## Get all other nodes connected to the specified node, removing any loops
             vertex = vertex_or_edge
@@ -201,9 +205,12 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
             ## Remove all the connections from the other vertices to the specified vertex.
             for connected_vertex in connected_vertices:
                 self.__adjacency_mapping[connected_vertex].discard(vertex)
+                self.__edge_data.pop((connected_vertex, vertex), None)
+                self.__edge_weights.pop((connected_vertex, vertex), None)
             
             ## Remove the specified vertex and all its connections to the other vertices.
             del self.__adjacency_mapping[vertex]
+            self.__vertex_data.pop(vertex, None)
     
     def __iter__(self) -> Iterator[VT]:
         "Iterate over the vertex set of this graph."
@@ -257,12 +264,38 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
             raise TypeError(f"The data must be a mapping. Got; {data!r} of type {type(data)}.")
         self.__vertex_data.setdefault(vertex, {}).update(data)
     
+    @overload
     def get_vertex_data(self,
-                        vertex: VT,
-                        name: str,
+                        vertex: VT, *,
+                        default: dict[str, Any] = {}
+                        ) -> dict[str, Any]:
+        ...
+    
+    @overload
+    def get_vertex_data(self,
+                        vertex: VT, /,
+                        name: str, *,
                         default: Any | None = None
                         ) -> Any | None:
-        """Get the given data attribute of the given vertex."""
+        ...
+    
+    def get_vertex_data(self,
+                        vertex: VT, /,
+                        name: str | None = None, *,
+                        default: Any | None = None
+                        ) -> Any | None:
+        """
+        Get the data attribute(s) of the given vertex.
+        
+        If an attribute name is given, return the value of that attribute,
+        otherwise return a dictionary of all the attributes of the vertex.
+        If the vertex is not in the graph or the vertex does not have the
+        given attribute, return the default value.
+        """
+        if name is None:
+            return self.__vertex_data.get(vertex, default)
+        if vertex not in self.__vertex_data:
+            return default
         return self.__vertex_data[vertex].get(name, default)
     
     def set_edge_data(self,
@@ -284,13 +317,37 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
             raise TypeError(f"The data must be a mapping. Got; {data!r} of type {type(data)}.")
         self.__edge_data.setdefault((vertex, adjacent), {}).update(data)
     
+    @overload
+    def get_edge_data(self,
+                      vertex: VT,
+                      adjacent: VT, *,
+                      default: dict[str, Any] = {}
+                      ) -> dict[str, Any]:
+        ...
+    
+    @overload
+    def get_edge_data(self,
+                      vertex: VT,
+                      adjacent: VT, /,
+                      name: str, *,
+                      default: Any | None = None
+                      ) -> Any | None:
+        ...
+    
     def get_edge_data(self,
                       vertex: VT,
                       adjacent: VT,
                       name: str,
                       default: Any | None = None
                       ) -> Any | None:
-        """Get the given data attribute of the given edge."""
+        """
+        Get the data attribute(s) of the given edge.
+        
+        If an attribute name is given, return the value of that attribute,
+        otherwise return a dictionary of all the attributes of the edge.
+        If the edge is not in the graph or the edge does not have the
+        given attribute, return the default value.
+        """
         return self.__edge_data[(vertex, adjacent)].get(name, default)
     
     def edges(self) -> KeysView[tuple[VT, VT]]:
@@ -307,10 +364,11 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
     
     def get_edge_weight(self,
                         start: VT,
-                        end: VT
-                        ) -> float | None:
+                        end: VT,
+                        default: float = 0.0
+                        ) -> float:
         """Get the weight of the given edge."""
-        return self.__edge_weights[(start, end)]
+        return self.__edge_weights.get((start, end), default)
     
     def as_disjoint_set(self) -> DisjointSet[VT]:
         """Get the disjoint set representation of this graph."""
