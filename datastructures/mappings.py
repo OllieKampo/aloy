@@ -59,7 +59,8 @@ class frozendict(collections.abc.Mapping, Generic[KT, VT]):
     @overload
     def __init__(self, mapping: Mapping[KT, VT], /) -> None:
         """
-        Create a new frozen dictionary from a mapping object's (key, value) pairs.
+        Create a new frozen dictionary from a
+        mapping object's (key, value) pairs.
         
         For example:
         ```
@@ -73,7 +74,8 @@ class frozendict(collections.abc.Mapping, Generic[KT, VT]):
     @overload
     def __init__(self, iterable: Iterable[tuple[KT, VT]], /) -> None:
         """
-        Create a new frozen dictionary from an iterable of tuples defining (key, value) pairs.
+        Create a new frozen dictionary from an iterable
+        of tuples defining (key, value) pairs.
         
         For example:
         ```
@@ -87,7 +89,8 @@ class frozendict(collections.abc.Mapping, Generic[KT, VT]):
     @overload
     def __init__(self, **kwargs: VT) -> None:
         """
-        Create a new frozen dictionary with the key to value pairs given in the keyword argument list.
+        Create a new frozen dictionary with the key to
+        value pairs given in the keyword argument list.
         
         For example:
         ```
@@ -135,22 +138,22 @@ class frozendict(collections.abc.Mapping, Generic[KT, VT]):
 @final
 class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
     """
-    A mutable reversable dictionary type.
+    Class defining a mutable reversable dictionary type.
     
     Supports all methods of standard dictionaries with the
-    added ability to find all keys that map to a specific value.
+    added ability to find all keys that map to a specific
+    value, this is called a reversed many-to-one mapping.
     
-    The reversable dict maintains the reversed version of itself in memory.
+    The reversable dict keeps a reversed version of itself in memory.
     Therefore, insertions are slower and memory usage is higher
     than a standard dictionary, but reversed lookups are fast.
     This also requires that dictionary values be hashable.
     
     Example Usage
     -------------
-    
     ```
     >>> from jinx.datastructures.mappings import ReversableDict
-    >>> rev_dict: ReversableDict[str, int] = ReversableDict({"a" : 1, "b" : 2, "z" : 2})
+    >>> rev_dict = ReversableDict({"a" : 1, "b" : 2, "z" : 2})
     >>> rev_dict
     ReversableDict({"a" : 1, "b" : 2, "z" : 2})
     
@@ -169,7 +172,7 @@ class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
     >>> rev_dict(2)
     ["b", "z"]
     
-    ## Objects are mutable, and updates are handled on both the standard and reverse mappings.
+    ## Objects are mutable and updates are handled on both the standard and reverse mappings.
     >>> del rev_dict["z"]
     >>> rev_dict(2)
     ["b"]
@@ -182,7 +185,8 @@ class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
     @overload
     def __init__(self, mapping: Mapping[KT, VT], /) -> None:
         """
-        Create a new reversable dictionary initialised from a mapping object's (key, value) pairs.
+        Create a new reversable dictionary initialised
+        from a mapping object's (key, value) pairs.
         
         For example:
         ```
@@ -196,7 +200,8 @@ class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
     @overload
     def __init__(self, iterable: Iterable[tuple[KT, VT]], /) -> None:
         """
-        Create a new reversable dictionary initialized from an iterable of tuples defining (key, value) pairs.
+        Create a new reversable dictionary initialized from
+        an iterable of tuples defining (key, value) pairs.
         
         For example:
         ```
@@ -210,7 +215,8 @@ class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
     @overload
     def __init__(self, **kwargs: VT) -> None:
         """
-        Create a new reversable dictionary initialized with the key to value pairs given in the keyword argument list.
+        Create a new reversable dictionary initialized with the
+        key to value pairs given in the keyword argument list.
         
         For example:
         ```
@@ -230,7 +236,7 @@ class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
     
     def __repr__(self) -> str:
         """Get an instantiable string representation of the reversable dictionary."""
-        return f"ReversableDict({repr(self.__dict)})"
+        return f"{self.__class__.__name__}({self.__dict})"
     
     def __getitem__(self, key: KT, /) -> VT:
         """Get the value for the given key in the standard mapping."""
@@ -280,6 +286,10 @@ class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
         keys: list[KT] = self.__reversed_dict[value]
         return keys[0:min(max_, len(keys))]
     
+    def __copy__(self) -> "ReversableDict[KT, VT]":
+        """Get a shallow copy of the reversable dictionary."""
+        return self.__class__(self.__dict)
+    
     @property
     def standard_mapping(self) -> dict[KT, VT]:
         """Get the standard mapping as a normal dictionary."""
@@ -300,7 +310,11 @@ class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
         """
         return self.__reversed_dict.items()
     
-    def reversed_get(self, value: VT, default: Optional[list[KT]] = None, /, *, max_: Optional[int] = None) -> Optional[list[KT]]:
+    def reversed_get(self,
+                     value: VT,
+                     default: Optional[list[KT]] = None, /, *,
+                     max_: Optional[int] = None
+                     ) -> Optional[list[KT]]:
         """
         Get the list of keys that map to a given value in the reversed mapping.
         
@@ -337,8 +351,8 @@ class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
 @final
 class FrozenReversableDict(collections.abc.Mapping, Generic[KT, VT]):
     """
-    A frozen reversable dictionary.
-    
+    Class defining a frozen reversable dictionary type.
+
     A frozen dictionary is an immutable and hashable version of a reversable dictionary.
     """
     
@@ -393,59 +407,25 @@ class FrozenReversableDict(collections.abc.Mapping, Generic[KT, VT]):
         self.__hash: Optional[int] = None
     
     def __repr__(self) -> str:
-        """Get an instantiable string representation of the dictionary."""
-        return f"ReversableDict({self.__reversable_dict.standard_mapping})"
-    
+        return f"{self.__class__.__name__}({self.__reversable_dict.standard_mapping})"
+    __repr__.__doc__ = ReversableDict.__repr__.__doc__
+
     def __getitem__(self, key: KT, /) -> VT:
-        """Get the value associated with the given key."""
         return self.__reversable_dict[key]
-    
+    __getitem__.__doc__ = ReversableDict.__getitem__.__doc__
+
     def __iter__(self) -> Iterator[VT]:
-        """Iterate over the keys in the dictionary."""
         return iter(self.__reversable_dict)
+    __iter__.__doc__ = ReversableDict.__iter__.__doc__
     
     def __len__(self) -> int:
-        """Get the number of items in the dictionary."""
         return len(self.__reversable_dict)
-    
+    __len__.__doc__ = ReversableDict.__len__.__doc__
+
     def __call__(self, value: VT, /, *, max_: Optional[int] = None) -> list[KT]:
-        """
-        Get the list of keys that map to the given value in the reversed mapping.
-        
-        If `max_` is given and not None, return at most the first `max_` keys.
-        """
         return self.__reversable_dict.reversed_get(value, max_=max_)
-    
-    @property
-    def standard_mapping(self) -> dict[KT, VT]:
-        """Get the standard mapping as a normal dictionary."""
-        return self.__reversable_dict.standard_mapping
-    
-    @property
-    def reversed_mapping(self) -> dict[VT, list[KT]]:
-        """Get the reversed mapping as a normal dictionary."""
-        return self.__reversable_dict.reversed_mapping
-    
-    def reversed_items(self) -> ItemsView[VT, list[KT]]:
-        """
-        Get a reversed dictionary items view.
-        
-        Such that:
-            - Its keys are the values of the standard dictionary,
-            - Its values are lists of keys from the standard dictionary which map to the respective values.
-        """
-        return self.__reversable_dict.reversed_items()
-    
-    def reversed_get(self, value: VT, default: Optional[list[KT]] = None, /, *, max_: Optional[int] = None) -> Optional[list[KT]]:
-        """
-        Get the list of keys that map to a given value in the reversed mapping.
-        
-        If the value is not found, return `default` if given; otherwise, raise a KeyError.
-        
-        If `max_` is given and not None, return at most the first `max_` keys.
-        """
-        return self.__reversable_dict.reversed_get(value, default=default)
-    
+    __call__.__doc__ = ReversableDict.reversed_get.__doc__
+
     def __hash__(self) -> int:
         """Get the hash of the dictionary."""
         if self.__hash is None:
@@ -455,6 +435,158 @@ class FrozenReversableDict(collections.abc.Mapping, Generic[KT, VT]):
             self.__hash = hash_
         return self.__hash
     
-    def __copy__(self) -> "frozendict[KT, VT]":
-        """Create a shallow copy of the dictionary."""
-        return frozendict(self)
+    @property
+    def standard_mapping(self) -> dict[KT, VT]:
+        return self.__reversable_dict.standard_mapping
+    standard_mapping.__doc__ = ReversableDict.standard_mapping.__doc__
+
+    @property
+    def reversed_mapping(self) -> dict[VT, list[KT]]:
+        return self.__reversable_dict.reversed_mapping
+    reversed_mapping.__doc__ = ReversableDict.reversed_mapping.__doc__
+
+    def reversed_items(self) -> ItemsView[VT, list[KT]]:
+        return self.__reversable_dict.reversed_items()
+    reversed_items.__doc__ = ReversableDict.reversed_items.__doc__
+
+    def reversed_get(self,
+                     value: VT,
+                     default: Optional[list[KT]] = None, /, *,
+                     max_: Optional[int] = None
+                     ) -> Optional[list[KT]]:
+        return self.__reversable_dict.reversed_get(value, default=default, max_=max_)
+    reversed_get.__doc__ = ReversableDict.reversed_get.__doc__
+
+MT = TypeVar("MT", bound=Hashable)
+
+@final
+class TwoWayMap(collections.abc.Mapping, Generic[MT]):
+    """
+    Class defining a two-way mapping type.
+    
+    A two-way mapping consists of a forwards and backwards mapping, where each key from
+    the forwards mapping can map to multiple keys in the backwards mapping, and keys of
+    the backwards mapping automatically map back those of the forwards that map to them.
+
+    This structure is very useful for specifying one-to-many mappings such as
+    input-output connections or parent-child relationships. It is similar to
+    an undirected graph-like structure, except keys in the same side of
+    the mapping cannot map to each other.
+
+    For example:
+    ```
+    ## A two-way mapping of parent-child relationships.
+    ## parent_1 has two children, with two different partners; parent_2 and parent_3.
+    >>> twm = TwoWayMapping({"parent_1" : ["child_1", "child_2"], "parent_2" : ["child_1"], "parent_3" : ["child_2"]})
+    >>> twm
+    TwoWayMapping({"parent_1" : ["child_1", "child_2"], "parent_2" : ["child_1"], "parent_3" : ["child_2"]})
+
+    ## Determine who the children of parent_1 are.
+    >>> twm["parent_1"]
+    {"child_1", "child_2"}
+
+    ## Determine who the parents of child_1 are.
+    >>> twm["child_1"]
+    {"parent_1", "parent_2"}
+
+    ## Check if parent_3 is a parent of child_1.
+    >>> "parent_3" in twm["child_1"]
+    False
+    ```
+    """
+    
+    __slots__ = {"__forwards" : "The forwards mapping.",
+                 "__backwards" : "The backwards mapping."}
+    
+    @overload
+    def __init__(self, initialiser: Mapping[MT, Iterable[MT]]) -> None:
+        """
+        Create a new two-way mapping from the given mapping.
+        
+        For example:
+        ```
+        >>> twm = TwoWayMapping({"parent_1" : ["child_1", "child_2"], "parent_2" : ["child_1"], "parent_3" : ["child_2"]})
+        >>> twm
+        TwoWayMapping({"parent_1" : ["child_1", "child_2"], "parent_2" : ["child_1"], "parent_3" : ["child_2"]})
+        ```
+        """
+        ...
+    
+    @overload
+    def __init__(self, initialiser: Iterable[tuple[MT, MT]]) -> None:
+        """
+        Create a new two-way mapping from the given iterable of key-value pairs.
+        
+        For example:
+        ```
+        >>> twm = TwoWayMapping([("parent_1", "child_1"), ("parent_1", "child_2"), ("parent_2", "child_1"), ("parent_3", "child_2")])
+        >>> twm
+        TwoWayMapping({"parent_1" : ["child_1", "child_2"], "parent_2" : ["child_1"], "parent_3" : ["child_2"]})
+        ```
+        """
+        ...
+    
+    def __init__(self, initialiser: Mapping[MT, Iterable[MT]] | Iterable[tuple[MT, MT]]) -> None:
+        """Create a new two-way mapping."""
+        self.__forwards: dict[MT, set[MT]] = {}
+        self.__backwards: dict[MT, set[MT]] = {}
+        if isinstance(initialiser, Mapping):
+            for key, values in initialiser.items():
+                self.__forwards[key] = set(values)
+                for value in values:
+                    self.__backwards.setdefault(value, set()).add(key)
+        else:
+            for key, value in initialiser:
+                self.__forwards.setdefault(key, set()).add(value)
+                self.__backwards.setdefault(value, set()).add(key)
+    
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({self.__forwards})"
+    
+    def __getitem__(self, key: KT, /) -> set[MT]:
+        return self.__forwards[key]
+    
+    def __iter__(self) -> Iterator[MT]:
+        return iter(self.__forwards)
+    
+    def __len__(self) -> int:
+        return len(self.__forwards)
+    
+    def __call__(self, value: MT, /) -> set[MT]:
+        return self.__backwards[value]
+    
+    @property
+    def forwards(self) -> dict[MT, set[MT]]:
+        """Get the forwards mapping."""
+        return self.__forwards
+    
+    @property
+    def backwards(self) -> dict[MT, set[MT]]:
+        """Get the backwards mapping."""
+        return self.__backwards
+    
+    def backwards_items(self) -> ItemsView[MT, set[MT]]:
+        """Get the items of the backwards mapping."""
+        return self.__backwards.items()
+
+    def backwards_get(self, value: MT, default: set[MT] | None = None, /) -> set[MT] | None:
+        """Get the keys that map to a value in the backwards mapping."""
+        return self.__backwards.get(value, default)
+
+    def add(self, forwards_key: MT, backwards_key: MT, /) -> None:
+        """Add a new key pair to the mapping."""
+        self.__forwards.setdefault(forwards_key, set()).add(backwards_key)
+        self.__backwards.setdefault(backwards_key, set()).add(forwards_key)
+    
+    def remove(self, forwards_key: MT, backwards_key: MT, /) -> None:
+        """Remove a key pair from the mapping."""
+        self.__forwards[forwards_key].remove(backwards_key)
+        self.__backwards[backwards_key].remove(forwards_key)
+        if not self.__forwards[forwards_key]:
+            del self.__forwards[forwards_key]
+        if not self.__backwards[backwards_key]:
+            del self.__backwards[backwards_key]
+
+@final
+class LayerMap(collections.abc.Mapping):
+    pass
