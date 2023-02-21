@@ -24,6 +24,10 @@
 __all__ = ("PIDControllerGains",
            "PIDController")
 
+def __dir__() -> tuple[str]:
+    """Get the names of module attributes."""
+    return __all__
+
 from collections import deque
 from typing import NamedTuple
 
