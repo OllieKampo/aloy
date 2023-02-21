@@ -33,7 +33,6 @@ class InvertedPendulumSystem(ControlledSystem):
     """A non-linear inverted pendulum system."""
     
     ## Physical properties of the system.
-    cart_mass: float = 1.0
     pendulum_length: float = 1.0
     gravity: float = 9.80665
     steady_state_error: float = 1.0
@@ -46,6 +45,56 @@ class InvertedPendulumSystem(ControlledSystem):
     def reset(self) -> None:
         """Reset the system to its initial state."""
         self.force = 0.0
+        self.pendulum_angle = math.pi / 4.0
+        self.pendulum_angular_velocity = 0.0
+    
+    def update_system(self, delta_time: float) -> None:
+        """Update the system state."""
+        cart_acc = (self.force - self.steady_state_error)
+        pend_ang_acc = (((-cart_acc * math.cos(self.pendulum_angle))
+                         + (self.gravity * math.sin(self.pendulum_angle)))
+                        / self.pendulum_length)
+        
+        v0 = self.pendulum_angular_velocity
+        self.pendulum_angular_velocity += pend_ang_acc * delta_time
+        self.pendulum_angle += ((v0 + self.pendulum_angular_velocity) / 2.0) * delta_time
+        
+        max_angle = (math.pi * (5.0 / 12.0))
+        if self.pendulum_angle > max_angle:
+            self.pendulum_angle = max_angle
+            self.pendulum_angular_velocity = 0.0
+        elif self.pendulum_angle < -max_angle:
+            self.pendulum_angle = -max_angle
+            self.pendulum_angular_velocity = 0.0
+    
+    def error_variables(self) -> dict[str, str]:
+        return {"pendulum_angle": "force"}
+    
+    def get_error(self, var_name: str | None = None) -> float:
+        """Get the current error from the setpoint(s) for the control system."""
+        return self.pendulum_angle
+    
+    def set_output(self, output: float, delta_time: float, var_name: str | None = None) -> None:
+        """Set the control output(s) to the system."""
+        self.force = output
+        self.update_system(delta_time)
+
+@dataclass
+class CartAndPendulumSystem(InvertedPendulumSystem):
+    """A non-linear cart and pendulum system."""
+    
+    ## Physical properties of the system.
+    cart_mass: float = 1.0
+    
+    ## Current state of the system.
+    cart_position: float = 0.0
+    cart_velocity: float = 0.0
+    
+    def reset(self) -> None:
+        """Reset the system to its initial state."""
+        self.force = 0.0
+        self.cart_position = 0.0
+        self.cart_velocity = 0.0
         self.pendulum_angle = math.pi / 4.0
         self.pendulum_angular_velocity = 0.0
     
@@ -67,12 +116,27 @@ class InvertedPendulumSystem(ControlledSystem):
         elif self.pendulum_angle < -max_angle:
             self.pendulum_angle = -max_angle
             self.pendulum_angular_velocity = 0.0
+        
+        v0 = self.cart_velocity
+        self.cart_velocity += cart_acc * delta_time
+        self.cart_position += ((v0 + self.cart_velocity) / 2.0) * delta_time
     
-    def get_error(self, var_name: str | None = None) -> float:
+    def error_variables(self) -> dict[str, str]:
+        return {"pendulum_angle": "force", "cart_position": "force"}
+    
+    def control_variables(self) -> dict[str, str]:
+        return {"force": "force"}
+
+    def get_error(self, var_name: str) -> float:
         """Get the current error from the setpoint(s) for the control system."""
-        return self.pendulum_angle
+        if var_name == "pendulum_angle":
+            return self.pendulum_angle
+        elif var_name == "cart_position":
+            return self.cart_position
+        else:
+            raise ValueError(f"Invalid variable name: {var_name}")
     
-    def set_output(self, output: float, delta_time: float, var_name: str | None = None) -> None:
+    def set_output(self, output: float, delta_time: float, var_name: str) -> None:
         """Set the control output(s) to the system."""
         self.force = output
         self.update_system(delta_time)
