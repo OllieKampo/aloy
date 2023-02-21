@@ -33,8 +33,6 @@ from fractions import Fraction
 from numbers import Real
 from typing import Any, Callable, Literal, Sequence
 
-import dask
-# dask.config.set(scheduler='threads')
 from dask.distributed import Client, LocalCluster
 import dask.array as daskarray
 
@@ -158,21 +156,29 @@ class ParticleSwarmSystem:
     def run(self,
             total_particles: int = 100,
             init_strategy: Literal["random", "linspace"] = "random",
-            
-            # seed_rate: int | float = 10,
-            # seed_quantity_max: int | float = 0.1,
-            # seed_quantity_min: int | float = 0.1,
-            # seed_strategy: Literal["random", "partner"] = "random",
 
-            # replace_clusters: bool = True,
-            # replace_clusters_rate: int | float = 10,
+            # replace_clustered: bool = True,
+            # merge_clustered: bool = True,
+            # replace_clustered_for: int | float = 0.1,
+            # replace_clustered_rate: int | float = 10,
+            # replace_clustered_quantity: int | float = 0.1,
             
             # replace_low_fitness: bool = True,
+            # replace_low_fitness_for: int | float = 0.1,
             # replace_low_fitness_rate: int | float = 10,
-            
+            # replace_low_fitness_quantity: int | float = 0.1,
+
             # replace_stagnated: bool = True,
             # replace_stagnated_for: int | float = 0.1,
+            # replace_stagnated_rate: int | float = 10,
+            # replace_stagnated_quantity: int | float = 0.1,
+
+            # replace_random: bool = True,
+            # replace_random_rate: int | float = 10,
+            # replace_random_quantity: int | float = 0.1,
             
+            # replace_strategy: Literal["random-space", "random-partner", "random-cast"] = "random",
+
             ## Stop criteria
             iterations_limit: int | None = 1000,
             stagnation_limit: int | float | Fraction | None = 0.25,
@@ -182,22 +188,41 @@ class ParticleSwarmSystem:
             ## Particle inertia
             inertia: float = 1.0,
             final_inertia: float = 0.25,
-            inertia_decay: float = 1.0,
+
+            ## Particle inertia decay
             inertia_decay_type: DecayFunctionType = "lin",
             inertia_decay_start: int = 0,
             inertia_decay_end: int | None = None,
+            inertia_decay_rate: float = 1.0,
             
             ## Particle direction of movement coefficients
             personal_coef: float = 1.0,
-            final_personal_coef: float = 0.0,
+            personal_coef_final: float = 0.0,
             global_coef: float = 0.0,
-            final_global_coef: float = 1.0,
+            global_coef_final: float = 1.0,
             neighbour_coef: float = 0.25,
-            final_neighbour_coef: float = 0.75,
-            coef_decay: float | None = None,
-            coef_decay_type: DecayFunctionType | None = "lin",
+            neighbour_coef_final: float = 0.75,
+
+            ## Particle direction of movement coefficients decay
+            coef_decay_type: DecayFunctionType = "lin",
             coef_decay_start: int = 0,
             coef_decay_end: int | None = None,
+            coef_decay_rate: float = 1.0,
+
+            personal_coef_decay_type: DecayFunctionType | None = None,
+            personal_coef_decay_start: int | None = None,
+            personal_coef_decay_end: int | None = None,
+            personal_coef_decay_rate: float | None = None,
+
+            global_coef_decay_type: DecayFunctionType | None = None,
+            global_coef_decay_start: int | None = None,
+            global_coef_decay_end: int | None = None,
+            global_coef_decay_rate: float | None = None,
+
+            neighbour_coef_decay_type: DecayFunctionType | None = None,
+            neighbour_coef_decay_start: int | None = None,
+            neighbour_coef_decay_end: int | None = None,
+            neighbour_coef_decay_rate: float | None = None,
             
             ## Neighbourhood options.
             use_neighbourhood: bool = False,
@@ -288,36 +313,9 @@ class ParticleSwarmSystem:
             if iterations_limit is not None:
                 stagnation_limit = min(iterations_limit, stagnation_limit)
         
-        ## If the decay start is less than 0, then raise an error.
-        if inertia_decay_start < 0:
-            raise ValueError(f"Inertia decay start must be at least 0. Got; {inertia_decay_start}")
-        if coef_decay_start < 0:
-            raise ValueError(f"Coefficient decay start must be at least 0. Got; {coef_decay_start}")
-        
-        ## If the decay end is not given, then set it to the iterations limit.
-        if inertia_decay_end is None:
-            inertia_decay_end = iterations_limit
-        if coef_decay_end is None:
-            coef_decay_end = iterations_limit
-        
-        ## If the decay end is less than or equal to the decay start, then raise an error.
-        if inertia_decay_end <= inertia_decay_start:
-            raise ValueError(f"Inertia decay end must be greater than or equal to the inertia decay start. Got; {inertia_decay_end}")
-        if coef_decay_end <= coef_decay_start:
-            raise ValueError(f"Coefficient decay end must be greater than or equal to the coefficient decay start. Got; {coef_decay_end}")
-        
-        ## Get the decay functions for the inertia and coefficients.
-        if inertia_decay_type is not None:
-            inertia_decay_function = get_decay_function(inertia_decay_type, inertia, final_inertia,
-                                                        inertia_decay_start, inertia_decay_end, inertia_decay)
-        if coef_decay_type is not None:
-            personal_coef_decay_function = get_decay_function(coef_decay_type, personal_coef, final_personal_coef,
-                                                              coef_decay_start, coef_decay_end, coef_decay)
-            global_coef_decay_function = get_decay_function(coef_decay_type, global_coef, final_global_coef,
-                                                            coef_decay_start, coef_decay_end, coef_decay)
-            if use_neighbourhood:
-                neighbour_coef_decay_function = get_decay_function(coef_decay_type, neighbour_coef, final_neighbour_coef,
-                                                                       coef_decay_start, coef_decay_end, coef_decay)
+        inertia_decay_function, personal_coef_decay_function, \
+              global_coef_decay_function, neighbour_coef_decay_function \
+                  = self.get_decay_functions(**locals())
         
         ## Random number generator
         rng = np.random.default_rng()
@@ -427,13 +425,14 @@ class ParticleSwarmSystem:
                                                        or global_best_fitness <= fitness_limit))))):
             
             if iterations != 0:
-                if inertia_decay_type is not None:
+                if inertia_decay_function is not None:
                     inertia = inertia_decay_function(iterations)
-                if coef_decay_type is not None:
+                if personal_coef_decay_function is not None:
                     personal_coef = personal_coef_decay_function(iterations)
+                if global_coef_decay_function is not None:
                     global_coef = global_coef_decay_function(iterations)
-                    if use_neighbourhood:
-                        neighbour_coef = neighbour_coef_decay_function(iterations)
+                if use_neighbourhood and neighbour_coef_decay_function is not None:
+                    neighbour_coef = neighbour_coef_decay_function(iterations)
             
             ## For each particle, generate two random numbers for each dimension;
             ##      - one for the personal best, and one for the global best.
@@ -584,6 +583,87 @@ class ParticleSwarmSystem:
         if gather_stats:
             return (solution, dataholder.to_dataframe())
         else: return solution
+    
+    @staticmethod
+    def get_decay_functions(self, *,
+                            iterations_limit,
+                            inertia,
+                            final_inertia,
+                            inertia_decay_type,
+                            inertia_decay_start,
+                            inertia_decay_end,
+                            inertia_decay_rate,
+                            personal_coef,
+                            personal_coef_final,
+                            global_coef,
+                            global_coef_final,
+                            neighbour_coef,
+                            neighbour_coef_final,
+                            coef_decay_type,
+                            coef_decay_start,
+                            coef_decay_end,
+                            coef_decay_rate,
+                            personal_coef_decay_type,
+                            personal_coef_decay_start,
+                            personal_coef_decay_end,
+                            personal_coef_decay_rate,
+                            global_coef_decay_type,
+                            global_coef_decay_start,
+                            global_coef_decay_end,
+                            global_coef_decay_rate,
+                            neighbour_coef_decay_type,
+                            neighbour_coef_decay_start,
+                            neighbour_coef_decay_end,
+                            neighbour_coef_decay_rate,
+                            use_neighbourhood,
+                            **kwargs) -> tuple[Callable[[int], float], ...]:
+        """Get the decay functions for the inertia, personal, global and neighbourhood coefficients."""
+
+        if inertia_decay_end is None:
+            inertia_decay_end = iterations_limit
+        if coef_decay_end is None:
+            coef_decay_end = iterations_limit
+        
+        def _get(_var, _default):
+            if _var is None:
+                return _default
+            return _var
+        
+        personal_coef_decay_type = _get(personal_coef_decay_type, coef_decay_type)
+        global_coef_decay_type = _get(global_coef_decay_type, coef_decay_type)
+        neighbour_coef_decay_type = _get(neighbour_coef_decay_type, coef_decay_type)
+
+        personal_coef_decay_start = _get(personal_coef_decay_start, coef_decay_start)
+        global_coef_decay_start = _get(global_coef_decay_start, coef_decay_start)
+        neighbour_coef_decay_start = _get(neighbour_coef_decay_start, coef_decay_start)
+
+        personal_coef_decay_end = _get(personal_coef_decay_end, coef_decay_end)
+        global_coef_decay_end = _get(global_coef_decay_end, coef_decay_end)
+        neighbour_coef_decay_end = _get(neighbour_coef_decay_end, coef_decay_end)
+
+        personal_coef_decay_rate = _get(personal_coef_decay_rate, coef_decay_rate)
+        global_coef_decay_rate = _get(global_coef_decay_rate, coef_decay_rate)
+        neighbour_coef_decay_rate = _get(neighbour_coef_decay_rate, coef_decay_rate)
+        
+        get_df = get_decay_function
+        inertia_decay_func = None
+        personal_coef_decay_func = None
+        global_coef_decay_func = None
+        neighbour_coef_decay_func = None
+
+        if inertia_decay_type is not None:
+            inertia_decay_func = get_df(inertia_decay_type, inertia, final_inertia,
+                                        inertia_decay_start, inertia_decay_end, inertia_decay_rate)
+        if coef_decay_type is not None:
+            personal_coef_decay_func = get_df(personal_coef_decay_type, personal_coef, personal_coef_final,
+                                              personal_coef_decay_start, personal_coef_decay_end, personal_coef_decay_rate)
+            global_coef_decay_func = get_df(global_coef_decay_type, global_coef, global_coef_final,
+                                            global_coef_decay_start, global_coef_decay_end, global_coef_decay_rate)
+            if use_neighbourhood:
+                neighbour_coef_decay_func = get_df(neighbour_coef_decay_type, neighbour_coef, neighbour_coef_final,
+                                                   neighbour_coef_decay_start, neighbour_coef_decay_end, neighbour_coef_decay_rate)
+                                                                   
+        return inertia_decay_func, personal_coef_decay_func, global_coef_decay_func, neighbour_coef_decay_func
 
     def _create_fitness_approximation_model(self,
                                             neighbour_size: int,
