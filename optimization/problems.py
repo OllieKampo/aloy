@@ -196,3 +196,100 @@ class EightPuzzle:
     def check_all(self) -> bool:
         """Check if all values are correct."""
         return np.all(self.__grid == self.__goal)
+
+class TravellingSalesman:
+    """Class defining the travelling salesman problem."""
+
+    def __init__(self,
+                 cities: int | Sequence[str],
+                 start: int | str | None = None,
+                 end: int | str | None = None,
+                 size: tuple[float, float] = (100.0, 100.0),
+                 seed: int | None = None,
+                 backend: Literal["jinx", "networkx"] = "networkx"
+                 ) -> None:
+        """
+        Create a new travelling salesman problem with the given number of cities.
+
+        If a seed is given, the cities are created deterministically.
+        """
+        self.__graph: jinxgraph.Graph | nxgraph.Graph = self.__create_graph(cities, start, end, size, seed, backend)
+    
+    @staticmethod
+    def __create_graph(cities: int | Sequence[str],
+                       start: int | str | None = None,
+                       end: int | str | None = None,
+                       size: tuple[float, float] = (100.0, 100.0),
+                       seed: int | None = None,
+                       backend: Literal["jinx", "networkx"] = "jinx"
+                       ) -> jinxgraph.Graph | nxgraph.Graph:
+        """Create a new graph for the travelling salesman problem."""
+        if isinstance(cities, int):
+            num_cities = cities
+            cities = range(cities)
+        else: num_cities = len(cities)
+        
+        rng = np.random.default_rng(seed)
+        positions = rng.uniform(size[0], size[1], size=(num_cities, 2))
+
+        if backend == "jinx":
+            graph = jinxgraph.Graph(vertices=cities)
+            for city, position in zip(cities, positions):
+                graph.set_vertex_data(city, "position", position)
+        elif backend == "networkx":
+            graph = nxgraph.Graph()
+            graph.add_nodes_from(cities, position=positions)
+        else:
+            raise ValueError("Invalid backend.")
+        
+        if start is None:
+            start = rng.choice(cities)
+        elif start not in cities:
+            raise ValueError("Invalid start city.")
+        if end is None:
+            end = rng.choice(cities)
+        elif end not in cities:
+            raise ValueError("Invalid goal city.")
+        
+        disjoint_set = DisjointSet(cities)
+        while not disjoint_set.is_connected(start, end):
+            i, j = rng.choice(cities, size=2, replace=False)
+            if not disjoint_set.is_connected(i, j):
+                disjoint_set.union(i, j)
+                graph.add_edge(i, j, weight=np.linalg.norm(positions[i] - positions[j]))
+        
+        return graph
+        
+    def __str__(self) -> str:
+        """Return a string representation of the graph."""
+        return str(self.__graph)
+    
+    def __len__(self) -> int:
+        """Return the number of cities."""
+        return len(self.__graph)
+    
+    def __iter__(self) -> Iterable[str]:
+        """Iterate over the cities."""
+        return iter(self.__graph)
+    
+    def __getitem__(self, key: str | int) -> set[str] | set[int]:
+        """Return the neighbours of the given city."""
+        return set(self.__graph[key])
+    
+    def get_position(self, city: str | int) -> np.ndarray:
+        """Return the position of the given city."""
+        if self.__backend == "jinx":
+            return self.__graph.get_vertex_data(city, "position")
+        else:
+            return self.__graph.nodes[city]["position"]
+    
+    def get_distance(self, i: str, j: str) -> float:
+        """Return the distance between the two given cities."""
+        if self.__backend == "jinx":
+            return self.__graph.get_edge_weight(i, j)
+        else:
+            return self.__graph.edges[i,j]["weight"]
+    
+    def get_path_length(self, path: Sequence[str]) -> float:
+        """Return the length of the given path."""
+        return sum(self.get_distance(i, j) for i, j in zip(path, path[1:]))
