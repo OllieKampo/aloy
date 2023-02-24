@@ -70,12 +70,13 @@ class InvertedPendulumSystem(ControlledSystem):
     def error_variables(self) -> dict[str, str]:
         return {"pendulum_angle": "force"}
     
-    def get_error(self, var_name: str | None = None) -> float:
-        """Get the current error from the setpoint(s) for the control system."""
+    def get_control_input(self, var_name: str | None = None) -> float:
         return self.pendulum_angle
     
-    def set_output(self, output: float, delta_time: float, var_name: str | None = None) -> None:
-        """Set the control output(s) to the system."""
+    def get_setpoint(self, var_name: str | None = None) -> float:
+        return 0.0
+    
+    def set_control_output(self, output: float, delta_time: float, var_name: str | None = None) -> None:
         self.force = output
         self.update_system(delta_time)
 
@@ -127,8 +128,7 @@ class CartAndPendulumSystem(InvertedPendulumSystem):
     def control_variables(self) -> dict[str, str]:
         return {"force": "force"}
 
-    def get_error(self, var_name: str) -> float:
-        """Get the current error from the setpoint(s) for the control system."""
+    def get_control_input(self, var_name: str) -> float:
         if var_name == "pendulum_angle":
             return self.pendulum_angle
         elif var_name == "cart_position":
@@ -136,7 +136,9 @@ class CartAndPendulumSystem(InvertedPendulumSystem):
         else:
             raise ValueError(f"Invalid variable name: {var_name}")
     
-    def set_output(self, output: float, delta_time: float, var_name: str) -> None:
-        """Set the control output(s) to the system."""
+    def get_setpoint(self, var_name: str) -> float:
+        return 0.0
+
+    def set_control_output(self, output: float, delta_time: float, var_name: str) -> None:
         self.force = output
         self.update_system(delta_time)

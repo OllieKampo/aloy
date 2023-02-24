@@ -25,7 +25,7 @@ __copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
 
 __all__ = ("Controller",
-           "ModularController",
+           "ControllerCombiner",
            "ControlledSystem",
            "SystemController",
            "AutoSystemController")
@@ -34,76 +34,254 @@ def __dir__() -> tuple[str]:
     """Get the names of the module attributes."""
     return __all__
 
-from abc import abstractmethod, abstractproperty
+from abc import ABCMeta, abstractmethod, abstractproperty
 from contextlib import contextmanager
 import inspect
 from numbers import Real
 import threading
 import types
-from typing import Callable, Literal, Mapping, Optional, final
+from typing import Callable, Iterable, KeysView, Literal, Mapping, Optional, TypeVar, final
 import statistics
 
 from control.controlutils import ControllerTimer
+from datastructures.mappings import TwoWayMap
 
-class Controller:
+ET = TypeVar("ET", bound=Real)
+
+def clamp(value: ET,
+          max_: ET | None,
+          min_: ET | None, /
+          ) -> ET:
     """
-    Base class mixin for creating controller classes.
+    Clamp the given value to the specified minimum and maximum values.
 
-    The abstract methods `control_output` and `reset`, and the abstract
-    property `latest_output`, must be implemented by subclasses.
+    If the maximum or minimum values are `None` then they are ignored.
+    """
+    if max_ is not None and value > max_:
+        return max_
+    if min_ is not None and value < min_:
+        return min_
+    return value
 
-    This class defines no instance variables and an empty `__slots__`.
+def calc_error(control_input: ET,
+               setpoint: ET, /,
+               max_: ET | None = None,
+               min_: ET | None = None
+               ) -> ET:
+    """
+    Get the error between an input and a setpoint.
+
+    If the maximum or minimum values are given and not `None` then clamp
+    the control input to the specified range before calculating the error.
+    """
+    control_input = clamp(control_input, max_, min_)
+    return control_input - setpoint
+
+class Controller(metaclass=ABCMeta):
+    """
+    Base class for controller classes.
+
+    The abstract methods `control_output()` and `reset()` must be
+    implemented by subclasses. It is also the responsibility of
+    subclasses to update the `_latest_input`, `_latest_error`, and
+    `_latest_output` protected instance variables when calculating
+    the control output, and to call the super-class `reset()` method
+    when resetting the controller.
     """
     
-    __slots__ = ()
+    __slots__ = {"__input_limits" : "The controller input limits.",
+                 "__output_limits" : "The controller output limits.",
+                 "__input_transform" : "The control input transform function.",
+                 "__output_transform" : "The control output transform function.",
+                 "__initial_error" : "The initial value of the error, None if unknown.",
+                 "_latest_input" : "The latest control input.",
+                 "_latest_error" : "The latest control error.",
+                 "_latest_output" : "The latest control output."}
     
-    @abstractproperty
-    def latest_output(self) -> Real:
+    def __init__(self,
+                 input_limits: tuple[float | None, float | None] = (None, None),
+                 output_limits: tuple[float | None, float | None] = (None, None),
+                 input_transform: Callable[[Real], Real] = lambda x: x,
+                 output_transform: Callable[[Real], Real] = lambda x: x,
+                 initial_error: float | None = None) -> None:
         """
-        Get the latest control output.
+        Create a new controller.
+
+        Parameters
+        ----------
+        `input_limits : tuple[float | None, float | None]` - The input limits, (lower, upper).
+        See `jinx.control.controllers.clamp()` for details.
+
+        `output_limits : tuple[float | None, float | None]` - The output limits, (lower, upper).
+        See `jinx.control.controllers.clamp()` for details.
+
+        `input_transform : Callable[[Real], Real]` - The input transform function.
+
+        `output_transform : Callable[[Real], Real]` - The output transform function.
+
+        `initial_error : float | None` - The initial value of the error, None if unknown.
+        If None, the error value given to the first call to `control_output()` must be used
+        as the initial error, and resultantly the integral and derivative terms cannot be
+        calculated until the second call (since they require at least two data points).
+        """
+        ## Controller input and output limits.
+        if not isinstance(input_limits, tuple) or len(input_limits) != 2:
+            raise ValueError(f"Input limits must be a 2-tuple. Got; {input_limits}.")
+        if not isinstance(output_limits, tuple) or len(output_limits) != 2:
+            raise ValueError(f"Output limits must be a 2-tuple. Got; {output_limits}.")
+        self.__input_limits: tuple[float | None, float | None] = input_limits
+        self.__output_limits: tuple[float | None, float | None] = output_limits
+
+        ## Controller input, error, and output transform functions.
+        self.__input_transform: Callable[[Real], Real] = self.__check_transform("Input", input_transform)
+        self.__output_transform: Callable[[Real], Real] = self.__check_transform("Output", output_transform)
+
+        ## Keep record of initial error for resetting.
+        self.__initial_error: float | None = initial_error
         
-        `latest_output : float` - The latest output as a float.
+        ## Keep record of latest input, error, and output.
+        self._latest_input: float | None = None
+        self._latest_error: float | None = initial_error
+        self._latest_output: float | None = None
+    
+    @staticmethod
+    def __check_transform(name: str, transform: Callable[[ET], ET]) -> Callable[[ET], ET]:
         """
-        ...
+        Check that the given transform function is valid.
+
+        The transform function must be a callable with one argument.
+        """
+        if not isinstance(transform, Callable) or len(inspect.signature(transform).parameters) != 1:
+            raise ValueError(f"{name} transform must be a function with one argument. Got; {transform}.")
+        return transform
+    
+    @property
+    def input_limits(self) -> tuple[float | None, float | None]:
+        """
+        Get or set the input limits.
+        
+        `input_limits : (float | None, float | None)` - The input limits as a 2-tuple.
+        """
+        return self.__input_limits
+    
+    @input_limits.setter
+    def input_limits(self, input_limits: tuple[float | None, float | None]) -> None:
+        """Set the input limits, (lower, upper)."""
+        self.__input_limits = input_limits
+    
+    @property
+    def output_limits(self) -> tuple[float | None, float | None]:
+        """
+        Get or set the output limits.
+        
+        `output_limits : (float | None, float | None)` - The output limits as a 2-tuple.
+        """
+        return self.__output_limits
+    
+    @output_limits.setter
+    def output_limits(self, output_limits: tuple[float | None, float | None]) -> None:
+        """Set the output limits, (lower, upper)."""
+        self.__output_limits = output_limits
+    
+    @property
+    def input_transform(self) -> Callable[[Real], Real]:
+        """Get the input transform function."""
+        return self.__input_transform
+    
+    @input_transform.setter
+    def input_transform(self, input_transform: Callable[[Real], Real]) -> None:
+        """Set the input transform function."""
+        self.__input_transform = input_transform
+    
+    @property
+    def output_transform(self) -> Callable[[Real], Real]:
+        """Get the output transform function."""
+        return self.__output_transform
+    
+    @output_transform.setter
+    def output_transform(self, output_transform: Callable[[Real], Real]) -> None:
+        """Set the output transform function."""
+        self.__output_transform = output_transform
+    
+    def transform_input(self, input_value: Real) -> Real:
+        """Transform the input value."""
+        return self.__input_transform(input_value)
+    
+    def transform_output(self, output_value: Real) -> Real:
+        """Transform the output value."""
+        return self.__output_transform(output_value)
+    
+    @property
+    def initial_error(self) -> float | None:
+        """
+        Get or set the initial error value.
+        
+        `initial_error : {float | None}` - The initial value of the error, None if unknown.
+        """
+        return self.__initial_error
+    
+    @initial_error.setter
+    def initial_error(self, initial_error: float | None) -> None:
+        """Set the initial error."""
+        self.__initial_error = initial_error
+
+    @property
+    def latest_input(self) -> Real | None:
+        """Get the latest control input or None if no input has been given since the last reset."""
+        return self._latest_input
+    
+    @property
+    def latest_error(self) -> Real | None:
+        """Get the latest control error or None if no error has been calculated since the last reset."""
+        return self._latest_error
+    
+    @property
+    def latest_output(self) -> float | None:
+        """Get the latest control output or None if no output has been calculated since the last reset."""
+        return self._latest_output
     
     @abstractmethod
-    def control_output(self, error: float, delta_time: float, abs_tol: float | None = None) -> float:
+    def control_output(self,
+                       control_input: float,
+                       setpoint: float, /,
+                       delta_time: float,
+                       abs_tol: float | None = None
+                       ) -> float:
         """
         Get the control output.
         
         Parameters
         ----------
-        `error : float` - The error to the setpoint.
-        
+        `control_input : float` - The control input (the measured value of the control variable).
+
+        `setpoint : float` - The control setpoint (the desired value of the control variable).
+
         `delta_time : float` - The time difference since the last call.
         
         `abs_tol : float` - The absolute tolerance for the time difference.
-        If the time difference is smaller than this value, then the integral
-        and derivative errors are not updated to avoid precision errors.
-        Set to `None` to disable.
         
         Returns
         -------
         `float` - The control output.
         """
-        ...
+        raise NotImplementedError
     
     @abstractmethod
     def reset(self) -> None:
         """Reset the controller state."""
-        ...
+        self._latest_input = None
+        self._latest_error = self.__initial_error
+        self._latest_output = None
 
 class ControllerCombiner(Controller):
     """
     Class defining controller combiners.
     
-    A controller combiner is a controller which combines the output of multiple
-    other "inner" controllers. The module controller then combines the
-    outputs of the inner controllers to produce a final output.
+    A controller combiner is a controller which combines the output
+    of multiple other "inner" controllers to produce one final output.
     """
 
     __slots__ = {"__inner_controllers" : "The inner controllers.",
-                 "__latest_output" : "The latest control output.",
                  "__mode" : "The output combination mode.",
                  "__weights" : "The output combination weights of the inner controllers.",
                  "__weights_update_callback" : "The callback to update the weights."}
@@ -125,48 +303,122 @@ class ControllerCombiner(Controller):
         `controllers : Mapping[str, Controller]` - The inner controllers.
         Given as a mapping of controller names to controller instances.
         
-        `mode : "sum" | "mean" | "median"` - The output combination mode of the inner controller outputs.
+        `mode : "sum" | "mean" | "median" = "mean"` - The output combination mode of the inner controller outputs.
 
-        `weights : Mapping[str, float] | None` - The output combination weights of the inner controllers.
+        `weights : Mapping[str, float] | None = None` - The output combination weights of the inner controllers.
         Given as a mapping of controller names to weights.
         If not given or  `None`, then all inner controllers are given equal weight.
         """
+        if not isinstance(controllers, Mapping):
+            raise TypeError(f"Controllers must be a mapping. Got; {controllers!r} of {type(controllers)!r}.")
         self.__inner_controllers: dict[str, Controller] = dict(controllers)
-        self.__latest_output: float = 0.0
+
         self.__mode: Callable[[list[float]], float] = self.__combiner_functions.get(mode, None)
         if self.__mode is None:
             raise ValueError(f"Invalid mode {mode!r}. Choose from {tuple(self.__combiner_functions)!r}.")
-        
         if weights is None:
             value: float = 1.0 / len(self.__inner_controllers)
             self.__weights: dict[str, float] = {name : value for name in self.__inner_controllers}
         else:
-            self.__weights: dict[str, float] = tuple(weights)
+            if not isinstance(weights, Mapping):
+                raise TypeError(f"Weights must be a mapping. Got; {weights!r} of {type(weights)!r}.")
+            self.__weights: dict[str, float] = dict(weights)
+            for name in self.__inner_controllers:
+                if name not in self.__weights:
+                    raise ValueError(f"Missing weight for controller {name!r}.")
     
     @property
     def inner_controllers(self) -> dict[str, Controller]:
         """Get the inner controllers."""
-        return self.__inner_controllers
+        return types.MappingProxyType(self.__inner_controllers)
     
     @property
-    def latest_output(self) -> float:
-        """Get the latest control output."""
-        return self.__latest_output
+    def mode(self) -> str:
+        """Get the output combination mode of the inner controllers."""
+        return self.__mode.__name__
+    
+    @mode.setter
+    def mode(self, mode: Literal["sum", "mean", "median"]) -> None:
+        """Set the output combination mode of the inner controllers."""
+        self.__mode = self.__combiner_functions.get(mode, None)
+        if self.__mode is None:
+            raise ValueError(f"Invalid mode {mode!r}. Choose from {tuple(self.__combiner_functions)!r}.")
     
     @property
     def weights(self) -> dict[str, float]:
         """Get the output combination weights of the inner controllers."""
         return types.MappingProxyType(self.__weights)
     
-    def update_weights(self, weights: Mapping[str, float]) -> None:
+    @weights.setter
+    def weights(self, weights: Mapping[str, float] | None) -> None:
+        """Set the output combination weights of the inner controllers."""
+        if weights is None:
+            value: float = 1.0 / len(self.__inner_controllers)
+            self.__weights = {name : value for name in self.__inner_controllers}
+        else:
+            if not isinstance(weights, Mapping):
+                raise TypeError(f"Weights must be a mapping or None. Got; {weights!r} of {type(weights)!r}.")
+            for name in self.__inner_controllers:
+                if name not in weights:
+                    raise ValueError(f"Missing weight for controller {name!r}.")
+            self.__weights = dict(weights)
+    
+    def get_controller(self, name: str) -> Controller:
         """
-        Set the output combination weights of the inner controllers.
+        Get an inner controller.
         
         Parameters
         ----------
-        `weights : Mapping[str, float]` - The output combination weights of the inner controllers.
-        Given as a mapping of controller names to weights.
+        `name : str` - The name of the controller.
+        
+        Returns
+        -------
+        `Controller` - The controller instance.
         """
+        return self.__inner_controllers[name]
+    
+    def add_controller(self, name: str, controller: Controller, weight: float = 1.0) -> None:
+        """
+        Add an inner controller.
+        
+        Parameters
+        ----------
+        `name : str` - The name of the controller.
+        
+        `controller : Controller` - The controller instance.
+        
+        `weight : float = 1.0` - The output combination weight of the inner controller.
+
+        Notes
+        -----
+        If the controller name already exists, then it is replaced.
+        """
+        self.__inner_controllers[name] = controller
+        self.__weights[name] = weight
+    
+    def remove_controller(self, name: str) -> None:
+        """
+        Remove an inner controller.
+        
+        Parameters
+        ----------
+        `name : str` - The name of the controller.
+        """
+        del self.__inner_controllers[name]
+        del self.__weights[name]
+    
+    def update_weights(self, weights: Mapping[str, float]) -> None:
+        """
+        Update the output combination weights of the inner controllers.
+        
+        Parameters
+        ----------
+        `weights : Mapping[str, float]` - The output combination weights of the
+        inner controllers, given as a mapping of controller names to weights.
+        If a weight is not present in the mapping, then its old value is preserved.
+        """
+        if not isinstance(weights, Mapping):
+            raise TypeError(f"Weights must be a mapping. Got; {weights!r} of {type(weights)!r}.")
         self.__weights.update(weights)
     
     def set_weights_update_callback(self, callback: Callable[[float, float, Mapping[str, float]], Mapping[str, float]] | None) -> None:
@@ -183,73 +435,228 @@ class ControllerCombiner(Controller):
         The signature is: `callback(error, latest_output, weights) -> updated_weights`.
         """
         self.__weights_update_callback = callback
-
-    @property
-    def mode(self) -> str:
-        """Get the output combination mode."""
-        return self.__mode.__name__
-
-    def control_output(self, error: float, delta_time: float, abs_tol: float | None = None) -> float:
+    
+    def control_output(self,
+                       control_input: float,
+                       setpoint: float, /,
+                       delta_time: float,
+                       abs_tol: float | None = None
+                       ) -> float:
         """
         Get the combined control output of the inner controllers.
 
         Parameters
         ----------
-        `error : float` - The error to the setpoint.
+        `control_input : float` - The control input (the measured value of the control variable).
+
+        `setpoint : float` - The control setpoint (the desired value of the control variable).
         
         `delta_time : float` - The time difference since the last call.
         
         `abs_tol : float` - The absolute tolerance for the time difference.
-        If the time difference is smaller than this value, then the integral
-        and derivative errors are not updated to avoid precision errors.
-        Set to `None` to disable.
         
         Returns
         -------
         `float` - The combined control output of the inner controllers.
         """
+        self._latest_input = control_input
+        error: float = calc_error(control_input, setpoint)
+        self._latest_error = error
         if self.__weights_update_callback is not None:
-            self.__weights.update(self.__weights_update_callback(error, self.__latest_output, self.__weights))
-        outputs: list[float] = [(controller.control_output(error, delta_time, abs_tol) * self.__weights[name])
+            self.update_weights(self.__weights_update_callback(error, self._latest_output, self.weights))
+        outputs: list[float] = [(controller.control_output(control_input, setpoint, delta_time, abs_tol) * self.__weights[name])
                                 for name, controller in self.__inner_controllers.items()]
-        self.__latest_output = self.__mode(outputs)
-        return self.__latest_output
+        self._latest_output = self.__mode(outputs)
+        return self._latest_output
     
     def reset(self) -> None:
         """Reset all inner controllers."""
         for controller in self.__inner_controllers.values():
             controller.reset()
 
+class ModulerController:
+    """
+    Class defining moduler controllers.
+
+    Moduler controllers are composed of many controllers and can
+    handle multiple inputs and outputs with complex mappings.
+
+    Moduler controllers can also be used to define cascading controllers,
+    in which the output of one controller is the setpoint of another controller.
+    """
+
+    __slots__ = {"__modules" : "The modules of the controller."}
+
+    def __init__(self) -> None:
+        """Create a moduler controller from a mapping of controllers."""
+        ## Maps: output_name -> input_name -> controller
+        self.__modules: dict[str, dict[str, Controller]] = {}
+        self.__input_output_mapping: TwoWayMap[str] = TwoWayMap()
+        ## Maps: output_name -> input_name -> weight of controller to output
+        self.__weights: dict[str, dict[str, float]] = {}
+        ## Maps: output_name -> mode of output
+        self.__modes: dict[str, Callable[[Iterable[float]], float]] = {}
+    
+    @property
+    def outputs(self) -> KeysView[str]:
+        """Get the output names."""
+        return self.__input_output_mapping.left.keys()
+    
+    @property
+    def inputs(self) -> KeysView[str]:
+        """Get the input names."""
+        return self.__input_output_mapping.right.keys()
+    
+    def inputs_for(self, output_name: str) -> list[str]:
+        """Get the input names for a module."""
+        return self.__input_output_mapping[output_name]
+    
+    def outputs_for(self, input_name: str) -> list[str]:
+        """Get the output names for a module."""
+        return self.__input_output_mapping(input_name)
+    
+    def add_module(self,
+                   output_name: str,
+                   controllers: Mapping[str, Controller],
+                   weights: Mapping[str, float] | Literal["abs", "norm"] = "abs",
+                   mode: Callable[[Iterable[float]], float] = sum
+                   ) -> None:
+        """
+        Add a module.
+        """
+        self.__modules[output_name] = dict(controllers)
+        for controller in controllers.values():
+            if not isinstance(controller, Controller):
+                raise TypeError(f"Controllers must be of type {Controller!r}. "
+                                f"Got; {controller!r} of {type(controller)!r}.")
+        if weights == "abs":
+            self.__weights[output_name] = {name : 1.0 for name in controllers}
+        elif weights == "norm":
+            value: float = 1.0 / len(controllers)
+            self.__weights[output_name] = {name : value for name in controllers}
+        else:
+            self.__weights[output_name] = dict(weights)
+        self.__modes[output_name] = mode
+    
+    def remove_module(self, output_name: str) -> None:
+        """
+        Remove a module.
+        """
+        del self.__modules[output_name]
+        del self.__weights[output_name]
+        del self.__modes[output_name]
+    
+    def get_controller(self, input_name: str, output_name: str) -> Controller:
+        """
+        Get a controller.
+        """
+        return self.__modules[output_name][input_name]
+    
+    def add_controller(self,
+                       input_name: str,
+                       output_name: str,
+                       controller: Controller,
+                       weight: float | Literal["abs", "norm"] = "abs"
+                       ) -> None:
+        """
+        Add a controller.
+        """
+        if not isinstance(controller, Controller):
+            raise TypeError(f"Controller must be of type {Controller!r}. "
+                            f"Got; {controller!r} of {type(controller)!r}.")
+        self.__modules.setdefault(output_name, {})[input_name] = controller
+        weights = self.__weights.setdefault(output_name, {})
+        if weight == "abs":
+            weights[input_name] = 1.0
+        elif weight == "norm":
+            weights[input_name] = 1.0 / len(self.__modules[output_name])
+        else:
+            weights[input_name] = weight
+    
+    def remove_controller(self, input_name: str, output_name: str) -> None:
+        """
+        Remove a controller.
+        """
+        del self.__modules[output_name][input_name]
+    
+    def update_weights(self, output_name: str, weights: Mapping[str, float]) -> None:
+        """
+        Update the output combination weights of the inner controllers.
+        """
+        self.__weights[output_name].update(weights)
+    
+    def control_output(self,
+                       control_inputs: Mapping[str, float],
+                       setpoints: Mapping[str, float], /,
+                       delta_time: float,
+                       abs_tol: float | None = None
+                       ) -> dict[str, float]:
+        """
+        Get the combined control output of the inner controllers.
+        """
+        outputs: dict[str, float] = dict.fromkeys(self.__modules.keys(), 0.0)
+        for output_name, module in self.__modules.items():
+            output: list[float] = []
+            for input_name, controller in module.items():
+                if input_name not in control_inputs:
+                    raise KeyError(f"Control input variable {input_name!r} not found. Got; {control_inputs!r}.")
+                output.append(controller.control_output(control_inputs[input_name],
+                                                        setpoints[input_name],
+                                                        delta_time, abs_tol)
+                              * self.__weights[output_name][input_name])
+            outputs[output_name] = self.__modes[output_name](output)
+        return outputs
+
 class ControlledSystem:
     """
     Base class mixin for creating controlled system classes.
     
     A controlled system exposes an interface that makes it controllable by a system controller.
-    
-    Must expose the error getting and output setting callback methods:
-        - `get_error(var_name: str | None = None) -> float`
-        - `set_output(output: float, delta_time: float, var_name: str | None = None) -> None`
-    
-    Can optionally expose the available error variable names:
-        - `error_variables: None | str | tuple[str]`
+
+    The system must expose the control input getting and output setting callback methods:
+        - `get_control_input(var_name: str | None = None) -> float`
+        - `get_setpoint(var_name: str | None = None) -> float`
+        - `set_control_output(output: float, delta_time: float, var_name: str | None = None) -> None`
+    If the system has multiple control variables, the `var_name` argument is used to specify which
+    control variable to get/set. In this cases, the system can optionally expose the variable names:
+        - `input_variables: tuple[str] | None`
+        - `output_variables: tuple[str] | None`
     
     This class defines no instance variables and an empty `__slots__`.
     """
     
     @property
-    def error_variables(self) -> None | str | tuple[str]:
-        """Get the names of the error variables."""
+    def input_variables(self) -> tuple[str] | None:
+        """Get the names of the control input variables."""
+        return None
+    
+    @property
+    def output_variables(self) -> tuple[str] | None:
+        """Get the names of the control output variables."""
         return None
     
     @abstractmethod
-    def get_error(self, var_name: str | None = None) -> float:
-        """Get the current error from the setpoint(s) for the control system."""
+    def get_control_input(self, var_name: str | None = None) -> float:
+        """Get the control input variable(s) of the controlled system."""
+        raise NotImplementedError
+    
+    def get_input_limits(self, var_name: str | None = None) -> tuple[float, float]:
+        """Get the control input variable(s) limits of the controlled system."""
+        return (None, None)
+    
+    @abstractmethod
+    def get_setpoint(self, var_name: str | None = None) -> float:
+        """Get the setpoint of the controlled system."""
         raise NotImplementedError
     
     @abstractmethod
-    def set_output(self, output: float, delta_time: float, var_name: str | None = None) -> None:
-        """Set the control output(s) to the system."""
+    def set_control_output(self, output: float, delta_time: float, var_name: str | None = None) -> None:
+        """Set the control output variable(s) to the controlled system."""
         raise NotImplementedError
+    
+    def get_output_limits(self, var_name: str | None = None) -> tuple[float, float]:
+        """Get the control output variable(s) limits of the controlled system."""
+        return (None, None)
 
 class SystemController:
     """
@@ -269,13 +676,15 @@ class SystemController:
     def __init__(self,
                  controller: Controller,
                  system: ControlledSystem,
-                 error_var_name: str | None = None
+                 error_var_name: str | None = None, ## TODO
+                 get_input_limits: bool = False,
+                 get_output_limits: bool = False
                  ) -> None:
         """
         Create a new system controller from a controller and a controlled system.
         
         In contrast to the standard controller, a system controller also
-        takes a controlled system as input. The control error is taken from,
+        takes a controlled system as input. The control input is taken from,
         and control output set to, the control system, every time the controller
         is 'ticked', handling time dependent calculations automatically.
         Time differences are calculated by an internal timer.
@@ -285,10 +694,15 @@ class SystemController:
         `controller : Controller` - The controller to use.
 
         `system : ControlSystem` - The system to control.
-        Must implement the `get_error(...)` and `set_output(...)`
-        methods of the `ControlledSystem` mixin class.
+        Must implement the `get_control_input(...)`, `get_setpoint(...)`
+        and `set_control_output(...)` methods of the `ControlledSystem` mixin class.
         
-        `error_var_name : {str | None} = None` - The name of the error variable to get from the control system.
+        TODO
+        `error_var_name : {str | None} = None` - The name of the error variable to get from the controlled system.
+
+        `get_input_limits : bool = False` - Whether to get the input limits from the controlled system.
+
+        `get_output_limits : bool = False` - Whether to get the output limits from the controlled system.
         """
         self.__controller: Controller = controller
         self.__system: ControlledSystem = system
@@ -305,6 +719,7 @@ class SystemController:
         """
         Create a system controller from getter and setter callbacks.
         
+        TODO
         This is a convenience method for creating a PID system controller
         from `get_error(...)` and `set_output(...)` functions that are not
         attached to a control system.
@@ -313,6 +728,7 @@ class SystemController:
         ----------
         `controller : Controller` - The controller to use.
 
+        TODO
         `getter : Callable[[str], float]` - The error getter function.
         Takes the name of the error variable as an argument and returns the error.
 
@@ -326,6 +742,11 @@ class SystemController:
     def __repr__(self) -> str:
         """Get the string representation of the system controller instance."""
         return f"{self.__class__.__name__}({self.__controller!r}, {self.__system!r}, {self.__var_name!r})"
+    
+    @property
+    def controller(self) -> Controller:
+        """Get the controller."""
+        return self.__controller
     
     @property
     def system(self) -> ControlledSystem:
@@ -370,10 +791,13 @@ class SystemController:
         the control output, and the time in seconds since the last tick (multiplied by the time factor).
         """
         self.__ticks += 1
-        error: float = self.__system.get_error(self.__var_name)
-        delta_time: float = self.__timer.get_delta_time() * time_factor
-        output: float = self.__controller.control_output(error, delta_time, abs_tol)
-        self.__system.set_output(output, delta_time, self.__var_name)
+        control_input: float = self.__system.get_control_input(self.__var_name)
+        setpoint: float = self.__system.get_setpoint(self.__var_name)
+        error: float = calc_error(control_input, setpoint, *self.__system.get_input_limits(self.__var_name))
+        delta_time: float = self.__timer.get_delta_time(time_factor)
+        output: float = self.__controller.control_output(control_input, setpoint, delta_time, abs_tol)
+        output = clamp(output, *self.__system.get_output_limits(self.__var_name))
+        self.__system.set_control_output(output, delta_time, self.__var_name)
         return (self.__ticks, error, output, delta_time)
     
     def reset(self) -> None:
@@ -465,7 +889,10 @@ class AutoSystemController:
             ## The lock is held whilst the controller is running.
             with self.__lock:
                 stop = self.__stopped.is_set()
-                error, delta_time, output = self.__system_controller.system.get_error(), 0.0, 0.0
+                control_input = self.__system_controller.system.get_control_input(self.__system_controller.error_var_name)
+                setpoint = self.__system_controller.system.get_setpoint(self.__system_controller.error_var_name)
+                error = calc_error(control_input, setpoint, *self.__system_controller.system.get_input_limits(self.__system_controller.error_var_name))
+                delta_time, output = 0.0, 0.0
                 iterations, total_time = 0, 0.0
                 while (not stop
                        and (self.__run_forever
@@ -475,6 +902,9 @@ class AutoSystemController:
                     self.__data_callback(iterations, error, output, delta_time, total_time)
                     ## Preempt stop calls.
                     stop = self.__stopped.wait(self.__sleep_time)
+                    ## TODO: Add something to handle time errors and catch up.
+                    ## Keep track of actual tick rate and variance in tick rate, and number of skipped ticks.
+                    ## If the tick rate is too high, emit warnings and slow down the tick rate.
             if not stop: self.__stop()
     
     def __check_running_state(self) -> None:
@@ -516,14 +946,12 @@ class AutoSystemController:
                 raise TypeError(f"The condition must take five arguments. Given callable takes {num_params}.")
         self.__condition = condition
     
-    def reset(self, initial_error: float | None = None) -> None:
+    def reset(self) -> None:
         """
         Reset the controller state.
         
         If the controller is running, pause execution,
         reset the controller, then resume execution.
-        
-        See `PIDSystemController.reset()` for further documentation.
         """
         if self.__running.is_set():
             ## Only allow one thread to reset the controller at a time.
@@ -531,9 +959,9 @@ class AutoSystemController:
                 self.__stop()
                 ## Wait for the controller to stop before resetting.
                 with self.__lock:
-                    self.__system_controller.reset(initial_error)
+                    self.__system_controller.reset()
                 self.__start()
-        else: self.__system_controller.reset(initial_error)
+        else: self.__system_controller.reset()
     
     def stop(self) -> None:
         """

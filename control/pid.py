@@ -29,9 +29,10 @@ def __dir__() -> tuple[str]:
     return __all__
 
 from collections import deque
-from typing import NamedTuple
+from numbers import Real
+from typing import Callable, NamedTuple
 
-from control.controllers import Controller
+from control.controllers import Controller, clamp, calc_error
 
 class PIDControllerGains(NamedTuple):
     """
@@ -56,26 +57,26 @@ class PIDController(Controller):
     __slots__ = ("__Kp",
                  "__Ki",
                  "__Kd",
-                 "__initial_error",
                  "__integral",
-                 "__previous_error",
-                 "__previous_derivatives",
-                 "__latest_output")
+                 "__previous_derivatives")
     
     def __init__(self,
                  Kp: float,
                  Ki: float,
-                 Kd: float,
-                 initial_error: float | None = None,
-                 average_derivative: int = 3
-                 ) -> None:
+                 Kd: float, /,
+                 average_derivative: int = 3,
+                 input_limits: tuple[float | None, float | None] = (None, None),
+                 output_limits: tuple[float | None, float | None] = (None, None),
+                 input_transform: Callable[[Real], Real] = lambda x: x,
+                 output_transform: Callable[[Real], Real] = lambda x: x,
+                 initial_error: float | None = None) -> None:
         """
         Create a PID feedback controller.
         
         A PID controller is a linear system controller whose output is the
         weighted sum of proportional, integral and derivative errors, where;
-            - the proportional error is the difference between the desired and actual value
-              of the control variable,
+            - the proportional error is the difference between the desired (setpoint)
+              and actual (input) value of the control variable,
             - the integral error is the trapezoidal approximation of the sum of the
               proportional error with respect to time,
             - the derivative error is the (possibly smoothed by moving average) linear
@@ -84,7 +85,7 @@ class PIDController(Controller):
         The weight applied to each error is called a 'gain', which controls its contribution
         towards the resultant control output. The output is therefore the sum of three terms;
         ```
-            error = desired_output - actual_output
+            error = control_input - setpoint
             output = Kp * error + Ki * integral(error, dt) + Kd * derivative(error, dt)
         ```
         
@@ -104,19 +105,16 @@ class PIDController(Controller):
         `Ki : float` - The integral gain, eliminates steady-state error.
         
         `Kd : float` - The derivative gain, damps approach to setpoint.
-        
-        `initial_error : float | None` - The initial value of the error, None if unknown.
-        If None, the error value given to the first call to `control_output()` must be used
-        as the initial error, and resultantly the integral and derivative terms cannot be
-        calculated until the second call (since they require at least two data points).
-        
-        `average_derivative : int` - The number of samples to use for the moving average approximation
+
+        `average_derivative : int = 3` - The number of samples to use for the moving average approximation
         of the derivative error. A value of `1` will use the piecewise linear approximation of the rate
         of change of error between the last consecutive pair of error points (i.e. the gradient between
         the current and previous error). Any value of `n > 1` will use a 'smoothed approximation' by
         taking the moving average over the last `n` gradients of each consecutive pair of points in
         the last `n + 1` error points. 
         
+        For other parameters, see `jinx.control.controllers.Controller`.
+
         Notes
         -----
         Since the integral error accumulates whenever the system's error to the setpoint is non-zero,
@@ -126,30 +124,20 @@ class PIDController(Controller):
         Damping with the derivative term is most important when the system being controlled is inertial.
         This is because the system may accelerate to a large rate of change in the error, which may be
         difficult to deccelerate before the system reaches the setpoint, potentially causing overshooting.
-        
-        Also See
-        --------
-        `jinx.control.systems` - Module containing test control systems for benchmarking controllers.
-        
-        `jinx.control.controlutils` - Module containing utility functions for control systems.
-        
-        `jinx.control.controllers.Controller` - Base class for all controllers.
         """
+        super().__init__(input_limits, output_limits,
+                         input_transform, output_transform,
+                         initial_error)
         ## PID controller gains.
         self.__Kp: float = Kp
         self.__Ki: float = Ki
         self.__Kd: float = Kd
         
-        ## Keep record of initial error for resetting.
-        self.__initial_error: float | None = initial_error
-        
         ## PID controller state.
         self.__integral: float = 0.0
-        self.__previous_error: float | None = initial_error
         if average_derivative < 1:
             raise ValueError(f"Average derivative window size must be at least 1. Got; {average_derivative}.")
         self.__previous_derivatives: deque[float] = deque(maxlen=average_derivative)
-        self.__latest_output: float = 0.0
     
     def __str__(self) -> str:
         """Return a human-readable string representation of the PID controller."""
@@ -158,7 +146,8 @@ class PIDController(Controller):
     def __repr__(self) -> str:
         """Return a parseable string representation of the PID controller."""
         return f"PIDcontroller(Kp={self.__Kp}, Ki={self.__Ki}, Kd={self.__Kd}, " \
-               f"initial_error={self.__previous_error}, average_derivative={self.__previous_derivatives.maxlen})"
+               f"input_limits={self.__input_limits}, output_limits={self.__output_limits}, " \
+               f"initial_error={self.__latest_error}, average_derivative={self.__previous_derivatives.maxlen})"
     
     @property
     def gains(self) -> PIDControllerGains:
@@ -200,20 +189,6 @@ class PIDController(Controller):
         if Kd is not None: self.__Kd = Kd
     
     @property
-    def initial_error(self) -> float | None:
-        """
-        Get or set the initial error value.
-        
-        `initial_error : {float | None}` - The initial value of the error, None if unknown.
-        """
-        return self.__initial_error
-    
-    @initial_error.setter
-    def initial_error(self, initial_error: float | None) -> None:
-        """Set the initial error."""
-        self.__initial_error = initial_error
-    
-    @property
     def average_derivative(self) -> int:
         """
         Get or set the moving average derivative error window size.
@@ -230,17 +205,9 @@ class PIDController(Controller):
             raise ValueError(f"Average derivative window size must be at least 1. Got; {average_derivative}.")
         self.__previous_derivatives = deque(self.__previous_derivatives, maxlen=average_derivative)
     
-    @property
-    def latest_output(self) -> float:
-        """
-        Get the latest control output.
-        
-        `latest_output : float` - The latest output as a float.
-        """
-        return self.__latest_output
-    
     def control_output(self,
-                       error: float,
+                       control_input: float,
+                       setpoint: float, /,
                        delta_time: float,
                        abs_tol: float | None = None
                        ) -> float:
@@ -254,7 +221,9 @@ class PIDController(Controller):
         
         Parameters
         ----------
-        `error : float` - The error to the setpoint.
+        `control_input : float` - The control input (the measured value of the control variable).
+
+        `setpoint : float` - The control setpoint (the desired value of the control variable).
         
         `delta_time : float` - The time difference since the last call.
         
@@ -269,20 +238,28 @@ class PIDController(Controller):
         if delta_time < 0.0:
             raise ValueError(f"The time difference must be positive. Got; {delta_time}.")
         
+        control_input = self.transform_input(control_input)
+        error: float = calc_error(control_input, setpoint, *self.input_limits)
+
         ## Only update the integral and derivative errors if the time difference is large enough.
         derivative: float = 0.0
         if delta_time > 0.0 and (abs_tol is None or delta_time > abs_tol):
             self.__integral += error * delta_time
-            if self.__previous_error is not None:
-                self.__previous_derivatives.append((error - self.__previous_error) / delta_time)
+            if self.latest_error is not None:
+                self.__previous_derivatives.append((error - self.latest_error) / delta_time)
                 derivative = sum(self.__previous_derivatives) / len(self.__previous_derivatives)
         
-        output = (self.__Kp * error + self.__Ki * self.__integral + self.__Kd * derivative)
-        self.__previous_error = error
+        output: float = (self.__Kp * error + self.__Ki * self.__integral + self.__Kd * derivative)
+        output = clamp(self.transform_output(output), *self.output_limits)
+        
+        self._latest_input = control_input
+        self._latest_error = error
+        self._latest_output = output
+
         return output
     
     def reset(self) -> None:
         """Reset the controller state."""
+        super().reset()
         self.__integral = 0.0
         self.__previous_derivatives.clear()
-        self.__latest_output = 0.0
