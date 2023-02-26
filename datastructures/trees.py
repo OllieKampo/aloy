@@ -53,6 +53,12 @@ class BinaryTree(collections.abc.Sequence, Generic[TT]):
             tree.right = self.left.get_inverted()
         return tree
     
+    def get_flipped(self) -> "HierarchyTree":
+        """
+        Return a flipped version of the tree.
+        """
+        return NotImplemented
+
     def sum_depths(self) -> int:
         """
         Return the sum of the depths of all nodes in the tree.
@@ -73,5 +79,23 @@ class Tree(collections.abc.Sequence):
     """
     An arbitrary depth tree represented by a single instance.
     Any node of the tree can be converted to a tree.
+    """
+    pass
+
+class Forest(collections.abc.Sequence):
+    """
+    A collection of trees.
+    """
+    pass
+
+class HierarchyTree(collections.abc.Sequence):
+    """
+    A collection of trees arranged in a multi-level hierarchy,
+    in which a node can have multiple parents, and therefore
+    a node can also be the child of multiple nodes.
+
+    Unlike a normal tree, two nodes at the same level can be
+    linked by some relationship. The hierarchy can also be sliced
+    at, above, or below any node given level to obtain a sub-hierarchy.
     """
     pass
