@@ -240,7 +240,7 @@ class ParticleSwarmSystem:
             fitness_approximation_threshold: float | None = None,
             
             ## Parallelisation options.
-            parallelise: bool = True,
+            parallelise: bool = False,
             threads: int | None = None,
             
             ## Miscellaneous options.
@@ -342,6 +342,8 @@ class ParticleSwarmSystem:
         global_best_fitness = particles_fitness[global_best_index]
         global_best_position = position_vectors[global_best_index]
 
+        ## Create a model for finding the neighbours of each particle.
+        neighbour_model: skn.BallTree | skn.KDTree | skn.KNeighborsRegressor | None = None
         if use_neighbourhood:
             if neighbour_update < 1:
                 raise ValueError(f"Neighbourhood update must be at least 1. Got; {neighbour_update}.")
@@ -356,6 +358,7 @@ class ParticleSwarmSystem:
             neighbour_model = self._create_neighbour_model(neighbour_update, neighbour_method, neighbour_method_params,
                                                            fitness_approximation_update, fitness_approximation_method, position_vectors)
         
+        ## Create a model for approximating the fitness function.
         if use_fitness_approximation:
             if fitness_approximation_update < 2:
                 raise ValueError(f"Fitness approximation update rate must be at least 2. Got; {fitness_approximation_update}.")
@@ -368,8 +371,11 @@ class ParticleSwarmSystem:
             fitness_cloud = particles_fitness.copy()
 
             ## Create a model for approximating the fitness function.
-            fitness_approximation_model = self._create_fitness_approximation_model(neighbour_size, neighbour_method, neighbour_method_params,
-                                                                                   fitness_approximation_method, fitness_approximation_model_params)
+            fitness_approximation_model = self._create_fitness_approximation_model(fitness_approximation_method, fitness_approximation_model_params,
+                                                                                   neighbour_size, neighbour_method, neighbour_method_params)
+            if use_neighbourhood and fitness_approximation_method == "knr" and neighbour_method == "knr":
+                neighbour_model = fitness_approximation_model
+                neighbour_model.fit(position_cloud, fitness_cloud)
         
         ## Variable for storing the running fitness approximation error.
         approximation_error: float = 0.0
@@ -389,28 +395,7 @@ class ParticleSwarmSystem:
         
         ## Data structure for storing history of best fitness and position.
         if gather_stats:
-            dataholder = DataHolder(["iteration",
-                                     "stagnated",
-                                     "total_particles",
-                                     "global_best_fitness",
-                                     "global_best_position",
-                                     "mean_best_particles_fitness",
-                                     "std_best_particles_fitness",
-                                     "mean_particles_fitness",
-                                     "std_particles_fitness",
-                                     "mean_particles_position",
-                                     "std_particles_position",
-                                     "mean_distance_from_global_best",
-                                     "std_distance_from_global_best",
-                                     "mean_velocity",
-                                     "std_velocity",
-                                     "inertia",
-                                     "personal_coef",
-                                     "global_coef",
-                                     "neighbour_coef"],
-                                     converters={"personal_coef" : float,
-                                                 "global_coef" : float,
-                                                 "neighbour_coef" : float})
+            dataholder = self.create_data_holder()
         
         if use_tqdm:
             progress_bar = ResourceProgressBar(total=iterations_limit, desc="Iterations")
@@ -424,6 +409,7 @@ class ParticleSwarmSystem:
                        and (fitness_limit_reached := ((self.__maximise and global_best_fitness >= fitness_limit
                                                        or global_best_fitness <= fitness_limit))))):
             
+            ## Update inertia and coefficients.
             if iterations != 0:
                 if inertia_decay_function is not None:
                     inertia = inertia_decay_function(iterations)
@@ -478,7 +464,7 @@ class ParticleSwarmSystem:
             ## Evaluate fitness of each particle.
             if not use_fitness_approximation:
                 particles_fitness = self._calculate_fitness(total_particles, parallelise, threads, total_dimensions, position_vectors)
-                
+
             else:
                 if iterations < fitness_approximation_start or (iterations - fitness_approximation_start) % fitness_approximation_update == 0:
                     particles_fitness = self._calculate_fitness(total_particles, parallelise, threads, total_dimensions, position_vectors)
@@ -492,7 +478,7 @@ class ParticleSwarmSystem:
                             + mean_absolute_error(particles_fitness, predicted_particle_fitness)) / approximation_updates
                     
                     ## Update the fitness approximation model with the current particle positions and fitnesses.
-                    if iterations >= fitness_approximation_start:
+                    if iterations >= fitness_approximation_start or fitness_approximation_method == "knr" and neighbour_method == "knr" and iterations % neighbour_update == 0:
                         position_cloud = np.concatenate((position_cloud, position_vectors), axis=0)
                         fitness_cloud = np.concatenate((fitness_cloud, particles_fitness), axis=0)
                         if iterations >= fitness_approximation_start:
@@ -583,6 +569,31 @@ class ParticleSwarmSystem:
         if gather_stats:
             return (solution, dataholder.to_dataframe())
         else: return solution
+
+    def create_data_holder(self):
+        dataholder = DataHolder(["iteration",
+                                 "stagnated",
+                                 "total_particles",
+                                 "global_best_fitness",
+                                 "global_best_position",
+                                 "mean_best_particles_fitness",
+                                 "std_best_particles_fitness",
+                                 "mean_particles_fitness",
+                                 "std_particles_fitness",
+                                 "mean_particles_position",
+                                 "std_particles_position",
+                                 "mean_distance_from_global_best",
+                                 "std_distance_from_global_best",
+                                 "mean_velocity",
+                                 "std_velocity",
+                                 "inertia",
+                                 "personal_coef",
+                                 "global_coef",
+                                 "neighbour_coef"],
+                                 converters={"personal_coef" : float,
+                                             "global_coef" : float,
+                                             "neighbour_coef" : float})
+        return dataholder
     
     @staticmethod
     def get_decay_functions(self, *,
@@ -666,29 +677,28 @@ class ParticleSwarmSystem:
         return inertia_decay_func, personal_coef_decay_func, global_coef_decay_func, neighbour_coef_decay_func
 
     def _create_fitness_approximation_model(self,
+                                            fitness_approximation_method: str,
+                                            fitness_approximation_model_params: dict,
                                             neighbour_size: int,
                                             neighbour_method: str,
-                                            neighbour_model_params: dict,
-                                            fitness_approximation_method: str,
-                                            fitness_approximation_model_params: dict
+                                            neighbour_model_params: dict
                                             ) -> skt.DecisionTreeRegressor | skn.KNeighborsRegressor | sks.SVR:
         """Create a fitness approximation model."""
         neighbour_model: skn.KNeighborsRegressor | None = None
         if fitness_approximation_method == "dtr":
             ## https://scikit-learn.org/stable/modules/generated/sklearn.tree.DecisionTreeRegressor.html
             fitness_approximation_model = skt.DecisionTreeRegressor(**fitness_approximation_model_params)
-        if fitness_approximation_method == "knr":
+        elif fitness_approximation_method == "knr":
             ## https://scikit-learn.org/stable/modules/generated/sklearn.neighbors.KNeighborsRegressor.html
             if neighbour_method == "knr":
                 fitness_approximation_model = skn.KNeighborsRegressor(n_neighbors=neighbour_size, **neighbour_model_params, **fitness_approximation_model_params)
-                neighbour_model = fitness_approximation_model
             else: fitness_approximation_model = skn.KNeighborsRegressor(**fitness_approximation_model_params)
-        if fitness_approximation_method == "svr":
+        elif fitness_approximation_method == "svr":
             ## https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVR.html
             fitness_approximation_model = sks.SVR(**fitness_approximation_model_params)
         else:
             raise ValueError(f"Invalid fitness approximation method. Got; {fitness_approximation_method}.")
-        return fitness_approximation_model, neighbour_model
+        return fitness_approximation_model
 
     def _create_neighbour_model(self,
                                 neighbour_update: int,
@@ -772,11 +782,11 @@ from control.controlutils import simulate_control
 
 if __name__ == "__main__":
     
-    cluster = LocalCluster(n_workers=4, processes=True, threads_per_worker=2)
+    cluster = LocalCluster(n_workers=20, processes=True, threads_per_worker=2)
     client = Client(cluster)
     
     pend_system = InvertedPendulumSystem()
-    controller = PIDController(Kp=0.0, Ki=0.0, Kd=0.0, initial_error=pend_system.get_error())
+    controller = PIDController(0.0, 0.0, 0.0, initial_error=pend_system.get_control_input() - pend_system.get_setpoint())
 
     ticks: int = 100
     delta_time: float = 0.1
@@ -793,24 +803,24 @@ if __name__ == "__main__":
                                 control_evaluator,
                                 maximise=False)
 
-    result, data = psystem.run(total_particles=1000,
+    result, data = psystem.run(total_particles=10000,
                             init_strategy="linspace",
-                            iterations_limit=100,
+                            iterations_limit=1000,
                             stagnation_limit=1.0,
                             inertia=1.0,
                             final_inertia=0.25,
-                            inertia_decay=1.0,
+                            inertia_decay_rate=1.0,
                             inertia_decay_type="lin",
                             personal_coef=2.0,
-                            final_global_coef=1.5,
+                            global_coef_final=1.5,
                             use_neighbourhood=False,
-                            coef_decay=1.0,
+                            coef_decay_rate=1.0,
                             coef_decay_type="sin",
                             bounce=False,
                             use_fitness_approximation=False,
                             fitness_approximation_method="dtr",
                             parallelise=True,
-                            threads=8,
+                            threads=40,
                             gather_stats=True,
                             use_tqdm=True)
     
