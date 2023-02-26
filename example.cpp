@@ -119,16 +119,16 @@ float simulate_control(py::object& controlled_system,
                        int lead_ticks = 1,
                        int lag_ticks = 1) {
     
-    py::object ControlledSystem = py::module_::import("control.controllers").attr("ControlledSystem");
-    py::object get_setpoint = ControlledSystem.attr("get_setpoint");
-    py::object get_control_input = ControlledSystem.attr("get_control_input");
-    py::object set_control_output = ControlledSystem.attr("set_control_output");
+    // py::object ControlledSystem = py::module_::import("control.controllers").attr("ControlledSystem");
+    py::object get_setpoint = controlled_system.attr("get_setpoint");
+    py::object get_control_input = controlled_system.attr("get_control_input");
+    py::object set_control_output = controlled_system.attr("set_control_output");
     // // if (!py::isinstance<ControlledSystem_>(controlled_system_)) {
     // //     throw std::invalid_argument("Controlled system must be an instance of ControlledSystem.");
     // // }
-    py::object Controller = py::module_::import("control.controllers").attr("Controller");
-    py::object calculate_control_output = Controller.attr("control_output");
-    py::object latest_error = Controller.attr("latest_error");
+    // py::object Controller = py::module_::import("control.controllers").attr("Controller");
+    py::object calculate_control_output = controller.attr("control_output");
+    py::object latest_error = controller.attr("latest_error");
     // // if (!py::isinstance<Controller_>(controller_)) {
     // //     throw std::invalid_argument("Controller must be an instance of Controller.");
     // // }
@@ -156,30 +156,30 @@ float simulate_control(py::object& controlled_system,
     float control_output = 0.0;
     if (lead_ticks == 1 && lag_ticks == 1) {
         for (int tick = 0; tick < ticks; tick++) {
-            float control_input = get_control_input(controlled_system).cast<float>();
-            control_output = calculate_control_output(controller, control_input, setpoint, delta_time, 0.0).cast<float>();
-            set_control_output(controlled_system, control_output, delta_time);
-            error_values[tick] = latest_error(controller).cast<float>();
+            float control_input = get_control_input().cast<float>();
+            control_output = calculate_control_output(control_input, setpoint, delta_time, 0.0).cast<float>();
+            set_control_output(control_output, delta_time);
+            error_values[tick] = latest_error.cast<float>();
             control_outputs[tick] = control_output;
         }
     } else {
         std::deque<float> input_queue;
         std::deque<float> output_queue;
         for (int tick = 0; tick < ticks; tick++) {
-            float control_input = get_control_input(controlled_system).cast<float>();
+            float control_input = get_control_input().cast<float>();
             input_queue.push_back(control_input);
             if (input_queue.size() == lead_ticks) {
                 control_input = input_queue.front();
                 input_queue.pop_front();
-                control_output = calculate_control_output(controller, control_input, setpoint, delta_time, 0.0).cast<float>();
+                control_output = calculate_control_output(control_input, setpoint, delta_time, 0.0).cast<float>();
                 output_queue.push_back(control_output);
                 if (output_queue.size() == lag_ticks) {
                     control_output = output_queue.front();
                     output_queue.pop_front();
-                    set_control_output(controlled_system, control_output, delta_time);
+                    set_control_output(control_output, delta_time);
                 }
             }
-            error_values[tick] = latest_error(controller).cast<float>();
+            error_values[tick] = latest_error.cast<float>();
             control_outputs[tick] = control_output;
         }
     }

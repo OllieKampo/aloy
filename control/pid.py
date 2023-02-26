@@ -146,8 +146,8 @@ class PIDController(Controller):
     def __repr__(self) -> str:
         """Return a parseable string representation of the PID controller."""
         return f"PIDcontroller(Kp={self.__Kp}, Ki={self.__Ki}, Kd={self.__Kd}, " \
-               f"input_limits={self.__input_limits}, output_limits={self.__output_limits}, " \
-               f"initial_error={self.__latest_error}, average_derivative={self.__previous_derivatives.maxlen})"
+               f"input_limits={self.input_limits}, output_limits={self.output_limits}, " \
+               f"initial_error={self.latest_error}, average_derivative={self.__previous_derivatives.maxlen})"
     
     @property
     def gains(self) -> PIDControllerGains:
