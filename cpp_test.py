@@ -1,4 +1,4 @@
-from build.example import add, arg_first_where, Mult
+from build.example import add, arg_first_where, Mult, simulate_control
 
 from concurrent.futures import ThreadPoolExecutor
 import time
