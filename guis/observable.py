@@ -20,17 +20,14 @@ class Observable(metaclass=ABCMeta):
                  "__clock" : "The clock that updates the observers.",
                  "__lock" : "Lock that ensure atomic updates to the observable."}
     
-    def __init__(self, clock: ClockThread | pyglet.clock.Clock | None = None, tick_rate: int = 10) -> None:
+    def __init__(self, clock: ClockThread | None = None, tick_rate: int = 10) -> None:
         self.__observers: set["Observer"] = set()
         self.__changed: set["Observer"] = set()
         self.__lock = threading.RLock()
-        self.__clock: ClockThread | pyglet.clock.Clock = clock
+        self.__clock: ClockThread = clock
         if clock is None:
             self.__clock = ClockThread(self.__update_observers, tick_rate=tick_rate)
-        elif isinstance(clock, ClockThread):
-            self.__clock.schedule(self.__update_observers)
-        elif isinstance(clock, pyglet.clock.Clock):
-            self.__clock.schedule_interval(self.__update_observers, 1.0 / tick_rate)
+        self.__clock.schedule(self.__update_observers)
         self.__clock.start()
     
     @property
