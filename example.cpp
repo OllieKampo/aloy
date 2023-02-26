@@ -81,18 +81,18 @@ class Mult {
         }
 };
 
-class ControlledSystem {
-public:
-    float get_setpoint();
-    float get_control_input();
-    void set_control_output(float control_output, float delta_time);
-};
+// class ControlledSystem {
+// public:
+//     float get_setpoint();
+//     float get_control_input();
+//     void set_control_output(float control_output, float delta_time);
+// };
 
-class Controller {
-public:
-    float control_output(float control_input, float setpoint, float delta_time, float abs_tol);
-    float latest_error;
-};
+// class Controller {
+// public:
+//     float control_output(float control_input, float setpoint, float delta_time, float abs_tol);
+//     float latest_error;
+// };
 
 std::vector<int> get_turning_points(std::vector<float> error_values) {
     std::vector<int> turning_points = {};
@@ -110,8 +110,8 @@ std::vector<int> get_turning_points(std::vector<float> error_values) {
     return turning_points;
 }
 
-float simulate_control(py::object& controlled_system_,
-                       py::object& controller_,
+float simulate_control(py::object& controlled_system,
+                       py::object& controller,
                        int ticks,
                        float delta_time,
                        bool penalise_oscillation = true,
@@ -119,17 +119,22 @@ float simulate_control(py::object& controlled_system_,
                        int lead_ticks = 1,
                        int lag_ticks = 1) {
     
-    py::object ControlledSystem_ = py::module_::import("control.controllers").attr("ControlledSystem");
-    // if (!py::isinstance<ControlledSystem_>(controlled_system_)) {
-    //     throw std::invalid_argument("Controlled system must be an instance of ControlledSystem.");
-    // }
-    py::object Controller_ = py::module_::import("control.controllers").attr("Controller");
-    // if (!py::isinstance<Controller_>(controller_)) {
-    //     throw std::invalid_argument("Controller must be an instance of Controller.");
-    // }
+    py::object ControlledSystem = py::module_::import("control.controllers").attr("ControlledSystem");
+    py::object get_setpoint = ControlledSystem.attr("get_setpoint");
+    py::object get_control_input = ControlledSystem.attr("get_control_input");
+    py::object set_control_output = ControlledSystem.attr("set_control_output");
+    // // if (!py::isinstance<ControlledSystem_>(controlled_system_)) {
+    // //     throw std::invalid_argument("Controlled system must be an instance of ControlledSystem.");
+    // // }
+    py::object Controller = py::module_::import("control.controllers").attr("Controller");
+    py::object calculate_control_output = Controller.attr("control_output");
+    py::object latest_error = Controller.attr("latest_error");
+    // // if (!py::isinstance<Controller_>(controller_)) {
+    // //     throw std::invalid_argument("Controller must be an instance of Controller.");
+    // // }
 
-    ControlledSystem* controlled_system = controlled_system_.cast<ControlledSystem*>();
-    Controller* controller = controller_.cast<Controller*>();
+    // ControlledSystem* controlled_system = controlled_system_.cast<ControlledSystem*>();
+    // Controller* controller = controller_.cast<Controller*>();
 
     if (ticks < 1)
         throw std::invalid_argument("Ticks must be greater than or equal to 1.");
@@ -139,8 +144,8 @@ float simulate_control(py::object& controlled_system_,
         throw std::invalid_argument("Lead ticks must be greater than or equal to 1.");
     if (lag_ticks < 1)
         throw std::invalid_argument("Lag ticks must be greater than or equal to 1.");
-
-    float setpoint = controlled_system->get_setpoint();
+    
+    float setpoint = get_setpoint(controlled_system).cast<float>();
     std::vector<float> error_values(ticks);
     std::vector<float> control_outputs(ticks);
     std::vector<float> time_points(ticks);
@@ -151,30 +156,30 @@ float simulate_control(py::object& controlled_system_,
     float control_output = 0.0;
     if (lead_ticks == 1 && lag_ticks == 1) {
         for (int tick = 0; tick < ticks; tick++) {
-            float control_input = controlled_system->get_control_input();
-            control_output = controller->control_output(control_input, setpoint, delta_time, 0.0);
-            controlled_system->set_control_output(control_output, delta_time);
-            error_values[tick] = controller->latest_error;
+            float control_input = get_control_input(controlled_system).cast<float>();
+            control_output = calculate_control_output(controller, control_input, setpoint, delta_time, 0.0).cast<float>();
+            set_control_output(controlled_system, control_output, delta_time);
+            error_values[tick] = latest_error(controller).cast<float>();
             control_outputs[tick] = control_output;
         }
     } else {
         std::deque<float> input_queue;
         std::deque<float> output_queue;
         for (int tick = 0; tick < ticks; tick++) {
-            float control_input = controlled_system->get_control_input();
+            float control_input = get_control_input(controlled_system).cast<float>();
             input_queue.push_back(control_input);
             if (input_queue.size() == lead_ticks) {
                 control_input = input_queue.front();
                 input_queue.pop_front();
-                control_output = controller->control_output(control_input, setpoint, delta_time, 0.0);
+                control_output = calculate_control_output(controller, control_input, setpoint, delta_time, 0.0).cast<float>();
                 output_queue.push_back(control_output);
                 if (output_queue.size() == lag_ticks) {
                     control_output = output_queue.front();
                     output_queue.pop_front();
-                    controlled_system->set_control_output(control_output, delta_time);
+                    set_control_output(controlled_system, control_output, delta_time);
                 }
             }
-            error_values[tick] = controller->latest_error;
+            error_values[tick] = latest_error(controller).cast<float>();
             control_outputs[tick] = control_output;
         }
     }

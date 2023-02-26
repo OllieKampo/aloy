@@ -1,4 +1,4 @@
-from build.example import add, arg_first_where, Mult, simulate_control
+from build.example import add, arg_first_where, Mult
 
 from concurrent.futures import ThreadPoolExecutor
 import time
@@ -22,3 +22,14 @@ with ThreadPoolExecutor(max_workers=4) as executor:
         print(r)
 
 print("--- %s seconds ---" % (time.time() - start_time))
+
+from build.example import simulate_control
+
+from control.pid import PIDController
+from control.systems import InvertedPendulumSystem
+
+pend_system = InvertedPendulumSystem()
+controller = PIDController(15.94104423478139, 1.0806148906694266, 5.159623499281683)
+
+a = simulate_control(pend_system, controller, 100, 0.1, True, True, 1, 1)
+print(a)
