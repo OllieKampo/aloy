@@ -25,7 +25,9 @@
 __all__ = ("ControllerTimer",
            "simulate_control")
 
+from collections import deque
 import time
+from typing import Callable, Literal
 
 import numpy as np
 
@@ -86,10 +88,48 @@ class ControllerTimer:
         """
         self.__time_last = time.perf_counter()
 
+class WeightUpdateFunctionBuilder:
+    """
+    Class defining a builder for weight update functions.
+    
+    Instances of this class are used to create weight update functions.
+    A single weight function is used for a controller combiner,
+    where each function name is the name of a controller.
+    A seperate weight function is needed for each control output of a modular controller,
+    where each function name is the name of a control input that maps to that output.
+    """
+
+    __slots__ = ("__functions",)
+
+    def __init__(self) -> None:
+        """Create a new weight update function builder."""
+        # Function signature: (error: float, output: float, current_weight: float) -> new_weight: float
+        self.__functions: dict[str, Callable[[float, float, float], float]] = {}
+    
+    def add_ramp(self, name: str, start_weight: float, end_weight: float) -> None:
+        pass
+    
+    def add_step(self, name: str, weight_left: float, weight_right: float, error: float) -> None:
+        pass
+    
+    def add_sine(self, name: str, start_weight: float, end_weight: float) -> None:
+        pass
+
+    def add_slider(self, *names: str, start_weight: float, end_weight: float, type_: Literal["ramp", "step", "sine"]) -> None:
+        pass
+
+    def build(self) -> dict[str, Callable[[float, float, float], float]]:
+        """Build the weight update functions."""
+        return self.__functions
+
 def simulate_control(control_system: "controllers.ControlledSystem",
                      controller: "controllers.Controller",
                      ticks: int,
-                     delta_time: float
+                     delta_time: float,
+                     penalise_oscillation: bool = True,
+                     penalise_overshoot: bool = True,
+                     lead_ticks: int = 1,
+                     lag_ticks: int = 1
                      ) -> float:
     """
     Simulate a control system for a given number of ticks.
@@ -103,27 +143,69 @@ def simulate_control(control_system: "controllers.ControlledSystem",
     `ticks : int` - The number of ticks to simulate.
     
     `delta_time : float` - The time difference between ticks.
+    
+    `penalise_oscillation : bool` - Whether to penalise oscillation.
+
+    `penalise_overshoot : bool` - Whether to penalise overshoot.
+
+    `lead_ticks : int` - The number of ticks to use for lead simulation.
+
+    `lag_ticks : int` - The number of ticks to use for lag simulation.
     """
+    if ticks < 1:
+        raise ValueError(f"Ticks must be greater than or equal to 1. Got; {ticks}.")
+    if delta_time <= 0.0:
+        raise ValueError(f"Delta time must be greater than 0. Got; {delta_time}.")
+    if lead_ticks < 1:
+        raise ValueError(f"Lead ticks must be greater than or equal to 1. Got; {lead_ticks}.")
+    if lag_ticks < 1:
+        raise ValueError(f"Lag ticks must be greater than or equal to 1. Got; {lag_ticks}.")
+    
+    setpoint: float = control_system.get_setpoint()
     error_values = np.empty(ticks)
     control_outputs = np.empty(ticks)
-    time_points = np.linspace(0.0, delta_time * ticks, ticks)
+
+    if lead_ticks == 1 and lag_ticks == 1:
+        for tick in range(ticks):
+            control_input = control_system.get_control_input()
+            control_output = controller.control_output(control_input, setpoint, delta_time, abs_tol=None)
+            control_system.set_control_output(control_output, delta_time)
+            error_values[tick] = controller.latest_error
+            control_outputs[tick] = control_output
+    else:
+        input_queue = deque(maxlen=lead_ticks)
+        output_queue = deque(maxlen=lag_ticks)
+        for tick in range(ticks):
+            control_input = control_system.get_control_input()
+            input_queue.append(control_input)
+            if len(input_queue) == lead_ticks:
+                control_input = input_queue.popleft()
+                control_output = controller.control_output(control_input, setpoint, delta_time, abs_tol=None)
+                output_queue.append(control_output)
+                if len(output_queue) == lag_ticks:
+                    control_output = output_queue.popleft()
+                    control_system.set_control_output(control_output, delta_time)
+            error_values[tick] = controller.latest_error
+            control_outputs[tick] = control_output
     
-    for tick in range(ticks):
-        error = control_system.get_error()
-        output = controller.control_output(error, delta_time, abs_tol=None)
-        control_system.set_output(output, delta_time)
-        error_values[tick] = error
-        control_outputs[tick] = output
+    ## Calculate integral of absolute error over time.
+    itae = np.absolute(error_values * delta_time)
+
+    ## Penalise osscillation by multiplying the error between turning points,
+    ## where later turning points are penalised more than earlier ones.
+    if penalise_oscillation:
+        points = get_turning_points(error_values)
+        if points.size > 0:
+            for i in range(points.size - 1):
+                itae[points[i]:points[i + 1]] *= ((points.size + 1) - i)
+            itae[points[-1]:] *= 2.0
     
-    itae = np.absolute(error_values * time_points)
-    points = get_turning_points(error_values)
-    if points.size > 0:
-        peak_index = points[0]
-        itae[peak_index:] *= (points.size + 1)
-    
-    condition = lambda x: x > 0.0 if error_values[0] < 0.0 else x < 0.0
-    rise_index = arg_first_where(condition, error_values, axis=0, invalid_val=-1)
-    if rise_index != -1:
-        itae[rise_index:] *= (rise_index + 1)
+    ## Penalise overshoot by doubling the overshooting error values.
+    if penalise_overshoot:
+        if error_values[0] < 0.0:
+            points = error_values > 0.0
+        else:
+            points = error_values < 0.0
+        itae[points] *= 2.0
     
     return itae.sum()
