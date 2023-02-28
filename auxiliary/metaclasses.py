@@ -34,24 +34,34 @@ def create_if_not_exists_in_slots(class_dict: dict[str, typing.Any], **class_att
         
     return class_dict_copy
 
-class CachedInstancesClass(type):
+class CachedInstancesMeta(type):
     """
     Instances are immutable and hashable.
     """
     
     __cache__ = WeakValueDictionary()
-    
-    def __new__(cls, cls_name: str, bases: tuple[str], class_dict: dict) -> type:
-        
-        
-        original_new = class_dict["__new__"]
-        @functools.wraps(original_new)
-        def __new__(*args, **kwargs):
-            hash_: int = hash_all(*args, **kwargs)
-            if (cached_instance := cls.__cache__.get(hash_)) is not None:
-                return cached_instance
-            instance = original_new(*args, **kwargs)
-            cls.__cache__[hash_] = instance
-            return instance
-        
-        return super().__new__(cls, cls_name, bases, class_dict)
+
+    def __call__(cls, *args, **kwargs):
+        hash_: int = hash_all(*args, **kwargs)
+        if (cached_instance := cls.__cache__.get(hash_)) is not None:
+            return cached_instance
+        instance = super().__call__(*args, **kwargs)
+        cls.__cache__[hash_] = instance
+        return instance
+
+class CachedInstances(metaclass=CachedInstancesMeta):
+    pass
+
+class BenchmarkMeta(type):
+    """Meta class for benchmarking performance of algorithms and data structures."""
+    pass
+
+class Benchmark(metaclass=BenchmarkMeta):
+    pass
+
+class LoggingMeta(type):
+    """Meta class for logging."""
+    pass
+
+class Logging(metaclass=LoggingMeta):
+    pass
