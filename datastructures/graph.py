@@ -119,10 +119,10 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         self.__allow_loops: bool = allow_loops
         
         self.__adjacency_mapping: dict[VT, set[VT]] = {}
+        self.__edge_weights: dict[tuple[VT, VT], WT] = {}
         for node, connections in itertools.chain(graph.items(), zip(vertices, itertools.repeat(None)), edges):
             self[node] = connections
-        self.__edge_weights: dict[tuple[VT, VT], WT] = {}
-
+        
         self.__vertex_data: dict[VT, dict[str, Any]] = {}
         for vertex, data in vertex_data.items():
             self.update_vertex_data(vertex, data)
@@ -178,9 +178,12 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         if not self.__directed:
             for connected_vertex in new_connections:
                 self.__adjacency_mapping.setdefault(connected_vertex, set()).add(vertex)
+                self.__edge_weights.setdefault((connected_vertex, vertex), None)
+                self.__edge_weights.setdefault((vertex, connected_vertex), None)
         else:
             for connected_vertex in new_connections:
                 self.__adjacency_mapping.setdefault(connected_vertex, set())
+                self.__edge_weights.setdefault((vertex, connected_vertex), None)
     
     def __delitem__(self,
                     vertex_or_edge: VT | tuple[VT, VT]
@@ -245,7 +248,7 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         self[start] = end
         if weight is not None:
             self.__edge_weights[(start, end)] = weight
-        self.update_edge_data((start, end), data)
+        self.update_edge_data(start, end, data)
     
     def set_vertex_data(self,
                         vertex: VT,
@@ -350,6 +353,7 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         """
         return self.__edge_data[(vertex, adjacent)].get(name, default)
     
+    @property
     def edges(self) -> KeysView[tuple[VT, VT]]:
         """The set of edges in the graph."""
         return self.__edge_weights.keys()
