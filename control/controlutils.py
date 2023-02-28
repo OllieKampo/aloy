@@ -30,8 +30,9 @@ import time
 from typing import Callable, Literal
 
 import numpy as np
+import matplotlib.pyplot as plt
 
-from auxiliary.numpyutils import arg_first_where, get_turning_points
+from auxiliary.numpyutils import get_turning_points
 import control.controllers as controllers
 
 class ControllerTimer:
@@ -209,3 +210,22 @@ def simulate_control(control_system: "controllers.ControlledSystem",
         itae[points] *= 2.0
     
     return itae.sum()
+
+def plot_error(time_points: np.ndarray,
+               error_values: np.ndarray,
+               output_values: np.ndarray,
+               title_space: float = 0.09,
+               plot_gap: float = 0.175,
+               width: float = 8,
+               height: float = 4
+               ) -> None:
+    """Plot the control error and output over time with matplotlib."""
+    figure, (error_axis, output_axis) = plt.subplots(1, 2)
+    figure.suptitle("Control error and Output over Time")
+    error_axis.plot(time_points, error_values, color="red", label="Error")
+    error_axis.set_xlabel("Time"); error_axis.set_ylabel("Error")
+    output_axis.plot(time_points, output_values, color="cyan", label="Output")
+    output_axis.set_xlabel("Time"); output_axis.set_ylabel("Output")
+    figure.tight_layout()
+    figure.subplots_adjust(top=(1.0 - title_space), wspace=plot_gap)
+    figure.set_size_inches(width, height)
