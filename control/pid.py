@@ -22,11 +22,12 @@
 """Module defining Proportional-Integral-Derivative (PID) controllers."""
 
 from collections import deque
-from numbers import Real
 from typing import Callable, NamedTuple
 
 from control.controllers import Controller, clamp, calc_error
 
+__copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
+__license__ = "GPL-3.0"
 
 __all__ = ("PIDControllerGains",
            "PIDController")
@@ -43,16 +44,34 @@ class PIDControllerGains(NamedTuple):
 
     Items
     -----
-    `Kp : float` - Proportional gain.
+    `Kp: float` - Proportional gain.
 
-    `Ki : float` - Integral gain.
+    `Ki: float` - Integral gain.
 
-    `Kd : float` - Derivative gain.
+    `Kd: float` - Derivative gain.
     """
 
     Kp: float
     Ki: float
     Kd: float
+
+
+class PIDControllerTerms(NamedTuple):
+    """
+    PID control output terms.
+
+    Items
+    -----
+    `Tp: float` - Proportional output term.
+
+    `Ti: float` - Integral output term.
+
+    `Td: float` - Derivative output term.
+    """
+
+    Tp: float
+    Ti: float
+    Td: float
 
 
 class PIDController(Controller):
@@ -62,6 +81,9 @@ class PIDController(Controller):
         "__Kp": "Proportional gain.",
         "__Ki": "Integral gain.",
         "__Kd": "Derivative gain.",
+        "__Tp": "Proportional output term.",
+        "__Ti": "Integral output term.",
+        "__Td": "Derivative output term.",
         "__integral": "Integral of the error.",
         "__derivatives": "Derivatives of the error."
     }
@@ -74,8 +96,9 @@ class PIDController(Controller):
         average_derivative: int = 3,
         input_limits: tuple[float | None, float | None] = (None, None),
         output_limits: tuple[float | None, float | None] = (None, None),
-        input_transform: Callable[[Real], Real] = lambda x: x,
-        output_transform: Callable[[Real], Real] = lambda x: x,
+        input_trans: Callable[[float], float] | None = None,
+        error_trans: Callable[[float], float] | None = None,
+        output_trans: Callable[[float], float] | None = None,
         initial_error: float | None = None
     ) -> None:
         """
@@ -117,13 +140,13 @@ class PIDController(Controller):
 
         Parameters
         ----------
-        `Kp : float` - The proportional gain, drives approach to setpoint.
+        `Kp: float` - The proportional gain, drives approach to setpoint.
 
-        `Ki : float` - The integral gain, eliminates steady-state error.
+        `Ki: float` - The integral gain, eliminates steady-state error.
 
-        `Kd : float` - The derivative gain, damps approach to setpoint.
+        `Kd: float` - The derivative gain, damps approach to setpoint.
 
-        `average_derivative : int = 3` - The number of samples to use for the
+        `average_derivative: int = 3` - The number of samples to use for the
         moving average approximation of the derivative error. A value of `1`
         will use the piecewise linear approximation of the rate of change of
         error between the last consecutive pair of error points (i.e. the
@@ -148,13 +171,22 @@ class PIDController(Controller):
         difficult to deccelerate before the system reaches the setpoint,
         potentially causing overshooting.
         """
-        super().__init__(input_limits, output_limits,
-                         input_transform, output_transform,
+        super().__init__(input_limits,
+                         output_limits,
+                         input_trans,
+                         error_trans,
+                         output_trans,
                          initial_error)
+
         # PID controller gains.
         self.__Kp: float = Kp
         self.__Ki: float = Ki
         self.__Kd: float = Kd
+
+        # PID controller output terms.
+        self.__Tp: float = 0.0
+        self.__Ti: float = 0.0
+        self.__Td: float = 0.0
 
         # PID controller state.
         self.__integral: float = 0.0
@@ -174,15 +206,25 @@ class PIDController(Controller):
                f"input_limits={self.input_limits}, " \
                f"output_limits={self.output_limits}, " \
                f"input_transform={self.input_transform}, " \
+               f"error_transform={self.input_transform}, " \
                f"output_transform={self.output_transform}, " \
                f"initial_error={self.initial_error})"
+
+    @property
+    def terms(self) -> PIDControllerTerms:
+        """
+        Get the individual terms of the latest control output.
+
+        `(Tp: float, Ti: float, Td: float)` - The PID control output terms.
+        """
+        return self.__Tp, self.__Ti, self.__Td
 
     @property
     def gains(self) -> PIDControllerGains:
         """
         Get or set the PID controller gains.
 
-        `(Kp : float, Ki : float, Kd : float)` - The PID controller gains.
+        `(Kp: float, Ki: float, Kd: float)` - The PID controller gains.
         """
         return PIDControllerGains(self.__Kp, self.__Ki, self.__Kd)
 
@@ -194,15 +236,13 @@ class PIDController(Controller):
         """Set the PID controller gains from a 3-tuple."""
         if not len(gains) == 3:
             raise ValueError(f"Expected exactly 3 gains. Got; {len(gains)}.")
-        self.__Kp, self.__Ki, self.__Kd = \
-            (new_gain if new_gain is not None else original_gain
-             for new_gain, original_gain in zip(gains, self.gains))
+        self.set_gains(*gains)
 
     def set_gains(
         self,
         Kp: float | None,
         Ki: float | None,
-        Kd: float | None
+        Kd: float | None, /
     ) -> None:
         """
         Set the PID controller gains.
@@ -276,8 +316,8 @@ class PIDController(Controller):
         `delta_time : float` - The time difference since the last call.
 
         `abs_tol : {float | None} = None` - The absolute tolerance for the
-        time difference. If given and not None, then if the time difference
-        is smaller than the given value, then the integral and derivative
+        time difference. If given and not None, if the time difference is
+        smaller than the given value, then the integral and derivative
         errors are not updated to avoid precision errors.
 
         Returns
@@ -288,33 +328,41 @@ class PIDController(Controller):
             raise ValueError("The time difference must be positive. "
                              f"Got; {delta_time}.")
 
-        control_input = self.transform_input(control_input)
-        error: float = calc_error(control_input, setpoint, *self.input_limits)
+        # Calculate control input and error.
+        control_input: float = self.transform_input(control_input)
+        control_error: float = calc_error(control_input, setpoint,
+                                          *self.input_limits)
+        control_error = self.transform_error(control_error)
 
-        # Only update the integral and derivative errors
-        # if the time difference is sufficiently large enough.
+        # Only update the integral and derivative errors if
+        # the time difference is sufficiently large enough.
         derivative: float = 0.0
         if delta_time > 0.0 and (abs_tol is None or delta_time > abs_tol):
-            self.__integral += error * delta_time
+            self.__integral += control_error * delta_time
             if self.latest_error is not None:
-                derivative = (error - self.latest_error) / delta_time
+                derivative = (control_error - self.latest_error) / delta_time
                 self.__derivatives.append(derivative)
                 derivative = sum(self.__derivatives) / len(self.__derivatives)
 
-        output: float = (self.__Kp * error
-                         + self.__Ki * self.__integral
-                         + self.__Kd * derivative)
-        output = clamp(self.transform_output(output),
-                       *self.output_limits)
+        # Calculate the PID controller terms.
+        self.__Tp = self.__Kp * control_error
+        self.__Ti = self.__Ki * self.__integral
+        self.__Td = self.__Kd * derivative
+        control_output: float = self.__Tp + self.__Ti + self.__Td
+        control_output = clamp(self.transform_output(control_output),
+                               *self.output_limits)
 
         self._latest_input = control_input
-        self._latest_error = error
-        self._latest_output = output
+        self._latest_error = control_error
+        self._latest_output = control_output
 
-        return output
+        return control_output
 
     def reset(self) -> None:
         """Reset the controller state."""
         super().reset()
+        self.__Tp = 0.0
+        self.__Ti = 0.0
+        self.__Td = 0.0
         self.__integral = 0.0
         self.__derivatives.clear()
