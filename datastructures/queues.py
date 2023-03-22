@@ -194,9 +194,11 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
     def __repr__(self) -> str:
         """Return an instantiable string representation of the queue."""
         if not self.__delete:
-            return f"{self.__class__.__name__}({self.__heap!r})"
-        heap = [item for item in self.__heap if item not in self.__delete]
-        return f"{self.__class__.__name__}({heap})"
+            heap = [self.__get(item) for item in self.__heap]
+            return f"{self.__class__.__name__}({heap})"
+        heap = [self.__get(item) for item in self.__heap
+                if item not in self.__delete]
+        return f"{self.__class__.__name__}({heap!r})"
 
     def __contains__(self, item: ST) -> bool:
         """Return whether an item is in the queue."""
@@ -213,6 +215,23 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
     def __bool__(self) -> bool:
         """Return True if the queue is not empty."""
         return bool(self.__members)
+
+    def iter_ordered(self) -> Iterator[ST]:
+        """Iterate over the items in the queue in priority order."""
+        if not self:
+            return
+        indices: list[int] = [0]
+        __getitem__ = self.__heap.__getitem__
+        len_ = len(self)
+        while indices:
+            min_index = min(indices, key=__getitem__)
+            yield self.__heap[min_index][1]
+            indices.remove(min_index)
+            index: int = (min_index * 2) + 1
+            if index < len_:
+                indices.append(index)
+            if index + 1 < len_:
+                indices.append(index + 1)
 
     def push(self, item: ST, /) -> None:
         """
