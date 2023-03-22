@@ -29,8 +29,10 @@ from control.controllers import Controller, clamp, calc_error
 __copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
 
-__all__ = ("PIDControllerGains",
-           "PIDController")
+__all__ = (
+    "PIDControllerGains",
+    "PIDController"
+)
 
 
 def __dir__() -> tuple[str]:
