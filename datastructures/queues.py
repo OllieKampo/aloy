@@ -30,6 +30,8 @@ from typing import (Callable, Generic, Hashable, Iterable, Iterator, Optional,
 
 from auxiliary.typingutils import HashableSupportsRichComparison
 
+import queue
+
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
 
@@ -58,7 +60,7 @@ class QItem(Generic[ST]):
         return hash(self.item)
 
 
-class SortedQueue(Generic[ST]):
+class SortedQueue(collections.abc.Collection, Generic[ST]):
     """
     A sorted queue implementation.
 
@@ -294,6 +296,26 @@ class SortedQueue(Generic[ST]):
             self.__delete.remove(item)
         raise IndexError("Pop from empty sorted queue.")
 
+    def peek(self) -> ST:
+        """
+        Peek at the lowest order item in the queue.
+
+        Returns
+        -------
+        `ST@SortedQueue` - The lowest order item.
+
+        Raises
+        ------
+        `IndexError` - If the queue is empty.
+        """
+        while self:
+            item: ST = self.__get(self.__heap[0])
+            if item not in self.__delete:
+                return item
+            heapq.heappop(self.__heap)
+            self.__delete.remove(item)
+        raise IndexError("Peek from empty sorted queue.")
+
     def remove(self, item: ST, /) -> None:
         """
         Remove a given item from the queue.
@@ -383,6 +405,14 @@ class PriorityQueue(collections.abc.MutableMapping, Generic[VT, QT]):
         ## Store a lazy delete "list" for fast item removal.
         self.__delete: set[tuple[VT, QT]] = set()
 
+    def copy(self) -> "PriorityQueue[VT, QT]":
+        """Return a shallow copy of the queue."""
+        heap = self.__class__()
+        heap.__members = self.__members.copy()
+        heap.__heap = self.__heap.copy()
+        heap.__delete = self.__delete.copy()
+        return heap
+
     def __str__(self) -> str:
         """Return a string representation of the queue."""
         return f"Priority Queue with {len(self)} items"
@@ -390,10 +420,11 @@ class PriorityQueue(collections.abc.MutableMapping, Generic[VT, QT]):
     def __repr__(self) -> str:
         """Return an instantiable string representation of the queue."""
         if not self.__delete:
-            return f"{self.__class__.__name__}({self.__heap!r})"
-        heap = [item for item in self.__heap
+            heap = [(item, priority) for priority, item in self.__heap]
+            return f"{self.__class__.__name__}({heap!r})"
+        heap = [(item, priority) for priority, item in self.__heap
                 if item not in self.__delete]
-        return f"{self.__class__.__name__}({heap})"
+        return f"{self.__class__.__name__}({heap!r})"
 
     def __contains__(self, item: QT) -> bool:
         """Return whether an item is in the queue."""
@@ -422,6 +453,31 @@ class PriorityQueue(collections.abc.MutableMapping, Generic[VT, QT]):
     def __bool__(self) -> bool:
         """Return True if the queue is not empty."""
         return bool(self.__members)
+
+    def iter_ordered(self) -> Iterator[QT]:
+        """Iterate over the items in the queue in priority order."""
+        if not self:
+            return
+        indices: list[int] = [0]
+        __getitem__ = self.__heap.__getitem__
+        len_ = len(self)
+        while indices:
+            min_index = min(indices, key=__getitem__)
+            yield self.__heap[min_index][1]
+            indices.remove(min_index)
+            index: int = (min_index * 2) + 1
+            if index < len_:
+                indices.append(index)
+            if index + 1 < len_:
+                indices.append(index + 1)
+
+    def iter_ordered_prio(self) -> Iterator[tuple[QT, VT]]:
+        """
+        Iterate over the items and their priorities in the queue in priority
+        order.
+        """
+        yield from ((item, self.__members[item])
+                    for item in self.iter_ordered())
 
     def push(self, item: QT, priority: VT, /) -> None:
         """
@@ -485,9 +541,24 @@ class PriorityQueue(collections.abc.MutableMapping, Generic[VT, QT]):
             priority_item = heapq.heappop(self.__heap)
             if priority_item not in self.__delete:
                 del self.__members[priority_item[1]]
-                return priority_item
+                return priority_item[1], priority_item[0]
             self.__delete.remove(priority_item)
         raise IndexError("Pop from empty priority queue.")
+
+    def __push_pop(self, item: QT, priority: VT, /) -> tuple[QT, VT]:
+        if item not in self:
+            self.__members[item] = priority
+            priority_item = (priority, item)
+            if priority_item in self.__delete:
+                self.__delete.remove(priority_item)
+                priority_item = heapq.heappop(self.__heap)
+            else:
+                priority_item = heapq.heappushpop(self.__heap, priority_item)
+        elif priority != (old_priority := self.__members[item]):
+            self.__delete.add((old_priority, item))
+            self.__members[item] = priority
+            priority_item = heapq.heappushpop(self.__heap, (priority, item))
+        return priority_item
 
     def push_pop(self, item: QT, priority: VT, /) -> QT:
         """
@@ -512,23 +583,47 @@ class PriorityQueue(collections.abc.MutableMapping, Generic[VT, QT]):
         ------
         `IndexError` - If the queue is empty.
         """
-        if item not in self:
-            self.__members[item] = priority
-            priority_item = (priority, item)
-            if priority_item in self.__delete:
-                self.__delete.remove(priority_item)
-                priority_item = heapq.heappop(self.__heap)
-            else:
-                priority_item = heapq.heappushpop(self.__heap, priority_item)
-        elif priority != (old_priority := self.__members[item]):
-            self.__delete.add((old_priority, item))
-            self.__members[item] = priority
-            priority_item = heapq.heappushpop(self.__heap, (priority, item))
+        priority_item = self.__push_pop(item, priority)
 
         while self:
             if priority_item not in self.__delete:
                 del self.__members[priority_item[1]]
                 return priority_item[1]
+            self.__delete.remove(priority_item)
+            priority_item = heapq.heappop(self.__heap)
+        raise IndexError("Pop from empty priority queue.")
+
+    def push_pop_prio(self, item: QT, priority: VT, /) -> tuple[QT, VT]:
+        """
+        Push an item onto the queue and then pop the lowest priority item and
+        its priority.
+
+        This is more efficient than pushing and then popping separately.
+
+        If the pushed item is aleady present, replace its priority with the
+        given priority value.
+
+        Parameters
+        ----------
+        `item: QT@PriorityQueue` - The item to push.
+
+        `priority: VT@PriorityQueue` - The priority of the item.
+
+        Returns
+        -------
+        `(QT@PriorityQueue, VT@PriorityQueue)` - The lowest priority item and
+        its priority value.
+
+        Raises
+        ------
+        `IndexError` - If the queue is empty.
+        """
+        priority_item = self.__push_pop(item, priority)
+
+        while self:
+            if priority_item not in self.__delete:
+                del self.__members[priority_item[1]]
+                return priority_item[1], priority_item[0]
             self.__delete.remove(priority_item)
             priority_item = heapq.heappop(self.__heap)
         raise IndexError("Pop from empty priority queue.")
@@ -550,6 +645,28 @@ class PriorityQueue(collections.abc.MutableMapping, Generic[VT, QT]):
             if priority_item not in self.__delete:
                 return priority_item[1]
             heapq.heappop(self.__heap)
+            self.__delete.remove(priority_item)
+        raise IndexError("Peek at empty priority queue.")
+
+    def peek_prio(self) -> tuple[QT, VT]:
+        """
+        Peek at the lowest priority item and its priority in the queue.
+
+        Returns
+        -------
+        `(QT@PriorityQueue, VT@PriorityQueue)` - The lowest priority item and
+        its priority value.
+
+        Raises
+        ------
+        `IndexError` - If the queue is empty.
+        """
+        while self:
+            priority_item = self.__heap[0]
+            if priority_item not in self.__delete:
+                return priority_item[1], priority_item[0]
+            heapq.heappop(self.__heap)
+            self.__delete.remove(priority_item)
         raise IndexError("Peek at empty priority queue.")
 
     def remove(self, item: QT, /) -> None:
