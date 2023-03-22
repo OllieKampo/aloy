@@ -62,8 +62,8 @@ from control.controllers import ControlledSystem
 class DynamicSystem:
     """Base class for dynamic systems."""
 
-    @abstractstaticmethod
-    def random_start(*args, **kwargs) -> "DynamicSystem":
+    @abstractmethod
+    def random_reset(self, *args, **kwargs) -> None:
         """Return a random initial state."""
         raise NotImplementedError
 
@@ -262,28 +262,19 @@ class MassSpringDamperSystem(DynamicSystem, ControlledSystem):
     def __post_init__(self) -> None:
         self.reset()
 
-    @staticmethod
     def random_start(
-        mass: float = 2.5,
-        spring_constant: float = 1.0,
-        damping_constant: float = 1.0,
-        steady_state_error: float = 0.0,
+        self,
         force_range: tuple[float, float] = (-1.0, 1.0),
         position_range: tuple[float, float] = (-5.0, 5.0),
         velocity_range: tuple[float, float] = (-2.5, 2.5),
         seed: int | None = None
-    ) -> "MassSpringDamperSystem":
+    ) -> None:
         """Create a mass-spring-damper system with random initial state."""
         rng = np.random.default_rng(seed)
-        return MassSpringDamperSystem(
-            mass=mass,
-            spring_constant=spring_constant,
-            damping_constant=damping_constant,
-            steady_state_error=steady_state_error,
-            initial_force=rng.uniform(*force_range),
-            initial_position=rng.uniform(*position_range),
-            initial_velocity=rng.uniform(*velocity_range)
-        )
+        self.initial_force = rng.uniform(*force_range)
+        self.initial_position = rng.uniform(*position_range)
+        self.initial_velocity = rng.uniform(*velocity_range)
+        self.reset()
 
     def reset(self) -> None:
         """Reset the system to its initial state."""
@@ -336,101 +327,82 @@ class BoilerSystem(DynamicSystem, ControlledSystem):
 
     heater_efficiency: float = 0.65  # W/W
     heater_heat_capacity: float = 2500.0  # J/K
-    heater_heat_transfer_coefficient: float = 0.85  # W/(m^2*K)
+    heater_heat_transfer_coef: float = 0.85  # W/(m^2*K)
 
-    boiler_heat_transfer_coefficient: float = 0.15  # W/(m^2*K)
-    ambient_temperature: float = 21.3  # K
+    boiler_heat_transfer_coef: float = 0.15  # W/(m^2*K)
+    ambient_temp: float = 21.3  # K
 
     ## Initial state of the system.
     initial_heater_power: float = 0.0  # W
-    initial_heater_temperature: float = 21.3  # K
-    initial_fluid_temperature: float = 21.3  # K
+    initial_heater_temp: float = 21.3  # K
+    initial_fluid_temp: float = 21.3  # K
 
     ## Setpoints for the system.
-    temperature_setpoint: float = 100.0  # K
+    temp_setpoint: float = 100.0  # K
 
     ## Current state of the system.
     heater_power: float = 0.0  # W
-    heater_temperature: float = 0.0  # K
-    fluid_temperature: float = 0.0  # K
+    heater_temp: float = 0.0  # K
+    fluid_temp: float = 0.0  # K
 
     def __post_init__(self) -> None:
         self.reset()
 
-    @staticmethod
-    def random_start(
-        fluid_capacity: float = 10.0,
-        fluid_density: float = 1.0,
-        fluid_specific_heat_capacity: float = 1.0,
-        heater_efficiency: float = 1.0,
-        heater_heat_capacity: float = 1.0,
-        heater_heat_transfer_coefficient: float = 0.85,
-        boiler_heat_transfer_coefficient: float = 0.15,
-        ambient_temperature: float = 1.0,
-        temperature_setpoint: float = 1.0,
+    def random_reset(
+        self,
         heater_power_range: tuple[float, float] = (0.0, 1.0),
-        heater_temperature_range: tuple[float, float] = (0.0, 1.0),
-        fluid_temperature_range: tuple[float, float] = (0.0, 1.0),
+        heater_temp_range: tuple[float, float] = (0.0, 10.0),
+        fluid_temp_range: tuple[float, float] = (-50.0, 50.0),
         seed: int | None = None
-    ) -> "BoilerSystem":
+    ) -> None:
         """Create a boiler system with random initial state."""
         rng = np.random.default_rng(seed)
-        return BoilerSystem(
-            fluid_capacity=fluid_capacity,
-            fluid_density=fluid_density,
-            fluid_specific_heat_capacity=fluid_specific_heat_capacity,
-            heater_efficiency=heater_efficiency,
-            heater_heat_capacity=heater_heat_capacity,
-            heater_heat_transfer_coefficient=heater_heat_transfer_coefficient,
-            boiler_heat_transfer_coefficient=boiler_heat_transfer_coefficient,
-            ambient_temperature=ambient_temperature,
-            temperature_setpoint=temperature_setpoint,
-            initial_heater_power=rng.uniform(*heater_power_range),
-            initial_heater_temperature=rng.uniform(*heater_temperature_range),
-            initial_fluid_temperature=rng.uniform(*fluid_temperature_range)
-        )
+        self.initial_heater_power = rng.uniform(*heater_power_range)
+        self.initial_heater_temp = rng.uniform(*heater_temp_range)
+        self.initial_fluid_temp = rng.uniform(*fluid_temp_range)
+        self.reset()
 
     def reset(self) -> None:
         """Reset the system to its initial state."""
         self.heater_power = self.initial_heater_power
-        self.heater_temperature = self.initial_heater_temperature
-        self.fluid_temperature = self.initial_fluid_temperature
+        self.heater_temp = self.initial_heater_temp
+        self.fluid_temp = self.initial_fluid_temp
 
     def update_system(self, delta_time: float) -> None:
         """Update the system state."""
-        heater_temperature = self.heater_temperature
-        fluid_temperature = self.fluid_temperature
+        heater_temp = self.heater_temp
+        fluid_temp = self.fluid_temp
 
-        heater_temperature += ((self.heater_power * self.heater_efficiency)
+        heater_temp += ((self.heater_power * self.heater_efficiency)
                                * delta_time) / self.heater_heat_capacity
-        fluid_temperature -= ((fluid_temperature - self.ambient_temperature)
-                              * self.boiler_heat_transfer_coefficient
+        fluid_temp -= ((fluid_temp - self.ambient_temp)
+                              * self.boiler_heat_transfer_coef
                               * delta_time)
-        energy_transfer = ((heater_temperature - fluid_temperature)
-                           * self.heater_heat_transfer_coefficient
+        energy_transfer = ((heater_temp - fluid_temp)
+                           * self.heater_heat_transfer_coef
                            * delta_time)
-        fluid_temperature += (energy_transfer
+        fluid_temp += (energy_transfer
                               / (self.fluid_specific_heat_capacity
                                  * self.fluid_density
                                  * self.fluid_capacity))
-        heater_temperature -= energy_transfer / self.heater_heat_capacity
+        heater_temp -= energy_transfer / self.heater_heat_capacity
 
-        self.heater_temperature = heater_temperature
-        self.fluid_temperature = fluid_temperature
+        self.heater_temp = heater_temp
+        self.fluid_temp = fluid_temp
 
     @property
     def input_variables(self) -> tuple[str] | None:
-        return ("fluid_temperature",)
+        return ("fluid_temp",)
 
     @property
     def output_variables(self) -> tuple[str] | None:
-        return ("temperature_setpoint",)
+        return ("temp_setpoint",)
 
     def get_control_input(self, var_name: str | None = None) -> float:
-        return self.fluid_temperature
+        return self.fluid_temp
 
     def get_setpoint(self, var_name: str | None = None) -> float:
-        return self.temperature_setpoint
+        return self.temp_setpoint
 
     def set_control_output(
         self,
@@ -438,5 +410,5 @@ class BoilerSystem(DynamicSystem, ControlledSystem):
         delta_time: float,
         var_name: str | None = None
     ) -> None:
-        self.update_system(delta_time)
         self.heater_power = output
+        self.update_system(delta_time)
