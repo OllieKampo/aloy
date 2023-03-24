@@ -224,12 +224,9 @@ class ChunkedList(collections.abc.MutableSequence, Generic[LT]):
         if index < 0 or index > len(self):
             raise IndexError("Index out of range")
         chunk_index, chunk_offset = divmod(index, self.__chunk_size)
-        # print("insert", chunk_index, chunk_offset, value)
         if chunk_index == len(self.__chunks):
-            # print("at end")
             if chunk_offset != 0:
                 raise RuntimeError("Chunk index out of range")
-            # print("add new chunk")
             # Create a new chunk if the offset is 0.
             # This only happens when appending to the list.
             self.__chunks.insert(chunk_index, [None] * self.__chunk_size)
@@ -237,14 +234,11 @@ class ChunkedList(collections.abc.MutableSequence, Generic[LT]):
             self.__length = 1
         elif chunk_index == len(self.__chunks) - 1:
             if chunk_offset == self.__length:
-                # print("append to last chunk")
                 # Append to the last chunk if the offset is the length of
                 # the last chunk.
-                # print("append", chunk_index, chunk_offset, value)
                 self.__chunks[chunk_index][chunk_offset] = value
                 self.__length += 1
             else:
-                # print("insert into last chunk")
                 # Insert into the last chunk if the offset is less than the
                 # length of the last chunk.
                 self.__chunks[chunk_index].insert(chunk_offset, value)
@@ -254,7 +248,6 @@ class ChunkedList(collections.abc.MutableSequence, Generic[LT]):
                     self.__chunks.append([None] * self.__chunk_size)
                     self.__chunks[-1][0] = self.__chunks[-2].pop()
         else:
-            # print("in middle")
             # Insert into a middle chunk, and shift-up the rest of the list.
             self.__chunks[chunk_index].insert(chunk_offset, value)
             while chunk_index < (len(self.__chunks) - 1):
