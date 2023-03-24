@@ -270,6 +270,62 @@ class ChunkedList(collections.abc.MutableSequence, Generic[LT]):
         self.__length = 0
 
 
+class PreallocList(collections.abc.MutableSequence, Generic[LT]):
+    """A list that preallocates memory."""
+
+    __slots__ = ("__length", "__list", "__postalloc")
+
+    def __init__(self, prealloc: int = 1000, postalloc: int = 100) -> None:
+        self.__length = 0
+        self.__list = [None] * prealloc
+        self.__postalloc = postalloc
+    
+    def __len__(self) -> int:
+        return self.__length
+    
+    def __getitem__(self, index: int) -> LT:
+        if index < 0:
+            index += len(self)
+        if index < 0 or index >= len(self):
+            raise IndexError("Index out of range")
+        return self.__list[index]
+    
+    def __setitem__(self, index: int, value: LT) -> None:
+        if index < 0:
+            index += len(self)
+        if index < 0 or index >= len(self):
+            raise IndexError("Index out of range")
+        self.__list[index] = value
+    
+    def __delitem__(self, index: int) -> None:
+        if index < 0:
+            index += len(self)
+        if index < 0 or index >= len(self):
+            raise IndexError("Index out of range")
+        del self.__list[index]
+        self.__length -= 1
+    
+    def __iter__(self) -> Iterator[LT]:
+        for item in self.__list[:self.__length]:
+            yield item
+    
+    def append(self, value: LT) -> None:
+        if self.__length == len(self.__list):
+            self.__list.extend([None] * self.__postalloc)
+        self.__list[self.__length] = value
+        self.__length += 1
+    
+    def insert(self, index: int, value: LT) -> None:
+        if index < 0:
+            index += len(self)
+        if index < 0 or index > len(self):
+            raise IndexError("Index out of range")
+        if self.__length == len(self.__list):
+            self.__list.extend([None] * self.__postalloc)
+        self.__list.insert(index, value)
+        self.__length += 1
+
+
 class ChunkedHashList:
     """A hash list structure built from chunks of fixed length."""
     pass
@@ -292,11 +348,11 @@ if __name__ == "__main__":
         for i in range(1000):
             test_list.append(i)
     
-    def test_chunked_list():
-        """Test the chunked list."""
-        test_list = ChunkedList(chunk_size=1000)
+    def test_prealloc_list():
+        """Test the prealloc list."""
+        test_list = PreallocList()
         for i in range(1000):
             test_list.append(i)
     
     print("Standard List: ", timeit.timeit(test_list, number=100))
-    print("Chunked List: ", timeit.timeit(test_chunked_list, number=100))
+    print("Prealloc List: ", timeit.timeit(test_prealloc_list, number=100))
