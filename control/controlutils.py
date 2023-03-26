@@ -24,7 +24,6 @@
 
 from collections import deque
 import time
-from typing import Callable, Literal
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -185,8 +184,12 @@ def simulate_control(
     if lead_ticks == 1 and lag_ticks == 1:
         for tick in range(ticks):
             control_input = control_system.get_control_input()
-            control_output = controller.control_output(control_input, setpoint, delta_time, abs_tol=None)
-            control_system.set_control_output(control_output, delta_time)
+            control_output = controller.control_output(
+                control_input, setpoint, delta_time, abs_tol=None
+            )
+            control_system.set_control_output(
+                control_output, delta_time
+            )
             error_values[tick] = controller.latest_error
             control_outputs[tick] = control_output
     else:
@@ -197,11 +200,15 @@ def simulate_control(
             input_queue.append(control_input)
             if len(input_queue) == lead_ticks:
                 control_input = input_queue.popleft()
-                control_output = controller.control_output(control_input, setpoint, delta_time, abs_tol=None)
+                control_output = controller.control_output(
+                    control_input, setpoint, delta_time, abs_tol=None
+                )
                 output_queue.append(control_output)
                 if len(output_queue) == lag_ticks:
                     control_output = output_queue.popleft()
-                    control_system.set_control_output(control_output, delta_time)
+                    control_system.set_control_output(
+                        control_output, delta_time
+                    )
             error_values[tick] = controller.latest_error
             control_outputs[tick] = control_output
 
