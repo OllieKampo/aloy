@@ -153,6 +153,21 @@ class ParticleSwarmSystem:
         self.__fitness_function: Callable[[npt.NDArray[np.float64]], np.float64] = fitness_function
         self.__maximise: bool = maximise
     
+    def yield_run(self):
+        pass
+
+    def context_run(self):
+        pass
+
+    async def async_run(self):
+        pass
+
+    async def async_yield_run(self):
+        pass
+
+    async def async_context_run(self):
+        pass
+
     def run(self,
             total_particles: int = 100,
             init_strategy: Literal["random", "linspace"] = "random",
