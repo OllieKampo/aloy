@@ -32,10 +32,12 @@ import math
 from numbers import Number, Real
 from random import getrandbits as randbits
 from typing import Any, Callable, Generic, Iterable, Iterator, Literal, Optional, Type, TypeVar
+from typing_extensions import override
 from numpy.random import choice, random_integers, Generator, default_rng
+from auxiliary.mathutils import normalize_between, normalize_to_sum
 
 from auxiliary.progressbars import ResourceProgressBar
-from auxiliary.moreitertools import chunk, ichunk, cycle_for, getitem_zip, max_n
+from auxiliary.moreitertools import arg_max_n, chunk, ichunk_sequence, cycle_for, getitem_zip, index_sequence, max_n
 
 import numpy as np
 
@@ -72,7 +74,7 @@ class GeneBase(Generic[CT], metaclass=ABCMeta):
         """Return the given quantity of random genes."""
         ...
 
-@dataclasses.dataclass(frozen=True) ## TODO: Change to a normal class, take "bin", "hex", or "oct" as argument.
+@dataclasses.dataclass(frozen=True)  ## TODO: Change to a normal class, take "bin", "hex", or "oct" as argument.
 class BitStringBase(GeneBase[str]):
     """
     Represents a bit-string gene base type.
@@ -120,6 +122,11 @@ class BitStringBase(GeneBase[str]):
         """Return the range of possible values a gene can take for the given base type in ascending order."""
         return tuple(format(v, self.format_) for v in range(self.total_values))
     
+    @cached_property
+    def as_numerical_base(self) -> "NumericalBase[int]":
+        """Return a numerical base representation of the given bit-string base type."""
+        return NumericalBase(self.name, int, 0, (2 ** self.bits) - 1)
+
     def chromosome_bits(self, length: int) -> int:
         """Return the number of bits needed to represent a chromosome of the given length."""
         return self.bits * length
@@ -220,13 +227,13 @@ class GeneticEncoder(Generic[ST], metaclass=ABCMeta):
     """
     
     def __init__(self,
-                 chromosome_length: int = 8,
+                 chromosome_length: int,
                  permutation: bool = False,
-                 base: BitStringBaseTypes | Literal["bin", "oct", "hex"] | list[GT] | ArbitraryBase = "bin", ## TODO
+                 base: BitStringBaseTypes | Literal["bin", "oct", "hex"] | list[GT] | ArbitraryBase = "bin"  ## TODO
                  ) -> None:
         """Create a genetic encoder with a given gene length and base type."""
         self.__chromosome_length: int = chromosome_length
-        if not isinstance(base, str):
+        if isinstance(base, str):
             self.__base = BitStringBaseTypes[base].value
         elif isinstance(base, BitStringBaseTypes):
             self.__base = base.value
@@ -380,12 +387,14 @@ class PointCrossOver(GeneticRecombinator):
     
     def __get_subsequences(self, chromosome_1: CT, chromosome_2: CT, i: int, lp: int, rp: int) -> tuple[CT, CT]:
         """Return the sub-sequences of the given chromosomes at the given indices."""
-        if i % 2 == 0: return (chromosome_1[lp:rp], chromosome_2[lp:rp])
+        if i % 2 == 0:
+            return (chromosome_1[lp:rp], chromosome_2[lp:rp])
         return (chromosome_2[lp:rp], chromosome_1[lp:rp])
     
     def recombine(self, chromosome_1: CT, chromosome_2: CT) -> Iterable[CT]:
         """Generate two new offspring chromosomes by recombining the given parent chromosomes using N-point cross-over."""
-        points = np.zeros(self.__points); points[-1] = len(chromosome_1)
+        points = np.zeros(self.__points)
+        points[-1] = len(chromosome_1)
         points[1:self.__points-1] = self.generator.integers(0, len(chromosome_1), self.__points).sort()
         sum_func = lambda x: "".join(x) if isinstance(chromosome_1, str) else sum
         return tuple(map(sum_func, zip(self.__get_subsequences(chromosome_1, chromosome_2, i, lp, rp)
@@ -533,18 +542,13 @@ class GeneticMutator(GeneticOperator):
         """
         super().__init__(rng)
     
-    @property
-    def generator(self) -> Generator:
-        """Get the random number generator used by the selector."""
-        return self.__generator
-    
     def mutate(self, chromosome: CT, base: GeneBase) -> CT:
         """Mutate the given chromosome encoded in the given base."""
         return NotImplemented
     
     def bitstring_mutate(self, chromosome: str, base: BitStringBase) -> str:
         """Point mutate the given chromosome encoded in the given bit-string base."""
-        return "".join(self.mutate(list(chromosome), base.as_numerical_base()))
+        return "".join([str(g) for g in self.mutate(list(chromosome), base.as_numerical_base)])
     
     def numerical_mutate(self, chromosome: list[NT], base: NumericalBase[NT]) -> list[NT]:
         """Mutate the given chromosome encoded in the given numeric base."""
@@ -724,6 +728,9 @@ class SequenceInversionMutator(SequenceShuffleMutator):
     def __init__(self, rng: Generator | int | None = None) -> None:
         super().__init__(rng)
 
+
+# scaling_scheme: Literal["lin", "sigma", "power-law"],
+# selection_scheme: Literal["prop", "rank"],  ## "trans-ranked", "tournament", "SUS" : Params for tournament >> tournament_size: int, inner_selection: best | prop | rank | trans-ranked | SUS
 class GeneticSelector(metaclass=ABCMeta):
     """
     Base class for genetic selection operators.
@@ -735,9 +742,15 @@ class GeneticSelector(metaclass=ABCMeta):
     """
     
     __slots__ = ("__requires_sorted",
+                 "__requires_normalised",
                  "__generator")
     
-    def __init__(self, requires_sorted: bool, rng: Generator | int | None = None) -> None:
+    def __init__(
+        self,
+        requires_sorted: bool,
+        requires_normalised: bool,
+        rng: Generator | int | None = None
+    ) -> None:
         """
         Super constructor for selection operators.
         
@@ -749,6 +762,7 @@ class GeneticSelector(metaclass=ABCMeta):
         or a seed for the selector to create its own, None generates a random seed.
         """
         self.__requires_sorted: bool = requires_sorted
+        self.__requires_normalised: bool = requires_normalised
         if isinstance(rng, Generator):
             self.__generator: Generator = rng
         self.__generator: Generator = default_rng(rng)
@@ -759,17 +773,27 @@ class GeneticSelector(metaclass=ABCMeta):
         return self.__requires_sorted
     
     @property
+    def requires_normalised(self) -> bool:
+        """Whether the selector requires the fitness values to be normalised to sum to one."""
+        return self.__requires_normalised
+    
+    @property
     def generator(self) -> Generator:
         """Get the random number generator used by the selector."""
         return self.__generator
     
     @abstractmethod
-    def select(self,
-               population: list[CT],
-               fitness: list[Real],
-               quantity: int
-               ) -> list[CT]:
-        """Select the given number of chromosomes from the population."""
+    def select(
+        self,
+        population: list[CT],
+        fitness: list[float],
+        quantity: int
+    ) -> Iterable[int]:
+        """
+        Select the given number of chromosomes from the population.
+        
+        Must return an iterable of the indices of the selected chromosomes.
+        """
         ...
     
     def scale(self,
@@ -779,10 +803,16 @@ class GeneticSelector(metaclass=ABCMeta):
         return fitness
     
     @staticmethod
-    def validate(population: list[CT], fitness: list[Real], quantity: int) -> None:
+    def validate(
+        population: list[CT],
+        fitness: list[float],
+        quantity: int
+    ) -> None:
         """Validate arguments for the selection operator."""
         if len(population) != len(fitness):
             raise ValueError("Population and fitness values must be the same length.")
+        if len(population) == 0:
+            raise ValueError("Population must contain at least one chromosome to select from.")
         if quantity < 1:
             raise ValueError("Quantity of chromosomes to select must be greater than zero.")
 
@@ -791,33 +821,44 @@ class ProportionateSelector(GeneticSelector):
     
     def __init__(self) -> None:
         """Create a new proportionate selector."""
-        super().__init__(requires_sorted=False)
+        super().__init__(requires_sorted=False, requires_normalised=True)
     
-    def select(self,
-               population: list[CT],
-               fitness: list[Real],
-               quantity: int
-               ) -> list[CT]:
-        """Select a given quantity of chromosomes from the population with probability proportionate to fitness with replacement."""
-        return tuple(getitem_zip(self.generator.choice(getitem_zip(population, fitness), quantity, p=fitness)))
+    @override
+    def select(
+        self,
+        population: list[CT],
+        fitness: list[float],
+        quantity: int
+    ) -> Iterable[int]:
+        """
+        Select a given quantity of chromosomes from the population with probability proportionate to fitness with replacement.
+        
+        Returns an iterable of the indices of the selected chromosomes.
+        """
+        return self.generator.choice(len(population), size=quantity, p=fitness)
 
 class RankedSelector(GeneticSelector):
     """Selects chromosomes from a population with probability proportionate to fitness rank with replacement."""
     
     def __init__(self) -> None:
         """Create a new ranked selector."""
-        super().__init__(requires_sorted=True)
+        super().__init__(requires_sorted=True, requires_normalised=False)
     
-    def select(self,
-               population: list[CT],
-               fitness: list[Real],
-               quantity: int
-               ) -> list[CT]:
-        """Select a given quantity of chromosomes from the population with probability proportionate to fitness rank with replacement."""
+    def select(
+        self,
+        population: list[CT],
+        fitness: list[float],
+        quantity: int
+    ) -> Iterable[int]:
+        """
+        Select a given quantity of chromosomes from the population with probability proportionate to fitness rank with replacement.
+
+        Returns an iterable of the indices of the selected chromosomes.
+        """
         pop_size: int = len(population)
         rank_sum: float = (pop_size + 1) * (pop_size / 2.0) 
-        ranks: list[Fraction] = [Fraction(i / rank_sum) for i in range(pop_size)]
-        return tuple(getitem_zip(self.generator.choice(getitem_zip(population, fitness), quantity, p=ranks)))
+        ranks: list[float] = [(i / rank_sum) for i in range(pop_size)]
+        return self.generator.choice(pop_size, size=quantity, p=ranks)
 
 class TournamentSelector(GeneticSelector):
     """
@@ -847,24 +888,55 @@ class TournamentSelector(GeneticSelector):
         if not n_chosen < tournamenet_size:
             raise ValueError("Number of chosen chromosomes must be less than the tournament size. "
                              f"Got; {tournamenet_size=}, {n_chosen=}.")
-        super().__init__(requires_sorted=(inner_selector is None or inner_selector.requires_sorted))
+        super().__init__(requires_sorted=(inner_selector is not None and inner_selector.requires_sorted),
+                         requires_normalised=(inner_selector is not None and inner_selector.requires_normalised))
         self.__tournament_size: int = tournamenet_size
         self.__n_chosen: int = n_chosen
         self.__inner_selector: ProportionateSelector | RankedSelector | None = inner_selector
     
-    def select(self, population: list[CT], fitness: list[Real], quantity: int) -> list[CT]:
+    def select(
+        self,
+        population: list[CT],
+        fitness: list[float],
+        quantity: int
+    ) -> Iterable[int]:
         """
         Select a given quantity of chromosomes from the population by pitching them against each other in tournaments.
         
         Chromosomes selected for tournamenets are selected with uniform probability with replacement.
         """
-        tournaments = chunk(self.generator.choice(getitem_zip(population, fitness),
-                                                  self.__tournament_size * quantity),
-                            self.__tournament_size, quantity, as_type=True)
+        tournaments = chunk(
+            index_sequence(
+                getitem_zip(population, fitness),
+                self.generator.integers(
+                    len(population),
+                    self.__tournament_size * quantity
+                )
+            ),
+            self.__tournament_size,
+            quantity
+        )
+
+        winner_lists: Iterator[Iterable[int]]
         if self.__inner_selector is None:
-            winner_lists = (max_n(tournament, n=self.__n_chosen, key=lambda x: x[1]) for tournament in tournaments)
-        winner_lists = (self.__inner_selector.select(*zip(tournament), quantity=self.__n_chosen) for tournament in tournaments)
-        return list(itertools.chain.from_iterable(winner_lists))
+            winner_lists = (
+                arg_max_n(
+                    tournament,
+                    n=self.__n_chosen,
+                    key=lambda x: x[1]
+                )
+                for tournament in tournaments
+            )
+        else:
+            winner_lists = (
+                self.__inner_selector.select(
+                    *zip(tournament),
+                    quantity=self.__n_chosen
+                )
+                for tournament in tournaments
+            )
+
+        return itertools.chain.from_iterable(winner_lists)
     
     def scale(self, fitness: list[Real]) -> list[Real]:
         """Scale the given fitness values, by default calling the inner selector's scale method."""
@@ -962,18 +1034,21 @@ class GeneticSystem:
     
     """
     
-    __slots__ = (## Functions defining the system's genetic operators.
-                 "__encoder",
-                 "__recombinator",
-                 "__mutator",
-                 "__random_generator")
+    __slots__ = (
+        "__encoder",
+        "__selector",
+        "__recombinator",
+        "__mutator",
+        "__random_generator"
+    )
     
-    def __init__(self,
-                 encoder: GeneticEncoder,
-                 selector: GeneticSelector,
-                 recombinator: GeneticRecombinator,
-                 mutator: GeneticMutator
-                 ) -> None:
+    def __init__(
+        self,
+        encoder: GeneticEncoder,
+        selector: GeneticSelector,
+        recombinator: GeneticRecombinator,
+        mutator: GeneticMutator
+    ) -> None:
         """
         Create a genetic system.
         
@@ -1015,68 +1090,63 @@ class GeneticSystem:
         self.__mutator: GeneticMutator = mutator
     
     def run(self,
-            
             init_pop_size: int,
             max_pop_size: int,
-            expansion_factor: Fraction,
-            
-            # scaling_scheme: Literal["lin", "sigma", "power-law", "boltzmann"],
-            selection_scheme: Literal["prop", "rank"], ## "trans-ranked", "tournament", "SUS" : Params for tournament >> tournament_size: int, inner_selection: best | prop | rank | trans-ranked | SUS
-            
-            ## use_ranked_fitness: bool = False,
-            ## best_fit_gets_proportion_of_pie: Fraction = 1,
-            ## P_c must be greater than 1/2 (50%) to actually bias it towards better individuals, otherwise if P_c < 0.5 last individual would actually have more chance to to be picked than second to last.
-            ## But selection should be proportional to ratio of biases = (convergence_bias / diversity_bias)
-            
-            survival_factor: Fraction, 
-            # survival_factor_rate: Optional[Fraction],
-            # survival_factor_rate_type: Optional["DecayType" | Literal["lin", "pol", "exp"]],
-            
-            survival_elitism_factor: Optional[Fraction], ## Fraction of the surviving that are the elite.
-            # survival_elitism_growth: Optional[Fraction],
-            # survival_elitism_growth_type: Optional["DecayType" | Literal["lin", "pol", "exp"]],
-            ## survival_filter: Optional[Callable[[Chromosome, Fraction, dict[str, Fraction], Fraction], bool]] = None,
-            ##      - Function: (individual, fitness, fitness_statisitcs: statistic_name -> statistic, fitness_threshold) -> survived
-            ## Common filters are to choose those x% above the mean or median, or to choose only those within x% of the fitness threshold.
-            
-            replacement: bool,
-            reproduction_elitism_factor: Fraction,
-            reproduction_elitism_factor_final: Fraction,
-            reproduction_elitism_factor_growth_type: Optional["DecayType" | Literal["lin", "pol", "exp"]],
-            reproduction_elitism_factor_growth_start: int,
-            reproduction_elitism_factor_growth_end: int,
-            reproduction_elitism_factor_growth_rate: Fraction,
+            expansion_factor: float = 1.5,
 
-            mutation_factor: Fraction,
-            mutation_factor_final: Fraction,
-            mutation_factor_growth_type: Optional["DecayType" | Literal["lin", "pol", "exp"]],
-            mutation_factor_growth_start: int,
-            mutation_factor_growth_end: int,
-            mutation_factor_growth_rate: Fraction,
+            survival_factor: float = 0.75,
+            survival_factor_final: float = 0.75,
+            survival_factor_growth_type: Literal["lin", "pol", "exp", "sin"] = "lin",
+            survival_factor_growth_start: int = 0,
+            survival_factor_growth_end: int | Literal["threshold", "stagnation"] = "threshold",
+            survival_factor_growth_rate: float = 0.0,
 
-            mutation_strength: Fraction,
-            mutation_strength_final: Fraction,
-            mutation_strength_decay_type: Literal["lin", "pol", "exp"],
-            mutation_strength_decay_start: int,
-            mutation_strength_decay_end: int,
-            mutation_strength_decay_rate: Fraction,
-            
-            max_generations: Optional[int],
-            fitness_threshold: Optional[Fraction],
-            fitness_proportion: Optional[Fraction | int],
-            stagnation_limit: Optional[int | Fraction],
-            stagnation_proportion: Optional[Fraction | int] = 0.10, ## TODO Could use numpy.allclose
-            
+            survival_elitism_factor: float | None = None,
+            survival_elitism_factor_final: float | None = None,
+            survival_elitism_factor_growth_type: Literal["lin", "pol", "exp", "sin"] | None = None,
+            survival_elitism_factor_growth_start: int | None = None,
+            survival_elitism_factor_growth_end: int | Literal["threshold", "stagnation"] | None = None,
+            survival_elitism_factor_growth_rate: float | None = None,
+
+            replacement: bool = True,
+            reproduction_elitism_factor: float = 0.0,
+            reproduction_elitism_factor_final: float = 0.25,
+            reproduction_elitism_factor_growth_type: Literal["lin", "pol", "exp", "sin"] = "sin",
+            reproduction_elitism_factor_growth_start: int = 0,
+            reproduction_elitism_factor_growth_end: int | Literal["threshold", "stagnation"] | None = None,
+            reproduction_elitism_factor_growth_rate: float = 1.0,
+
+            mutation_factor: float = 2.0,
+            mutation_factor_final: float = 0.5,
+            mutation_factor_growth_type: Literal["lin", "pol", "exp", "sin"] = "sin",
+            mutation_factor_growth_start: int = 0,
+            mutation_factor_growth_end: int | Literal["threshold", "stagnation"] | None = None,
+            mutation_factor_growth_rate: float = 1.0,
+            mutate_all: bool = False,
+
+            mutation_strength: float = 1.0,
+            mutation_strength_final: float = 0.05,
+            mutation_strength_decay_type: Literal["lin", "pol", "exp", "sin"] = "sin",
+            mutation_strength_decay_start: int = 0,
+            mutation_strength_decay_end: int | Literal["threshold", "stagnation"] | None = None,
+            mutation_strength_decay_rate: float = 1.0,
+
+            max_generations: int | None = 100,  # If not none this is the maximum number of generations to run the algorithm.
+            fitness_threshold: float | None = None,  # If not none this is the fitness threshold that must be reached to stop the algorithm.
+            fitness_proportion: float | int | None = None,  # If not none this proportion of the population must be above the fitness threshold to stop the algorithm.
+            stagnation_limit: float | int | None = None,  # If not none this is the number of generations that the best fitness individual(s) can stay the same before stopping the algorithm.
+            stagnation_proportion: float | int | None = 0.25,  # If not none this proportion of the population must be stagnated to stop the algorithm.
+
             ## These are used only for proportional fitness
             diversity_bias: float = 0.95,
-            diversity_bias_final: float = 0.05,
-            diversity_bias_decay_type: Literal["lin", "pol", "exp", "sin"] = "exp", # ["threshold-converge", "stagnation-diverge"]
+            diversity_bias_final: float = 0.00,
+            diversity_bias_decay_type: Literal["lin", "pol", "exp", "sin"] = "exp",  # ["threshold-converge", "stagnation-diverge"]
             ##      - converge towards fitness threshold - proportional to difference between mean fitness and fitness threshold,
             ##      - converge on rate of change towards fitness threshold,
             ##      - diverge on stagnation on best fittest towards fitness threshold. Increase proportional to diversity_bias * (stagnated_generations / stagnation_limit). This should try to explore around the solution space when the best fitness gets stuck on a local minima.
             diversity_bias_decay_start: int = 0,
             diversity_bias_decay_end: int | None = None,
-            diversity_bias_decay_rate: float = 0.1
+            diversity_bias_decay_rate: float = 1.0
 
             ) -> GeneticAlgorithmSolution:
         """
@@ -1133,7 +1203,7 @@ class GeneticSystem:
             - survival_elitism_factor = 1.0, such that only the best survive (and the worst are culled) deterministically,
             - disable replacement.
         """
-        ## TODO Add tqdm, logging, data collection (with pandas?), and data visualisation.
+        ## TODO Add logging, data collection, and data visualisation.
         if survival_factor >= Fraction(1.0):
             raise ValueError("Survival factor must be less than 1.0."
                              f"Got; {survival_factor=}.")
@@ -1152,7 +1222,7 @@ class GeneticSystem:
         population: list[CT] = self.create_population(init_pop_size)
         fitness_values: list[Fraction] = [self.__encoder.evaluate_fitness(individual)
                                           for individual in population]
-        
+
         ## If elitism is enabled for either selection or mutation then the population and their fitness values need to be ordered.
         if survival_elitism_factor is not None:
             population, fitness_values = zip(*sorted(zip(population, fitness_values),
@@ -1160,17 +1230,59 @@ class GeneticSystem:
             population = list(population)
             fitness_values = list(fitness_values)
         
-        max_fitness, min_fitness = max(fitness_values), min(fitness_values)
+        max_fitness_index, max_fitness = max(enumerate(fitness_values), key=lambda item: item[1])
         generation: int = 0
         
         ## Variables for checking stagnation
-        best_fitness_achieved: Fraction = max_fitness
+        best_individual_achieved: CT = population[max_fitness_index]
+        best_fitness_achieved: float = max_fitness
         stagnated_generations: int = 0
-        
-        get_df = get_decay_function
-        diversity_bias_decay_function = None
-        mutation_factor_growth_function = None
 
+        if reproduction_elitism_factor_growth_end is None:
+            if max_generations is None:
+                raise ValueError("Reproduction elitism factor growth end must be given if the maximum generations is not given or None."
+                                 f"Got; {reproduction_elitism_factor_growth_end=} of type {type(reproduction_elitism_factor_growth_end)} and {max_generations=} of {type(max_generations)}.")
+            reproduction_elitism_factor_growth_end = max_generations
+        if diversity_bias_decay_end is None:
+            if max_generations is None:
+                raise ValueError("Diversity bias decay end must be given if the maximum generations is not given or None."
+                                 f"Got; {diversity_bias_decay_end=} of type {type(diversity_bias_decay_end)} and {max_generations=} of {type(max_generations)}.")
+            diversity_bias_decay_end = max_generations
+        if mutation_factor_growth_end is None:
+            if max_generations is None:
+                raise ValueError("Mutation factor growth end must be given if the maximum generations is not given or None."
+                                 f"Got; {mutation_factor_growth_end=} of type {type(mutation_factor_growth_end)} and {max_generations=} of {type(max_generations)}.")
+            mutation_factor_growth_end = max_generations
+        if mutation_strength_decay_end is None:
+            if max_generations is None:
+                raise ValueError("Mutation strength growth end must be given if the maximum generations is not given or None."
+                                 f"Got; {mutation_strength_decay_end=} of type {type(mutation_strength_decay_end)} and {max_generations=} of {type(max_generations)}.")
+            mutation_strength_decay_end = max_generations
+        
+        def _get(_var, _default):
+            if _var is None:
+                return _default
+            return _var
+
+        reproduction_elitism_factor_growth_start = _get(reproduction_elitism_factor_growth_start, 0)
+        diversity_bias_decay_start = _get(diversity_bias_decay_start, 0)
+        mutation_factor_growth_start = _get(mutation_factor_growth_start, 0)
+        mutation_strength_decay_start = _get(mutation_strength_decay_start, 0)
+
+        reproduction_elitism_factor_growth_rate = _get(reproduction_elitism_factor_growth_rate, 1.0)
+        diversity_bias_decay_rate = _get(diversity_bias_decay_rate, 1.0)
+        mutation_factor_growth_rate = _get(mutation_factor_growth_rate, 1.0)
+        mutation_strength_decay_rate = _get(mutation_strength_decay_rate, 1.0)
+
+        get_df = get_decay_function
+        reproduction_elitism_factor_growth_func = None
+        diversity_bias_decay_func = None
+        mutation_factor_growth_func = None
+        mutation_strength_decay_func = None
+
+        if reproduction_elitism_factor_growth_type is not None:
+            reproduction_elitism_factor_growth_func = get_df(reproduction_elitism_factor_growth_type, reproduction_elitism_factor, reproduction_elitism_factor_final,
+                                                            reproduction_elitism_factor_growth_start, reproduction_elitism_factor_growth_end, reproduction_elitism_factor_growth_rate)
         if diversity_bias_decay_type is not None:
             diversity_bias_decay_func = get_df(diversity_bias_decay_type, diversity_bias, diversity_bias_final,
                                                diversity_bias_decay_start, diversity_bias_decay_end, diversity_bias_decay_rate)
@@ -1185,40 +1297,48 @@ class GeneticSystem:
         
         while not (generation >= max_generations):
             if diversity_bias is not None:
-                if diversity_bias_decay_function is not None:
-                    diversity_bias = diversity_bias_decay_function(generation)
+                if diversity_bias_decay_func is not None:
+                    diversity_bias = diversity_bias_decay_func(generation)
                 
                 ## Apply biases to the fitness values to encourage exploration;
                 ##      Individuals gain fitness directly proportional to diversity
                 ##      bias and how much worse they are than the maximum fitness.
                 fitness_values = [fitness + (diversity_bias * (max_fitness - fitness))
                                   for fitness in fitness_values]
-            
+
             ## Applying scaling to the fitness values.
             fitness_values = self.__selector.scale(fitness_values)
-            
-            base_population_size: int = len(population)
+            fitness_values = normalize_to_sum(fitness_values, 1.0)
             
             ## Select part of the existing population to survive to the next generation and cull the rest;
             ##      - The selection scheme is random (unless the elitism factor is 1.0) with chance of survival proportional to fitness.
             ##      - This step emulates Darwin's principle of survival of the fittest.
-            population, fitness_values = self.cull_population(population, fitness_values, survival_factor, survival_elitism_factor)
-            
+            base_population_size: int = len(population)
+            population, fitness_values = self.cull_population(
+                population, fitness_values,
+                survival_factor, survival_elitism_factor # These are those that survive to be eligible for reproduction.
+            )
+            fitness_values = normalize_to_sum(fitness_values, 1.0)
+
             ## Recombine the survivors to produce offsrping and expand the population to the lower of;
             ##      - The max population size,
             ##      - increase the size by our maximum expansion factor.
             desired_population_size: int = min(math.ceil(base_population_size * expansion_factor), max_pop_size)
-            population = self.grow_population(population, fitness_values, desired_population_size, replacement)
+            population = self.grow_population(
+                population, fitness_values,
+                desired_population_size, reproduction_elitism_factor,
+                survival_factor, survival_elitism_factor # These are those that survive beyond reproduction.
+            )
             
             ## Randomly mutate the grown population
-            if generation != 0 and mutation_factor_growth_function is not None:
-                mutation_factor = mutation_factor_growth_function(generation)
-            mutated_population: list[CT] = self.mutate_population(population, mutation_factor, fitness_values, uniform_mutation_selection, mutate_all)
+            if generation != 0 and mutation_factor_growth_func is not None:
+                mutation_factor = mutation_factor_growth_func(generation)
+            mutated_population: list[CT] = self.mutate_population(population, mutation_factor, mutate_all)
             
             ## Update the population and fitness values with the new generation.
             population = mutated_population
-            fitness_values: list[Fraction] = [self.__encoder.evaluate_fitness(individual)
-                                              for individual in population]
+            fitness_values: list[float] = [self.__encoder.evaluate_fitness(individual)
+                                           for individual in population]
             
             ## If elitism is enabled the population and their fitness values need to be ordered.
             if survival_elitism_factor is not None:
@@ -1242,20 +1362,20 @@ class GeneticSystem:
             progress_bar.update(data={"Best fitness" : str(best_fitness_achieved)})
             
             ## Determine whether the fitness threshold has been reached.
-            if best_fitness_achieved >= fitness_threshold:
+            if fitness_threshold is not None and best_fitness_achieved >= fitness_threshold:
                 return GeneticAlgorithmSolution(best_individual_achieved, best_fitness_achieved, population, fitness_values, max_fitness_reached=True)
             
             ## Determine whether the stagnation limit has been reached.
-            if stagnated_generations == stagnation_limit:
+            if stagnation_limit is not None and stagnated_generations == stagnation_limit:
                 return GeneticAlgorithmSolution(best_individual_achieved, best_fitness_achieved, population, fitness_values, stagnation_limit_reached=True)
         
         return GeneticAlgorithmSolution(best_individual_achieved, best_fitness_achieved, population, fitness_values, max_generations_reached=True)
     
     def create_population(self, population_size: int) -> list[CT]:
         """Create a new population of the given size."""
-        total_bits: int = self.__encoder.base.bits * self.__encoder.gene_length
+        total_bits: int = self.__encoder.base.bits * self.__encoder.chromosome_length
         return [format(randbits(total_bits),
-                       self.__encoder.base.format_).zfill(self.__encoder.gene_length)
+                       self.__encoder.base.format_).zfill(self.__encoder.chromosome_length)
                 for _ in range(population_size)]
     
     def cull_population(self,
@@ -1263,7 +1383,7 @@ class GeneticSystem:
                         fitness_values: list[Fraction],
                         survival_factor: Fraction,
                         elitism_factor: Fraction | None
-                        ) -> tuple[list[CT], list[Fraction]]:
+                        ) -> tuple[list[CT], list[float]]:
         """
         Select individuals from the current population to survive to and reproduce for the next generation.
         
@@ -1295,16 +1415,19 @@ class GeneticSystem:
         `elitism_factor: {Fraction | None}` - 
         """
         ## The current population size and the quantity of them to choose to survive to the next generation.
-        population_size: int = len(population)
-        survive_quantity: int = math.ceil(population_size * survival_factor)
-        
+        population_size = len(population)
+        survive_quantity = math.ceil(population_size * survival_factor)
+
         ## If all individuals in the current population survive then skip the culling phase.
         if population_size == survive_quantity:
             return (population, fitness_values)
         
         ## If elitism factor is not given or None then always choose randomly with probability proportion.
         if elitism_factor is None:
-            return self.__selector.select(population, fitness_values, survive_quantity)
+            indices = self.__selector.select(population, fitness_values, survive_quantity)
+            population = list(index_sequence(population, indices))
+            fitness_values = list(index_sequence(fitness_values, indices))
+            return (population, fitness_values)
         
         ## The quantity of elite individuals that are guaranteed to survive.
         elite_quantity = math.ceil(survive_quantity * elitism_factor)
@@ -1316,21 +1439,24 @@ class GeneticSystem:
                     fitness_values[population_size - survive_quantity:])
         
         ## Non-elite part of the population chosen from randomly to generate competing quantity of survive quantity
-        comp_quantity: int = survive_quantity - elite_quantity
-        comp_population: list[CT] = population[0:population_size - elite_quantity]
-        comp_fitness_values: list[Fraction] = fitness_values[0:population_size - elite_quantity]
-        comp_popluation, comp_fitness_values = self.__selector.select(comp_population, comp_fitness_values, comp_quantity)
-        
-        return (comp_popluation + population[population_size - elite_quantity:],
-                comp_fitness_values + fitness_values[population_size - elite_quantity:])
+        comp_quantity = survive_quantity - elite_quantity
+        comp_population = population[0:population_size - elite_quantity]
+        comp_fitness_values = fitness_values[0:population_size - elite_quantity]
+        comp_indices = self.__selector.select(comp_population, comp_fitness_values, comp_quantity)
+        comp_population = list(index_sequence(comp_population, comp_indices))
+        comp_fitness_values = list(index_sequence(comp_fitness_values, comp_indices))
+
+        return (comp_population + population[-elite_quantity:],
+                comp_fitness_values + fitness_values[-elite_quantity:])
     
     def grow_population(self,
                         population: list[CT],
-                        fitness_values: Optional[list[Fraction]],
+                        fitness_values: list[float],
                         desired_population_size: int,
-                        reproduction_elitism_factor: Fraction | None,
-                        survival_factor: Fraction,
-                        survival_elitism_factor: Fraction = Fraction(0.0), # These are added to `offspring` as an initial stage.
+                        reproduction_elitism_factor: float | None,
+                        survival_factor: float,
+                        survival_elitism_factor: float | None
+                        # These are added to `offspring` as an initial stage.
                         # These ones require us to check the individual is not already in the population, use set membership lookup (on index?), remember that it is allowed for the exact same chromosome to exist in the population more than once.
                         ) -> list[CT]:
         """
@@ -1352,8 +1478,6 @@ class GeneticSystem:
         replacement first, as a seperate initial stage of the population growth.
         Once the elite set is consumed, then return to the usual reproduction mechanism.
         """
-        offspring: list[CT] = []
-        
         ## The current population size and the quantity of them to choose to survive to the next generation.
         population_size: int = len(population)
         survive_quantity: int = math.ceil(population_size * survival_factor)
@@ -1362,36 +1486,62 @@ class GeneticSystem:
         if desired_population_size == survive_quantity:
             return population
         
-        ##
-        elite_survive_quantity: int = math.ceil(survive_quantity * survival_elitism_factor)
+        ## Determine number of elite individuals guaranteed to survive,
+        ## and the number of individuals that must compete to survive.
+        elite_survive_quantity: int = 0
+        if survival_elitism_factor is not None:
+            elite_survive_quantity = math.ceil(survive_quantity * survival_elitism_factor)
         comp_survive_quantity: int = survive_quantity - elite_survive_quantity
+
+        ## Add individuals that survive reproduction to the offspring.
+        offspring: list[CT] = []
+        if elite_survive_quantity != 0:
+            offspring.extend(population[-elite_survive_quantity:])
+        if comp_survive_quantity != 0:
+            comp_population = population
+            comp_fitness_values = fitness_values
+            if elite_survive_quantity != 0:
+                comp_population = population[:-elite_survive_quantity]
+                comp_fitness_values = fitness_values[:-elite_survive_quantity]
+                comp_fitness_values = normalize_to_sum(comp_fitness_values, 1.0)
+            survived_indices = self.__selector.select(comp_population,
+                                                      comp_fitness_values,
+                                                      comp_survive_quantity)
+            survived = list(index_sequence(comp_population, survived_indices))
+            offspring.extend(survived)
         
-        ##
-        survived = population[-elite_survive_quantity:]
-        survived.extend(self.__selector.select(population[:-elite_survive_quantity],
-                                               fitness_values[:-elite_survive_quantity],
-                                               comp_survive_quantity))
-        offspring.extend(survived)
-        
-        ##
+        ## Determine number of offspring to produce.
         offspring_quantity: int = desired_population_size - survive_quantity
         if offspring_quantity == 0:
             return offspring
         
-        ## Select parent pairs with uniform probability with replacement.
+        ## Calculate number of parents to choose from to reproduce.
         total_parents: int = (offspring_quantity + (offspring_quantity % 2))
-        elite_reprod_quantity: int = math.ceil(total_parents * reproduction_elitism_factor)
-        elite_reprod_quantity += elite_reprod_quantity % 2
+        elite_reprod_quantity: int = 0
+        if reproduction_elitism_factor is not None:
+            elite_reprod_quantity = math.ceil(total_parents * reproduction_elitism_factor)
+            elite_reprod_quantity += elite_reprod_quantity % 2
         comp_reprod_quantity: int = total_parents - elite_reprod_quantity
         
-        ##
-        selected = population[-elite_reprod_quantity:]
-        selected.extend(self.__selector.select(population[:-elite_reprod_quantity],
-                                               fitness_values[:-elite_reprod_quantity],
-                                               comp_reprod_quantity))
+        ## Select parent pairs to reproduce.
+        selected: list[CT] = []
+        if elite_reprod_quantity != 0:
+            selected = population[-elite_reprod_quantity:]
+            if comp_reprod_quantity != 0:
+                comp_indices = self.__selector.select(population[:-elite_reprod_quantity],
+                                                      fitness_values[:-elite_reprod_quantity],
+                                                      comp_reprod_quantity)
+            else:
+                comp_indices = []
+        else:
+            comp_indices = self.__selector.select(population,
+                                                  fitness_values,
+                                                  comp_reprod_quantity)
+        comp_selected = list(index_sequence(population, comp_indices))
+        selected.extend(comp_selected)
         parent_pairs: Iterator[tuple[CT, CT]] = chunk(selected, 2, comp_reprod_quantity // 2, as_type=tuple)
         
-        ##
+        ## Recombine parent pairs to produce offspring.
         for parent_1, parent_2 in parent_pairs:
             children: list[CT] = self.__recombinator.recombine(parent_1, parent_2)
             max_children: int = min(len(children), offspring_quantity - (len(offspring) - survive_quantity))
@@ -1399,13 +1549,12 @@ class GeneticSystem:
         
         return offspring
     
-    def mutate_population(self,
-                          population: list[CT],
-                          mutation_factor: Fraction,
-                          fitness_values: list[Fraction],
-                          uniform_selection: bool,
-                          mutate_all: bool
-                          ) -> list[CT]:
+    def mutate_population(
+        self,
+        population: list[CT],
+        mutation_factor: Fraction,
+        mutate_all: bool
+    ) -> list[CT]:
         """
         Mutate the population.
         
@@ -1441,10 +1590,7 @@ class GeneticSystem:
         
         ## Randomly select individuals from the population to account for the rest of the factor.
         if not mutate_all or mutations_quantity != 0:
-            if uniform_selection:
-                choices = self.__random_generator.choice(len(population), mutations_quantity)
-            else:
-                choices = self.__selector.select(range(len(population)), fitness_values, mutations_quantity)
+            choices = self.__random_generator.choice(len(population), mutations_quantity)
             for index in choices:
                 mutated_population[index] = mutate(mutated_population[index],
                                                    self.__encoder.base)
