@@ -21,19 +21,6 @@
 
 """Module containing functions and classes for synchronization."""
 
-__copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
-__license__ = "GPL-3.0"
-
-__all__ = ("OwnedRLock",
-           "atomic_context",
-           "atomic_update",
-           "sync",
-           "SynchronizedMeta")
-
-def __dir__() -> tuple[str]:
-    """Get the names of module attributes."""
-    return __all__
-
 from collections import defaultdict
 import contextlib
 import functools
@@ -47,22 +34,45 @@ from auxiliary.introspection import loads_functions
 from datastructures.graph import Graph
 from datastructures.mappings import ReversableDict
 
+__copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
+__license__ = "GPL-3.0"
+
+__all__ = (
+    "OwnedRLock",
+    "atomic_context",
+    "atomic_update",
+    "sync",
+    "SynchronizedMeta"
+)
+
+
+def __dir__() -> tuple[str]:
+    """Get the names of module attributes."""
+    return __all__
+
+
 @typing.final
 class OwnedRLock(contextlib.AbstractContextManager):
-    """Class defining a reentrant lock that keeps track of its owner and recursion depth."""
-    
-    __slots__ = ("__name",
-                 "__lock",
-                 "__owner",
-                 "__recursion_depth")
-    
+    """
+    Class defining a reentrant lock that keeps track of its owner and
+    recursion depth.
+    """
+
+    __slots__ = (
+        "__name",
+        "__lock",
+        "__owner",
+        "__recursion_depth"
+    )
+
     def __init__(self, lock_name: str | None = None) -> None:
         """
         Create a new owned reentrant lock with an optional name.
         
         Parameters
         ----------
-        `lock_name : str | None = None` - The name of the lock, or None to give it no name.
+        `lock_name : str | None = None` - The name of the lock, or None to
+        give it no name.
         """
         self.__name: str | None = lock_name
         self.__lock = threading.RLock()
@@ -162,10 +172,15 @@ def atomic_context(context_name: str, /, cls: type | None = None, inst: object |
     finally:
         lock_.release()
 
+
 SP = typing.ParamSpec("SP")
 ST = typing.TypeVar("ST")
 
-def atomic_update(global_lock: str | None = None, method: bool = False) -> typing.Callable[[typing.Callable], typing.Callable]:
+
+def atomic_update(
+    global_lock: str | None = None,
+    method: bool = False
+) -> typing.Callable[[typing.Callable], typing.Callable]:
     """
     Decorate a function to ensure atomic updates in the decorated function.
     
@@ -207,26 +222,32 @@ def atomic_update(global_lock: str | None = None, method: bool = False) -> typin
                 lock_name = f"__method_global__ {global_lock}"
             else:
                 lock_name: str = f"__method_local__ {func.__name__}"
+
             @functools.wraps(func)
             def wrapper(self, *args: SP.args, **kwargs: SP.kwargs) -> ST:
                 with atomic_context(lock_name, inst=self):
                     return func(self, *args, **kwargs)
             return wrapper
+
         else:
             if global_lock is not None:
                 lock_name = f"__function_global__ {global_lock}"
             else:
                 lock_name: str = f"__function_local__ {func.__name__}"
+
             @functools.wraps(func)
             def wrapper(*args: SP.args, **kwargs: SP.kwargs) -> ST:
                 with atomic_context(lock_name):
                     return func(*args, **kwargs)
+
             return wrapper
     return decorator
+
 
 @typing.overload
 def sync() -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
     ...
+
 
 @typing.overload
 def sync(lock: typing.Literal["all", "method"],
@@ -234,9 +255,11 @@ def sync(lock: typing.Literal["all", "method"],
          ) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
     ...
 
+
 @typing.overload
 def sync(*, group_name: str) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
     ...
+
 
 def sync(lock: typing.Literal["all", "method"] | None = None,
          group_name: str | None = None
@@ -288,6 +311,7 @@ def sync(lock: typing.Literal["all", "method"] | None = None,
         return method
     
     return sync_dec
+
 
 def synchronize_method(lock: typing.Literal["all", "method"] = "all") -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
     """Decorate a method to synchronize it in a synchronized class."""
@@ -353,6 +377,7 @@ def synchronize_method(lock: typing.Literal["all", "method"] = "all") -> typing.
         
         return synchronize_method_wrapper
     return synchronize_method_decorator
+
 
 class SynchronizedMeta(type):
     """Metaclass for synchronizing method calls for a class."""
