@@ -95,10 +95,12 @@ def make_terminal_relplot(
         string_builder += "\n"
         string_builder += " " * (y_tick_padding + 4)
         string_builder += (" || ".join(
-                (f"{label} [{markers[i % len(markers)]}]"
+                (f"[{markers[i % len(markers)]}] {label}"
                  for i, label in enumerate(legend))
             )
         ).center(plot_width * 2)
+        string_builder += "\n"
+    elif title is not None:
         string_builder += "\n"
 
     # Add the y-axis, ticks and labels, and the plot itself
@@ -146,8 +148,8 @@ def update_grid(
 
 
 if __name__ == "__main__":
-    # print(make_terminal_relplot(np.arange(0, 200), np.linspace(1, 40, 200) ** 1.5, 40, 20, "Hello World"), end="\n")
-    # print(make_terminal_relplot(np.arange(0, 200), np.linspace(1, 40, 200) ** 1.5, 40, 20, "Hello World", True), end="\n")
+    print(make_terminal_relplot(np.arange(0, 200), np.linspace(1, 40, 200) ** 1.5, 40, 20, "Hello World"), end="\n")
+    print(make_terminal_relplot(np.arange(0, 200), np.linspace(1, 40, 200) ** 1.5, 40, 20, "Hello World", True), end="\n")
     print(make_terminal_relplot(np.tile(np.arange(0, 200), 3).reshape(3, 200),
                                 np.array([np.linspace(0, 40, 200), (np.linspace(0, 40, 200) ** 1.5), (np.linspace(0, 40, 200) ** 2)]),
                                 40, 20, "Jake is the best <3", legend=["y = x * 5", "y = (x * 5) ^ 1.5", "y = (x * 5) ^ 2"]))
