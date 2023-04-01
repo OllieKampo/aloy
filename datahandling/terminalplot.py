@@ -86,7 +86,7 @@ def make_terminal_relplot(
         string_builder += " " * (y_tick_padding + 4)
         string_builder += title.center(plot_width * 2)
         string_builder += "\n"
-        string_builder.duplicate(4, 7)
+        string_builder.duplicate(7, 4)
     if legend is not None:
         if len(legend) != x_data.shape[0]:
             raise ValueError("Legend must have the same number of elements as "

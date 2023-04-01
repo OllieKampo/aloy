@@ -198,8 +198,8 @@ class StringBuilder(collections.abc.Sequence):
 
     def duplicate(
         self,
-        skip: int,
-        back: int | None = None, /, *,
+        back: int,
+        skip: int | None = None, /, *,
         times: int | None = None
     ) -> None:
         if back is None:
