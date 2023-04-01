@@ -167,13 +167,15 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         _connections: set[VT]
         if not isinstance(connections, (set, frozenset)):
             _connections = {connections}
-        else: _connections = connections
+        else:
+            _connections = connections
 
         ## If loops are not allowed, ensure the vertex is not in the set of connections.
         if not self.__allow_loops:
             if isinstance(_connections, frozenset):
                 _connections = _connections - {vertex}
-            else: _connections.discard(vertex)
+            else:
+                _connections.discard(vertex)
 
         ## Find the set of existing connections from the specified vertex, and the set
         ## of new connections (those in the set to add that are not already in the existing set).

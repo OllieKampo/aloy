@@ -1,7 +1,9 @@
 import collections.abc
 from typing import Generic, Optional, TypeVar
 
+
 TT = TypeVar("TT")
+
 
 class BinaryTree(collections.abc.Sequence, Generic[TT]):
     """
@@ -22,7 +24,8 @@ class BinaryTree(collections.abc.Sequence, Generic[TT]):
         self.__head: TT = head
         if ((left is None and right is not None)
             or (left is not None and right is None)):
-            raise ValueError("Left and right must both be None or both be not None.")
+            raise ValueError("Left and right must be both None "
+                             "or both not None.")
         self.__left: Optional[BinaryTree] = left
         self.__right: Optional[BinaryTree] = right
     
@@ -75,6 +78,7 @@ class BinaryTree(collections.abc.Sequence, Generic[TT]):
         
         return depth_sum
 
+
 class Tree(collections.abc.Sequence):
     """
     An arbitrary depth tree represented by a single instance.
@@ -82,11 +86,13 @@ class Tree(collections.abc.Sequence):
     """
     pass
 
+
 class Forest(collections.abc.Sequence):
     """
     A collection of trees.
     """
     pass
+
 
 class HierarchyTree(collections.abc.Sequence):
     """
