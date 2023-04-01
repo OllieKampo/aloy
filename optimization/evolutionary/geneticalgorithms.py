@@ -34,7 +34,7 @@ from random import getrandbits as randbits
 from typing import Any, Callable, Generic, Iterable, Iterator, Literal, Optional, Type, TypeVar
 from typing_extensions import override
 from numpy.random import choice, random_integers, Generator, default_rng
-from auxiliary.mathutils import normalize_between, normalize_to_sum
+from moremath.mathutils import normalize_between, normalize_to_sum
 
 from auxiliary.progressbars import ResourceProgressBar
 from auxiliary.moreitertools import arg_max_n, chunk, ichunk_sequence, cycle_for, getitem_zip, index_sequence, max_n
