@@ -93,13 +93,13 @@ class ClockThread:
         implement `tick()` or are callable with no parameters. If they
         do not, a `TypeError` will be raised.
         """
-        ## Schedule items.
+        # Schedule items.
         self.__atomic_update_lock = threading.Lock()
         self.__items: list[Callable[[], None]] = []
         self.schedule(*items, check_items=check_items)
         self.tick_rate = tick_rate
 
-        ## Variables for the clock thread.
+        # Variables for the clock thread.
         self.__thread = threading.Thread(target=self.__run)
         self.__thread.daemon = True
         self.__running = threading.Event()

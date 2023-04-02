@@ -2,7 +2,7 @@
 ###########################################################################
 ## Module defining utility functions for manipulating strings.           ##
 ##                                                                       ##
-## Copyright (C)  2022  Oliver Michael Kamperis                          ##
+## Copyright (C)  2023  Oliver Michael Kamperis                          ##
 ## Email: o.m.kamperis@gmail.com                                         ##
 ##                                                                       ##
 ## This program is free software: you can redistribute it and/or modify  ##
@@ -27,6 +27,19 @@ import itertools
 import textwrap
 from typing import Iterable, final, overload
 import warnings
+
+__copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
+__license__ = "GPL-3.0"
+
+__all__ = (
+    "StringBuilder",
+    "center_text"
+)
+
+
+def __dir__() -> tuple[str]:
+    """Get the names of module attributes."""
+    return __all__
 
 
 @final

@@ -22,8 +22,6 @@
 
 """Module defining custom CLI progress bars."""
 
-__all__ = ("ResourceUsageProgressBar")
-
 import os
 import threading
 from time import sleep
@@ -31,19 +29,35 @@ from typing import Optional
 import psutil
 from tqdm import tqdm
 
+__copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
+__license__ = "GPL-3.0"
+
+__all__ = (
+    "ResourceProgressBar",
+)
+
+
+def __dir__() -> tuple[str]:
+    """Get the names of module attributes."""
+    return __all__
+
+
 class ResourceProgressBar:
     """
-    Class defining a simple tqdm based progress bar which displays current memory and CPU usage.
-    
+    Class defining a simple tqdm based progress bar which displays current
+    memory and CPU usage.
+
     The usage statistics are updated ten times per second.
     """
-    
-    __slots__ = ("__process",
-                 "__postfix",
-                 "__progress_bar",
-                 "__running",
-                 "__cpu_thread")
-    
+
+    __slots__ = {
+        "__process": "Process used for getting resource usage statistics.",
+        "__postfix": "Postfix dictionary used for updating the progress bar.",
+        "__progress_bar": "The progress bar itself.",
+        "__running": "A boolean variable used for stopping the update thread.",
+        "__cpu_thread": "Thread used for updating resource statistics."
+    }
+
     def __init__(self,
                  initial: int = 0,
                  total: Optional[int] = None,
@@ -56,58 +70,63 @@ class ResourceProgressBar:
                  ) -> None:
         """
         Create a resouce usage progress bar.
-        
+
         See `tqdm.tqdm` for a description of parameters.
         """
-        ## Process variable used for updating resource usage statistics.
+        # Process variable used for updating resource usage statistics.
         self.__process = psutil.Process(os.getpid())
-        
-        ## The progress bar itself.
-        self.__postfix = {"Mem(Mb)" : self.__get_mem(),
-                          "CPU(%)" : self.__get_cpu()}
-        self.__progress_bar = tqdm(postfix=self.__postfix,
-                                   initial=initial,
-                                   total=total,
-                                   desc=desc,
-                                   unit=unit,
-                                   leave=leave,
-                                   ncols=ncols,
-                                   miniters=miniters,
-                                   colour=colour)
-        
-        ## Variables for running an additional thread which
-        ## updates resource statistics ten times per second.
+
+        # The progress bar itself.
+        self.__postfix = {
+            "Mem(Mb)": self.__get_mem(),
+            "CPU(%)": self.__get_cpu()
+        }
+        self.__progress_bar = tqdm(
+            postfix=self.__postfix,
+            initial=initial,
+            total=total,
+            desc=desc,
+            unit=unit,
+            leave=leave,
+            ncols=ncols,
+            miniters=miniters,
+            colour=colour
+        )
+
+        # Variables for running an additional thread which
+        # updates resource statistics ten times per second.
         self.__running: bool = True
         self.__cpu_thread = threading.Thread(target=self.__update)
         self.__cpu_thread.daemon = True
         self.__cpu_thread.start()
-    
+
     def __get_mem(self) -> str:
         """Get current memory usage in megabits."""
-        return str(int(self.__process.memory_info().rss / (1024 ** 2))).zfill(5)
-    
+        memory = self.__process.memory_info().rss / (1024 ** 2)
+        return str(int(memory)).zfill(5)
+
     def __get_cpu(self) -> str:
         """Get cpu usage in percent."""
         return format(self.__process.cpu_percent(), "0.2f").zfill(6)
-    
+
     def __update(self) -> None:
         """Target for the update thread."""
         while self.__running:
             self.__postfix["Mem(Mb)"] = self.__get_mem()
             self.__postfix["CPU(%)"] = self.__get_cpu()
             sleep(0.1)
-    
+
     def update(self,
                n: int = 1,
                data: Optional[dict[str, str]] = None
                ) -> None:
         """
         Update the progress bar.
-        
+
         Parameters
         ----------
         `n: int = 1` - The number of increments ran since the last update.
-        
+
         `data: {dict[str, str] | None} = None` - An optional dictionary
         of additional statistics to display in the progress bar's postfix,
         given as a mapping of name to value pairs. An empty dictionary will
@@ -117,11 +136,11 @@ class ResourceProgressBar:
                                         if data is not None
                                         else self.__postfix)
         self.__progress_bar.update(n)
-    
+
     def close(self, wait: bool = False) -> None:
         """
         Cleanup and close the progress bar.
-        
+
         If `wait` is True, block until the progress bar is closed.
         """
         self.__progress_bar.close()
