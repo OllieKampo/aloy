@@ -1,101 +1,19 @@
 
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-import datetime
 import functools
 import logging
 import threading
 import time
 import types
-from typing import Any, Callable, Generic, Iterable, NamedTuple, ParamSpec, TypeVar, final
+from typing import Any, Callable, Iterable, ParamSpec, final
 
 import urllib.request
 
+from concurrency.atomic import AtomicNumber
+
 
 SP = ParamSpec("SP")
-NT = TypeVar("NT", int, float, complex)
-
-
-@final
-class AtomicNumber(Generic[NT]):
-    """
-    A thread-safe number whose updates are atomic.
-    
-    Updates to the number are only allowed within a context manager.
-    """
-
-    __slots__ = ("__lock", "__value", "__allow_updates")
-
-    def __init__(self, value: NT = 0) -> None:
-        """
-        Create a new atomic number with given initial value.
-
-        The number type can be int, float, or complex.
-        """
-        self.__lock = threading.Lock()
-        self.__value: NT = value
-        self.__allow_updates: bool = False
-    
-    def __str__(self) -> str:
-        return str(self.__value)
-    
-    def __repr__(self) -> str:
-        return f"AtomicNumber({self.__value})"
-    
-    def __enter__(self) -> None:
-        self.__lock.acquire()
-        self.__allow_updates = True
-    
-    def __exit__(self,
-                 exc_type: type | None,
-                 exc_val: BaseException | None,
-                 exc_tb: types.TracebackType | None
-                 ) -> None:
-        self.__allow_updates = False
-        self.__lock.release()
-    
-    def __int__(self) -> int:
-        return int(self.__value)
-    
-    def __float__(self) -> float:
-        return float(self.__value)
-    
-    def __complex__(self) -> complex:
-        return complex(self.__value)
-    
-    @property
-    def value(self) -> NT:
-        return self.__value
-    
-    @value.setter
-    def value(self, value: NT) -> None:
-        if not self.__allow_updates:
-            raise RuntimeError("Cannot update AtomicNumber outside of a context manager")
-        self.__value = value
-    
-    def __iadd__(self, value: NT) -> None:
-        if not self.__allow_updates:
-            raise RuntimeError("Cannot update AtomicNumber outside of a context manager")
-        self.__value += value 
-    
-    def __add__(self, value: NT) -> NT:
-        return self.__value + value
-    
-    def __isub__(self, value: NT) -> None:
-        if not self.__allow_updates:
-            raise RuntimeError("Cannot update AtomicNumber outside of a context manager")
-        self.__value -= value
-    
-    def __sub__(self, value: NT) -> NT:
-        return self.__value - value
-    
-    def __imul__(self, value: NT) -> None:
-        if not self.__allow_updates:
-            raise RuntimeError("Cannot update AtomicNumber outside of a context manager")
-        self.__value *= value
-    
-    def __mul__(self, value: NT) -> NT:
-        return self.__value * value
 
 
 @dataclass(frozen=True)
