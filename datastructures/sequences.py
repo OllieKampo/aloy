@@ -22,11 +22,8 @@
 """Module containing sorted and priority queue data structures."""
 
 import collections.abc
-import heapq
-from dataclasses import dataclass
 from numbers import Real
-from typing import (Callable, Generic, Hashable, Iterable, Iterator, Optional, Sequence,
-                    TypeVar, overload)
+from typing import Generic, Iterator, Sequence, TypeVar
 from auxiliary.moreitertools import ichunk_sequence
 
 from auxiliary.typingutils import HashableSupportsRichComparison

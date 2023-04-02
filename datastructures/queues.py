@@ -25,12 +25,10 @@ import collections.abc
 import heapq
 from dataclasses import dataclass
 from numbers import Real
-from typing import (Callable, Generic, Hashable, Iterable, Iterator, Optional,
-                    TypeVar, overload)
+from typing import (Callable, Generic, Hashable, Iterable, Iterator, TypeVar,
+                    overload)
 
 from auxiliary.typingutils import HashableSupportsRichComparison
-
-import queue
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
@@ -142,7 +140,7 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
     def __init__(
         self,
         *items: ST | Iterable[ST],
-        key: Optional[Callable[[ST], Real]] = None,
+        key: Callable[[ST], Real] | None = None,
         min_first: bool = True
     ) -> None:
         """Create a sorted queue of items."""
@@ -158,10 +156,10 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
         else:
             iterable = iter(items)
 
-        ## The queue itself is a heap;
-        ##      - The get and set functions convert
-        ##        to and from the value-item tuples
-        ##        if the key function is given.
+        # The queue itself is a heap;
+        #       - The get and set functions convert
+        #         to and from the value-item tuples
+        #         if the key function is given.
         if key is None:
             self.__heap: list[ST] = list(iterable)
             self.__get: Callable[[ST], ST] = lambda item: item
@@ -178,13 +176,13 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
             self.__set: Callable[[ST], QItem[ST]]
             self.__set = lambda item: QItem(key(item), item)
 
-        ## Heapify the heap.
+        # Heapify the heap.
         heapq.heapify(self.__heap)
 
-        ## Store a set of members for fast membership checks.
+        # Store a set of members for fast membership checks.
         self.__members: set[ST] = set(items)
 
-        ## Store a lazy delete "list" for fast item removal.
+        # Store a lazy delete "list" for fast item removal.
         self.__delete: set[ST] = set()
 
     def __str__(self) -> str:
@@ -275,22 +273,22 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
         if len(items) == 1:
             items = items[0]
 
-        ## If the iterable is a set we can use the hash-based set
-        ## operations to speed up the necessary membership testing.
+        # If the iterable is a set we can use the hash-based set
+        # operations to speed up the necessary membership testing.
         if isinstance(items, set):
-            ## Add all items that are not already members.
+            # Add all items that are not already members.
             items = items - self.__members
             self.__members |= items
 
-            ## Push all items not in the lazy delete list to the heap.
+            # Push all items not in the lazy delete list to the heap.
             push_items = items - self.__delete
             for item in push_items:
                 heapq.heappush(self.__heap, self.__set(item))
 
-            ## Remove lazy deletes for non-members.
+            # Remove lazy deletes for non-members.
             self.__delete -= items
 
-        ## Otherwise simply iterate over the items.
+        # Otherwise simply iterate over the items.
         else:
             for item in items:
                 self.push(item)
@@ -410,18 +408,18 @@ class PriorityQueue(collections.abc.MutableMapping, Generic[VT, QT]):
             if not isinstance(items[0], tuple):
                 items = iter(items[0])
 
-        ## Store a set of members for fast membership checks.
+        # Store a set of members for fast membership checks.
         self.__members: dict[QT, VT] = dict(items)
 
-        ## The queue itself is a heap.
+        # The queue itself is a heap.
         self.__heap: list[tuple[VT, QT]] = [
             (value, item) for item, value in self.__members.items()
         ]
 
-        ## Heapify the heap.
+        # Heapify the heap.
         heapq.heapify(self.__heap)
 
-        ## Store a lazy delete "list" for fast item removal.
+        # Store a lazy delete "list" for fast item removal.
         self.__delete: set[tuple[VT, QT]] = set()
 
     def copy(self) -> "PriorityQueue[VT, QT]":
