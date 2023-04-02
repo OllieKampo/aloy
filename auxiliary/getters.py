@@ -22,65 +22,118 @@
 
 """Module defining additional item getter functions."""
 
-__all__ = ("default_get",
-           "multi_default_get",
-           "default_max",
-           "get_first_not_none")
-
-from typing import Iterable, Optional, Sequence, TypeVar, overload
+from typing import Iterable, Sequence, TypeVar, overload
 
 from auxiliary.typingutils import SupportsRichComparison
 from auxiliary.moreitertools import filter_not_none
 
+__all__ = (
+    "default_get",
+    "multi_default_get",
+    "default_max",
+    "get_first_not_none"
+)
+
+
 VT = TypeVar("VT")
 VT_C = TypeVar("VT_C", bound=SupportsRichComparison)
 
+
 @overload
-def default_get(arg: Optional[VT],
-                default: VT
-                ) -> VT:
+def default_get(
+    arg: VT | None, /,
+    default: VT
+) -> VT:
     """Return the argument if it is not None, else return the default."""
     ...
 
+
 @overload
-def default_get(arg: tuple[Optional[VT], ...],
-                default: tuple[VT, ...],
-                element_default: VT
-                ) -> tuple[VT, ...]:
+def default_get(
+    arg: tuple[VT | None, ...], /,
+    default: tuple[VT, ...],
+    elem_default: VT
+) -> tuple[VT, ...]:
     """
     Return the argument if it is not None, else return the default.
-    
+
     If the argument is a tuple, return a new tuple containing with
     all None items replaced with the element-wise default.
-    
+
     To instead obtain an iterator over not None elements without
     replacing them with a default use `filter_not_none`.
     """
     ...
 
-def default_get(arg: Optional[VT] | tuple[Optional[VT], ...],
-                default: VT | tuple[VT, ...],
-                element_default: Optional[VT] = None
-                ) -> VT | tuple[VT]:
+
+def default_get(
+    arg: VT | None | tuple[VT | None, ...], /,
+    default: VT | tuple[VT, ...],
+    elem_default: VT | None = None
+) -> VT | tuple[VT]:
     """Return the argument if it is not None, else return the default."""
-    ## If the element-wise default is given and not None, and the argument is a tuple,
-    ## then fill elements of the tuple that are None with the default.
-    if element_default is not None and isinstance(arg, tuple):
-        return tuple((element_default if element is None else element) for element in arg)
-    ## Otherwise return argument if it is not None else the default.
+    # If the element-wise default is given and not None, and the argument is a
+    # tuple, then fill elements of the tuple that are None with the default.
+    if elem_default is not None and isinstance(arg, tuple):
+        return tuple((elem_default if elem is None else elem) for elem in arg)
+    # Otherwise return argument if it is not None else the default.
     return default if arg is None else arg
 
-def multi_default_get(arg: Optional[VT], defaults: Sequence[Optional[VT]]) -> VT:
-    """Return the argument if it is not None, else return the first default that is not None."""
-    return default_get(arg, get_first_not_none(defaults))
 
-def default_max(args: Iterable[Optional[VT]], default: Optional[VT_C] = None) -> VT_C:
-    """Return the maximum argument which is not None, else return the default if all arguments are None or the iterable is empty."""
-    return max(filter_not_none(args), default=default)
+def multi_default_get(arg: VT | None, defaults: Sequence[VT | None]) -> VT:
+    """
+    Return the argument if it is not None, else return the first default that
+    is not None.
+    """
+    if arg is not None:
+        return arg
+    result = get_first_not_none(defaults)
+    if result is None:
+        raise ValueError("All defaults are None.")
+    return result
 
-def get_first_not_none(sequence: Sequence[VT], default: Optional[VT] = None) -> VT:
-    """Get the first element of the sequence that is not None, if all elements are None then return default instead."""
+
+def default_max(
+    args: Iterable[VT_C | None],
+    default: VT_C | None = None
+) -> VT_C:
+    """
+    Return the maximum argument which is not None, else if the default is
+    given and not None, return default if all arguments are None or the
+    iterable is empty.
+    """
+    max_ = max(filter_not_none(args), default=default)
+    if max_ is None:
+        raise ValueError("All arguments are None.")
+    return max_
+
+
+def default_min(
+    args: Iterable[VT_C | None],
+    default: VT_C | None = None
+) -> VT_C:
+    """
+    Return the minimum argument which is not None, else if the default is
+    given and not None, return default if all arguments are None or the
+    iterable is empty.
+    """
+    min_ = min(filter_not_none(args), default=default)
+    if min_ is None:
+        raise ValueError("All arguments are None.")
+    return min_
+
+
+def get_first_not_none(
+    sequence: Sequence[VT],
+    default: VT | None = None
+) -> VT:
+    """
+    Get the first element of the sequence that is not None, if all elements
+    are None and the default is given and not None, return default instead.
+    """
     for element in sequence:
         if element is not None:
             return element
+    if default is None:
+        raise ValueError("All elements are None.")
     return default
