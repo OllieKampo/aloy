@@ -137,12 +137,12 @@ def make_terminal_hisplot(
     data: np.ndarray,
     plot_width: int = 80,
     plot_height: int = 20, /,
-    data_min: float = None,
-    data_max: float = None,
     title: str = None,
     legend: Sequence[str] | None = None,
     markers: Sequence[str] = ("x", "o", "+"),
-    kind: Literal["count", "percent"] = "count"
+    kind: Literal["count", "percent"] = "count",
+    data_min: np.number = -np.inf,
+    data_max: np.number = np.inf
 ) -> str:
     """
     Make a simple histogram density plot in the terminal using ASCII
@@ -153,17 +153,15 @@ def make_terminal_hisplot(
     treated as a separate set of data points. The histogram of each set of
     data points is then stacked on top of each other.
     """
-    # Calculate the limits of the y-axis
-    if data_min is None:
-        data_min = data.min()
-    if data_max is None:
-        data_max = data.max()
+    if data.shape[-1] < plot_height:
+        warnings.warn("data has fewer elements than the plot height. "
+                      "Plot will be sparse.")
 
     # Calculate the bin edges
     if data.ndim == 1:
         data = data[np.newaxis, :]
-    bin_edges = np.linspace(data_min, data_max, plot_height + 1)
-    
+    bin_edges = np.linspace(data.min(), data.max(), plot_height + 1)
+
     # Calculate the bin counts (this is the x-axis data)
     bin_counts = np.zeros((data.shape[0], plot_height))
     for i in range(data.shape[0]):
@@ -180,7 +178,7 @@ def make_terminal_hisplot(
     bin_centres = (bin_edges[1:] + bin_edges[:-1]) / 2
 
     # Calculate the left-padding for the y-axis ticks and the x-axis tick gap
-    y_tick_padding = max(len(f"{data_max:.2f}"), len(f"{data_min:.2f}"))
+    y_tick_padding = max(len(f"{bin_counts.min():.2f}"), len(f"{bin_counts.max():.2f}"))
     x_tick_gap = len(f"{count_max:.2f}") + 1
 
     # Create the string builder and add the title and legend
@@ -273,20 +271,24 @@ if __name__ == "__main__":
     print(
         make_terminal_hisplot(
             np.random.normal(0, 1, 1000),
-            40, 20, -5, 5,
+            40, 20,
             "Normal Distribution",
             legend=["y = N(0, 1)"],
-            kind="count"
+            kind="count",
+            data_min=-5,
+            data_max=5
         ),
         end="\n"
     )
     print(
         make_terminal_hisplot(
             np.array([np.random.normal(0, 1, 1000), np.random.normal(0, 2.5, 1000)]),
-            40, 20, -5, 5,
+            40, 20,
             "Normal Distribution",
             legend=["y = N(0, 1)", "y = N(0, 2.5)"],
-            kind="percent"
+            kind="percent",
+            data_min=-5,
+            data_max=5
         ),
         end="\n"
     )
