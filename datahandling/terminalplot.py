@@ -1,6 +1,6 @@
 
 import math
-from typing import Sequence
+from typing import Literal, Sequence
 import warnings
 import numpy as np
 
@@ -13,9 +13,9 @@ def make_terminal_relplot(
     plot_width: int,
     plot_height: int, /,
     title: str | None = None,
-    fill: bool = False,
-    markers: Sequence[str] = ("x", "o", "+"),
     legend: Sequence[str] | None = None,
+    markers: Sequence[str] = ("x", "o", "+"),
+    fill: bool = False,
     x_min: np.number = -np.inf,
     x_max: np.number = np.inf,
     y_min: np.number = -np.inf,
@@ -92,9 +92,11 @@ def make_terminal_relplot(
             raise ValueError("Legend must have the same number of elements as "
                              f"x_data has rows. Got; legend = {len(legend)} "
                              f"and x_data rows = {x_data.shape[0]}.")
-        string_builder += "\n"
+        if title is not None:
+            string_builder += "\n"
         string_builder += " " * (y_tick_padding + 4)
-        string_builder += (" || ".join(
+        string_builder += (
+            " || ".join(
                 (f"[{markers[i % len(markers)]}] {label}"
                  for i, label in enumerate(legend))
             )
@@ -106,7 +108,7 @@ def make_terminal_relplot(
     # Add the y-axis, ticks and labels, and the plot itself
     for index, row in zip(range(plot_height, 0, -1), reversed(grid)):
         y_tick = (y_interval * (index / (plot_height - 1))) + y_data.min()
-        string_builder += f" {y_tick:<{y_tick_padding}.2f} | "
+        string_builder += f" {y_tick:>{y_tick_padding}.2f} | "
         string_builder.extend(row, sep=" ", end="\n")
 
     # Add the x-axis, ticks and labels
@@ -124,7 +126,118 @@ def make_terminal_relplot(
         return (x_interval * (index / (plot_width - 1))) + x_data.min()
     string_builder.extend(
         f"{make_x_tick(index):<{x_tick_gap + 1}.2f}"
-        for index in range(0, plot_width, (x_tick_gap + 1) // 2)
+        for index in range(0, plot_width * 2, (x_tick_gap + 1))
+        if index + x_tick_gap + 1 <= plot_width * 2
+    )
+
+    return string_builder.compile()
+
+
+def make_terminal_hisplot(
+    data: np.ndarray,
+    plot_width: int = 80,
+    plot_height: int = 20, /,
+    data_min: float = None,
+    data_max: float = None,
+    title: str = None,
+    legend: Sequence[str] | None = None,
+    markers: Sequence[str] = ("x", "o", "+"),
+    kind: Literal["count", "percent"] = "count"
+) -> str:
+    """
+    Make a simple histogram density plot in the terminal using ASCII
+    characters.
+
+    Data must be given as 1-D or 2-D numpy arrays, and is cut and normalised
+    to fit the given plot width and height. If data is 2-D, each row is
+    treated as a separate set of data points. The histogram of each set of
+    data points is then stacked on top of each other.
+    """
+    # Calculate the limits of the y-axis
+    if data_min is None:
+        data_min = data.min()
+    if data_max is None:
+        data_max = data.max()
+
+    # Calculate the bin edges
+    if data.ndim == 1:
+        data = data[np.newaxis, :]
+    bin_edges = np.linspace(data_min, data_max, plot_height + 1)
+    
+    # Calculate the bin counts (this is the x-axis data)
+    bin_counts = np.zeros((data.shape[0], plot_height))
+    for i in range(data.shape[0]):
+        bin_counts[i, :] = np.histogram(
+            data[i], bins=bin_edges, range=(data_min, data_max)
+        )[0]
+    if kind == "percent":
+        bin_counts = ((bin_counts / bin_counts.sum()) * 100).astype(int)
+    count_min = bin_counts.nonzero()[0].min()
+    count_max = bin_counts.max(axis=1).sum()
+    bin_counts = ((bin_counts * (plot_width - 1)) / count_max).astype(int)
+
+    # Calculate the bin centres (this is the y-axis data)
+    bin_centres = (bin_edges[1:] + bin_edges[:-1]) / 2
+
+    # Calculate the left-padding for the y-axis ticks and the x-axis tick gap
+    y_tick_padding = max(len(f"{data_max:.2f}"), len(f"{data_min:.2f}"))
+    x_tick_gap = len(f"{count_max:.2f}") + 1
+
+    # Create the string builder and add the title and legend
+    string_builder = StringBuilder()
+    if title is not None:
+        string_builder += " " * (y_tick_padding + 4)
+        string_builder += ("-" * (len(title) + 2)).center(plot_width * 2)
+        string_builder += "\n"
+        string_builder += " " * (y_tick_padding + 4)
+        string_builder += title.center(plot_width * 2)
+        string_builder += "\n"
+        string_builder.duplicate(7, 4)
+    if legend is not None:
+        if len(legend) != data.shape[0]:
+            raise ValueError("Legend must have the same number of elements as "
+                             f"data has rows. Got; legend = {len(legend)} "
+                             f"and data rows = {data.shape[0]}.")
+        if title is not None:
+            string_builder += "\n"
+        string_builder += " " * (y_tick_padding + 4)
+        string_builder += (
+            " || ".join(
+                (f"[{markers[i % len(markers)]}] {label}"
+                 for i, label in enumerate(legend))
+            )
+        ).center(plot_width * 2)
+        string_builder += "\n"
+    elif title is not None:
+        string_builder += "\n"
+
+    # Add the y-axis, ticks and labels, and the plot itself
+    for y, i in zip(bin_centres, range(bin_counts.shape[1])):
+        string_builder += f" {y:>{y_tick_padding}.2f} | "
+        for j, x in enumerate(bin_counts[:, i]):
+            if x != 0:
+                string_builder.extend(markers[j % len(markers)] * x, sep=" ")
+                if j != bin_counts.shape[1] - 1:
+                    string_builder += " "
+        string_builder += "\n"
+
+    # Add the x-axis, ticks and labels
+    string_builder += " " * (y_tick_padding + 2)
+    string_builder += "=" * ((plot_width * 2) + 2)
+    string_builder += "\n"
+    string_builder += " " * (y_tick_padding + 4)
+    string_builder.extend(
+        "^" * math.floor((plot_width * 2) / (x_tick_gap + 1)),
+        sep=(" " * x_tick_gap),
+        end="\n"
+    )
+    string_builder += " " * (y_tick_padding + 4)
+    def make_x_tick(index: int) -> str:
+        return ((count_max - count_min) * (index / (plot_width - 1))) + count_min
+    string_builder.extend(
+        f"{make_x_tick(index):<{x_tick_gap + 1}.2f}"
+        for index in range(0, plot_width * 2, (x_tick_gap + 1))
+        if index + x_tick_gap + 1 <= plot_width * 2
     )
 
     return string_builder.compile()
@@ -148,8 +261,32 @@ def update_grid(
 
 
 if __name__ == "__main__":
-    print(make_terminal_relplot(np.arange(0, 200), np.linspace(1, 40, 200) ** 1.5, 40, 20, "Hello World"), end="\n")
-    print(make_terminal_relplot(np.arange(0, 200), np.linspace(1, 40, 200) ** 1.5, 40, 20, "Hello World", True), end="\n")
-    print(make_terminal_relplot(np.tile(np.arange(0, 200), 3).reshape(3, 200),
-                                np.array([np.linspace(0, 40, 200), (np.linspace(0, 40, 200) ** 1.5), (np.linspace(0, 40, 200) ** 2)]),
-                                40, 20, "Jake is the best <3", legend=["y = x * 5", "y = (x * 5) ^ 1.5", "y = (x * 5) ^ 2"]))
+    print(
+        make_terminal_relplot(
+            np.tile(np.arange(0, 200), 3).reshape(3, 200),
+            np.array([np.linspace(0, 40, 200), (np.linspace(0, 40, 200) ** 1.5), (np.linspace(0, 40, 200) ** 2)]),
+            40, 20,
+            "Jake is the best <3",
+            legend=["y = x * 5", "y = (x * 5) ^ 1.5", "y = (x * 5) ^ 2"]
+        )
+    )
+    print(
+        make_terminal_hisplot(
+            np.random.normal(0, 1, 1000),
+            40, 20, -5, 5,
+            "Normal Distribution",
+            legend=["y = N(0, 1)"],
+            kind="count"
+        ),
+        end="\n"
+    )
+    print(
+        make_terminal_hisplot(
+            np.array([np.random.normal(0, 1, 1000), np.random.normal(0, 2.5, 1000)]),
+            40, 20, -5, 5,
+            "Normal Distribution",
+            legend=["y = N(0, 1)", "y = N(0, 2.5)"],
+            kind="percent"
+        ),
+        end="\n"
+    )
