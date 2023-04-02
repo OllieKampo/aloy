@@ -68,7 +68,7 @@ class OwnedRLock(contextlib.AbstractContextManager):
     def __init__(self, lock_name: str | None = None) -> None:
         """
         Create a new owned reentrant lock with an optional name.
-        
+
         Parameters
         ----------
         `lock_name : str | None = None` - The name of the lock, or None to
@@ -78,37 +78,42 @@ class OwnedRLock(contextlib.AbstractContextManager):
         self.__lock = threading.RLock()
         self.__owner: threading.Thread | None = None
         self.__recursion_depth: int = 0
-    
+
     def __str__(self) -> str:
         """Get a simple string representation of the lock."""
         return f"{'locked' if self.is_locked else 'unlocked'} {self.__class__.__name__} {self.__name}, " \
                f"owned by={self.__owner}, depth={self.__recursion_depth!s}"
-    
+
     def __repr__(self) -> str:
         """Get a verbose string representation of the lock."""
         return f"<{'locked' if self.is_locked else 'unlocked'} {self.__class__.__name__}, name={self.__name}, " \
                f"owned by={self.__owner}, recursion depth={self.__recursion_depth!s}, lock={self.__lock!r}>"
-    
+
     @property
     def name(self) -> str | None:
         """Get the name of the lock, or None if the lock has no name."""
         return self.__name
-    
+
     @property
     def is_locked(self) -> bool:
         """Get whether the lock is currently locked."""
         return self.__owner is not None
-    
+
     @property
     def owner(self) -> threading.Thread | None:
         """Get the thread that currently owns the lock, or None if the lock is not locked."""
         return self.__owner
-    
+
+    @property
+    def is_owner(self) -> bool:
+        """Get whether the current thread owns the lock."""
+        return self.__owner is threading.current_thread()
+
     @property
     def recursion_depth(self) -> int:
         """Get the number of times the lock has been acquired by the current thread."""
         return self.__recursion_depth
-    
+
     @functools.wraps(threading._RLock.acquire, assigned=("__doc__",))
     def acquire(self, blocking: bool = True, timeout: float = -1.0) -> bool:
         """Acquire the lock, blocking or non-blocking, with an optional timeout."""
@@ -117,7 +122,7 @@ class OwnedRLock(contextlib.AbstractContextManager):
                 self.__owner = threading.current_thread()
             self.__recursion_depth += 1
         return result
-    
+
     @functools.wraps(threading._RLock.release, assigned=("__doc__",))
     def release(self) -> None:
         """Release the lock, if it is locked by the current thread."""
@@ -126,12 +131,13 @@ class OwnedRLock(contextlib.AbstractContextManager):
             self.__recursion_depth -= 1
             if self.__recursion_depth == 0:
                 self.__owner = None
-    
+
     __enter__ = acquire
-    
+
     def __exit__(self, exc_type: type | None, exc_val: BaseException | None, exc_tb: types.TracebackType | None) -> None:
         """Release the lock when the context manager exits."""
         self.release()
+
 
 __instance_atomic_updaters: weakref.WeakKeyDictionary[type, \
     weakref.WeakKeyDictionary[object, dict[str, threading.RLock]]] = weakref.WeakKeyDictionary()
