@@ -154,6 +154,7 @@ class JinxGuiWindow(observable.Observer):
         self.__data.add_view_state(name)
         if self.__current_view_state is None:
             self.__data.assign_observers(widget)
+            self.__current_view_state = name
             self.__data.desired_view_state = name
 
     def remove_view(self, name: str) -> None:
@@ -169,15 +170,16 @@ class JinxGuiWindow(observable.Observer):
     def update_observer(self, data: JinxGuiData) -> None:
         desired_view_state: str | None = self.__data.desired_view_state
         if self.__current_view_state != desired_view_state:
-            self.__data.clear_observers()
-            self.__data.assign_observers(self)
+            if self.__current_view_state is not None:
+                jinx_widget = self.__views[self.__current_view_state]
+                self.__data.remove_observers(jinx_widget)
             if desired_view_state is not None:
                 jinx_widget = self.__views[desired_view_state]
                 qt_widget = jinx_widget.widget
                 self.__stack.setCurrentWidget(qt_widget)
                 self.__data.assign_observers(jinx_widget)
+                self.__data.notify(jinx_widget)
             # else:
             #     self.__stack.setCurrentWidget(default_widget)
             #     self.__data.assign_observers(default_widget)
             self.__current_view_state = desired_view_state
-            self.__data.notify_all()

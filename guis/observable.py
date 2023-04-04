@@ -133,15 +133,18 @@ class Observable(metaclass=ABCMeta):
 
     def notify_all(self) -> None:
         """Notify all observers that this observable has changed."""
+        print("notify all", self.__observers)
         with self.__lock:
             self.__changed.update(self.__observers)
 
     def __update_observers(self) -> None:
         """Update all observers that have been notified."""
-        observers = self.__changed.copy()
+        with self.__lock:
+            observers = self.__changed.copy()
+            self.__changed.clear()
         for observer in observers:
+            print("update observers", observer)
             observer._sync_update_observer(self)
-        self.__changed.clear()
 
     def enable_updates(self) -> None:
         """Enable updates to observers."""
