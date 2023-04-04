@@ -1,6 +1,6 @@
 
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, field
 import functools
 import logging
 import threading
@@ -23,8 +23,11 @@ class Job:
     name: str | None
     fn: Callable[SP, None]
     args: tuple[Any, ...]
-    kwargs: dict[str, Any]
+    kwargs: dict[str, Any] = field(hash=False)
     start_time: float | None
+    
+    def __iter__(self) -> Iterable:
+        return iter(getattr(self, field.name) for field in fields(self))
 
 
 @dataclass(frozen=True)
@@ -68,6 +71,7 @@ class JinxThreadPool:
         """
         self.__name: str = pool_name or __get_pool_name()
         self.__logger = logging.getLogger("JinxThreadPool")
+        self.__logger.setLevel(logging.DEBUG)
         self.__log: bool = log
 
         self.__max_workers: int = max_workers
@@ -84,7 +88,7 @@ class JinxThreadPool:
         )
     
     def __enter__(self) -> ThreadPoolExecutor:
-        return self.__thread_pool
+        return self
     
     def __exit__(
         self,
@@ -128,13 +132,15 @@ class JinxThreadPool:
             start_time = time.perf_counter()
         
         if self.__log:
-            self.__logger.debug(f"{self.__name}: Submitting job {name} -> "
-                                f"{fn.__name__}(*{args}, **{kwargs})")
+            self.__logger.debug(
+                "%s: Submitting job %s -> %s(*%s, **%s)",
+                self.__name, name, fn.__name__, args, kwargs
+            )
         
         future = self.__thread_pool.submit(fn, *args, **kwargs)
         self.__submitted_jobs[future] = Job(
-            name, future,
-            fn, args, kwargs,
+            name, fn,
+            args, kwargs,
             start_time
         )
         future.add_done_callback(self.__callback)
@@ -142,13 +148,14 @@ class JinxThreadPool:
         return future
     
     def __callback(self, future: Future) -> None:
+        """Callback function for when a job finishes execution."""
         job: Job = self.__submitted_jobs.pop(future)
 
         elapsed_time: float | None = None
         if self.__profile:
             elapsed_time = time.perf_counter() - job.start_time
         
-        self.__finished_jobs[job] = FinishedJob(*job, elapsed_time)
+        self.__finished_jobs[future] = FinishedJob(*job, elapsed_time)
         
         with self.__active_threads:
             self.__active_threads -= 1
@@ -161,33 +168,36 @@ class JinxThreadPool:
 
     @functools.wraps(ThreadPoolExecutor.map,
                      assigned=("__doc__",))
-    def map(self,
-            name: str,
-            fn: Callable[SP, None],
-            *iterables: Iterable[SP.args],
-            timeout: float | None = None,
-            chunksize: int = 1
-            ) -> Iterable[Future]:
-        return self.__thread_pool.map(fn, *iterables,
-                                      timeout=timeout,
-                                      chunksize=chunksize)
-    
+    def map(
+        self,
+        name: str,
+        fn: Callable[SP, None],
+        *iterables: Iterable[SP.args],
+        timeout: float | None = None,
+        chunksize: int = 1
+    ) -> Iterable[Future]:
+        return self.__thread_pool.map(
+            fn,
+            *iterables,
+            timeout=timeout,
+            chunksize=chunksize
+        )
+
     @functools.wraps(ThreadPoolExecutor.shutdown, assigned=("__doc__",))
     def shutdown(self, wait: bool = True) -> None:
         self.__thread_pool.shutdown(wait=wait)
 
 class WebScraper:
     """
-    
     https://realpython.com/beautiful-soup-web-scraper-python/
     """
 
     def __init__(self, max_workers: int | None = None) -> None:
-        self.__thread_pool = JinxThreadPool("WebScraper", max_workers)
+        self.__thread_pool = JinxThreadPool("WebScraper", max_workers, profile=True, log=True)
     
     def scrape(self, urls: Iterable[str]) -> None:
         with self.__thread_pool as executor:
-            futures: dict[Future, str] = {executor.submit(self.load_url, url, 60): url for url in urls}
+            futures: dict[Future, str] = {executor.submit(url, self.load_url, url, 60): url for url in urls}
             for future in as_completed(futures):
                 url = futures[future]
                 try:
@@ -196,6 +206,7 @@ class WebScraper:
                     print('%r generated an exception: %s' % (url, exc))
                 else:
                     print('%r page is %d bytes' % (url, len(data)))
+                print(executor.get_job(future))
     
     @staticmethod
     def load_url(url: str, timeout: float) -> bytes:
@@ -204,11 +215,25 @@ class WebScraper:
 
 
 if __name__ == "__main__":
+    ## Setup logging
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="[%(asctime)s] %(levelname)-4s :: %(name)-8s >> %(message)s\n",
+        datefmt="%H:%M:%S",
+        handlers=[
+            # logging.FileHandler("debug.log"),
+            # console_handler
+        ],
+    )
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.DEBUG)
+    console_handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)-4s :: %(name)-8s >> %(message)s\n"))
+    logging.getLogger("").addHandler(console_handler)
+    
     urls = [
         "https://www.google.com",
         "https://www.yahoo.com",
         "https://www.bing.com",
-        "https://www.ask.com",
         "https://www.duckduckgo.com",
         "https://www.aol.com",
         "https://www.wolframalpha.com"
