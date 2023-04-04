@@ -521,6 +521,8 @@ class PriorityQueue(collections.abc.MutableMapping, Generic[VT, QT]):
             self.__members[item] = priority
             heapq.heappush(self.__heap, (priority, item))
 
+    ## TODO: collections.abc.MutableMapping takes key: KT, and optional default: VT, but this does not make sense for a priority queue (it would just be a remove).
+    ## Sequence takes optioal index: int, but this also does not make sense for a priority queue (it would have to pop the lowest priority item, or pop indexed based on priority).
     def pop(self) -> QT:
         """
         Pop the lowest priority item from the queue.
