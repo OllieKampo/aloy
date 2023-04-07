@@ -24,9 +24,9 @@
 
 from abc import abstractmethod, ABCMeta
 import functools
-from typing import Callable, final
+from typing import Callable, ParamSpec, TypeVar, final
 import threading
-import typing
+from PyQt6.QtCore import QTimer
 
 from concurrency.clocks import ClockThread
 
@@ -62,20 +62,50 @@ class Observable(metaclass=ABCMeta):
 
     def __init__(
         self,
-        clock: ClockThread | None = None,
-        tick_rate: int = 10
+        clock: ClockThread | QTimer | None = None,
+        tick_rate: int = 10,
+        start_clock: bool = True
     ) -> None:
+        """
+        Create a new observable.
+
+        Parameters
+        ----------
+        `clock: ClockThread | QTimer | None = None` - The clock that updates
+        the observers. If not given or None, a new ClockThread is created with
+        the given tick rate. Otherwise, updates from this observable are
+        scheduled on the given clock.
+
+        `tick_rate: int = 10` - The tick rate of the clock if a new clock is
+        created. Ignored if an existing clock is given.
+
+        `start_clock: bool = True` - Whether to start the clock if an existing
+        clock is given. Ignored if a new clock is created (the clock is always
+        started in this case).
+        """
         self.__observers: set["Observer"] = set()
         self.__changed: set["Observer"] = set()
         self.__lock = threading.RLock()
-        self.__clock: ClockThread = clock
+        self.__clock: ClockThread | QTimer
         if clock is None:
             self.__clock = ClockThread(
                 self.__update_observers,
                 tick_rate=tick_rate
             )
-        self.__clock.schedule(self.__update_observers)
-        self.__clock.start()
+            self.__clock.start()
+        else:
+            self.__clock = clock
+            if isinstance(clock, ClockThread):
+                self.__clock.schedule(self.__update_observers)
+                if start_clock:
+                    self.__clock.start()
+            elif isinstance(clock, QTimer):
+                self.__clock.timeout.connect(self.__update_observers)
+                if start_clock:
+                    self.__clock.start()
+            else:
+                raise TypeError("Clock must be of type ClockThread or QTimer."
+                                f"Got; {clock} of {type(clock)}.")
 
     @property
     def observers(self) -> set["Observer"]:
@@ -91,7 +121,7 @@ class Observable(metaclass=ABCMeta):
                     observer._add_observable(self)
                 else:
                     raise TypeError("Observer must be of type Observer. "
-                                    f"Got; {observer} of type {type(observer)}.")
+                                    f"Got; {observer} of {type(observer)}.")
 
     def remove_observers(self, *observers: "Observer") -> None:
         """Remove observers from this observable."""
@@ -129,11 +159,11 @@ class Observable(metaclass=ABCMeta):
                     if observer in self.__observers:
                         self.__changed.add(observer)
                     else:
-                        raise ValueError(f"Observer {observer} is not observing this observable.")
+                        raise ValueError(f"Observer {observer} is not "
+                                         "observing this observable.")
 
     def notify_all(self) -> None:
         """Notify all observers that this observable has changed."""
-        print("notify all", self.__observers)
         with self.__lock:
             self.__changed.update(self.__observers)
 
@@ -143,7 +173,6 @@ class Observable(metaclass=ABCMeta):
             observers = self.__changed.copy()
             self.__changed.clear()
         for observer in observers:
-            print("update observers", observer)
             observer._sync_update_observer(self)
 
     def enable_updates(self) -> None:
@@ -158,11 +187,14 @@ class Observable(metaclass=ABCMeta):
 class Observer:
     """
     Mixin for creating observer classes.
-    
-    Observer classes must implement the `update(observable: Observable) -> None` method and be hashable.
+
+    Observer classes must implement an `update` method and be hashable.
     """
 
-    __slots__ = ("__observables", "__lock")
+    __slots__ = {
+        "__observables": "The observables being observed.",
+        "__lock": "Lock that ensure atomic updates to the observer."
+    }
 
     def __init__(self) -> None:
         """Create an observer."""
@@ -202,7 +234,7 @@ class Observer:
 class Updater:
     """Mixin for creating updater classes."""
 
-    __slots__ = ("__observables", "__lock")
+    __slots__ = {"__observables", "__lock"}
 
     def __init__(self) -> None:
         """Create an observer."""
@@ -214,13 +246,13 @@ class Updater:
     def observables(self) -> list[Observable]:
         """Return the observables being updated."""
         return self.__observables
-    
+
     @final
     def add_observables(self, *observables: Observable) -> None:
         """Add observables to the updater."""
         with self.__lock:
             self.__observables.extend(observables)
-    
+
     @final
     def remove_observables(self, *observables: Observable) -> None:
         """Remove observables from the updater."""
@@ -229,13 +261,13 @@ class Updater:
                 self.__observables.remove(observable)
 
 
-SP = typing.ParamSpec("SP")
-ST = typing.TypeVar("ST")
+SP = ParamSpec("SP")
+ST = TypeVar("ST")
 
 
 def notifies_observers(function: Callable[SP, ST]) -> Callable[SP, ST]:
     """
-    Decorator for methods of an observable class.
+    Decorate methods of an observable class.
 
     Schedules all observers to be updated after the method has returned.
     """
@@ -249,7 +281,7 @@ def notifies_observers(function: Callable[SP, ST]) -> Callable[SP, ST]:
 
 def notifies_observables(function: Callable[SP, ST]) -> Callable[SP, ST]:
     """
-    Decorator for methods of an observer or updater class.
+    Decorate methods of an observer or updater class.
 
     Schedules the observable to be updated after the method has returned.
     """
