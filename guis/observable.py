@@ -24,6 +24,7 @@
 
 from abc import abstractmethod, ABCMeta
 import functools
+import logging
 from typing import Callable, ParamSpec, TypeVar, final
 import threading
 from PyQt6.QtCore import QTimer
@@ -53,24 +54,33 @@ class Observable(metaclass=ABCMeta):
     Observables are thread safe and all methods are synchronised.
     """
 
+    __OBSERVABLE_LOGGER = logging.getLogger("Observable")
+
     __slots__ = {
+        "__name": "The name of the observable.",
         "__observers": "The observers of this observable.",
         "__changed": "The observers that have changed since the last update.",
         "__clock": "The clock that updates the observers.",
-        "__lock": "Lock that ensure atomic updates to the observable."
+        "__lock": "Lock that ensure atomic updates to the observable.",
+        "__debug": "Whether to log debug messages."
     }
 
     def __init__(
         self,
-        clock: ClockThread | QTimer | None = None,
+        name: str | None = None, /,
+        clock: ClockThread | QTimer | None = None, *,
         tick_rate: int = 10,
-        start_clock: bool = True
+        start_clock: bool = True,
+        debug: bool = False
     ) -> None:
         """
         Create a new observable.
 
         Parameters
         ----------
+        `name: str | None = None` - The name of the observable. If None, the
+        class name and id of the object are used.
+
         `clock: ClockThread | QTimer | None = None` - The clock that updates
         the observers. If not given or None, a new ClockThread is created with
         the given tick rate. Otherwise, updates from this observable are
@@ -82,18 +92,42 @@ class Observable(metaclass=ABCMeta):
         `start_clock: bool = True` - Whether to start the clock if an existing
         clock is given. Ignored if a new clock is created (the clock is always
         started in this case).
+
+        `debug: bool = False` - Whether to log debug messages.
         """
+        self.__debug: bool = debug
+        if self.__debug:
+            self.__OBSERVABLE_LOGGER.debug(
+                "Creating new observable with: "
+                "name=%s clock=%s, tick_rate=%s, start_clock=%s, debug=%s",
+                name, clock, tick_rate, start_clock, debug
+            )
+        self.__name: str
+        if name is None:
+            self.__name = f"{type(self).__name__}@{id(self):#x}"
+        else:
+            self.__name = name
         self.__observers: set["Observer"] = set()
         self.__changed: set["Observer"] = set()
         self.__lock = threading.RLock()
         self.__clock: ClockThread | QTimer
         if clock is None:
+            if self.__debug:
+                self.__OBSERVABLE_LOGGER.debug(
+                    "%s: Creating new ClockThread with tick rate %s.",
+                    self.__name, tick_rate
+                )
             self.__clock = ClockThread(
                 self.__update_observers,
                 tick_rate=tick_rate
             )
             self.__clock.start()
         else:
+            if self.__debug:
+                self.__OBSERVABLE_LOGGER.debug(
+                    "%s: Using existing clock of type %s.",
+                    self.__name, type(clock)
+                )
             self.__clock = clock
             if isinstance(clock, ClockThread):
                 self.__clock.schedule(self.__update_observers)
@@ -108,6 +142,11 @@ class Observable(metaclass=ABCMeta):
                                 f"Got; {clock} of {type(clock)}.")
 
     @property
+    def observable_name(self) -> str:
+        """Return the name of this observable."""
+        return self.__name
+
+    @property
     def observers(self) -> set["Observer"]:
         """Return the observers of this observable."""
         return self.__observers
@@ -115,6 +154,11 @@ class Observable(metaclass=ABCMeta):
     def assign_observers(self, *observers: "Observer") -> None:
         """Assign observers to this observable."""
         with self.__lock:
+            if self.__debug:
+                self.__OBSERVABLE_LOGGER.debug(
+                    "%s: Assigning observers: %s",
+                    self.__name, observers
+                )
             for observer in observers:
                 if isinstance(observer, Observer):
                     self.__observers.add(observer)
@@ -126,6 +170,11 @@ class Observable(metaclass=ABCMeta):
     def remove_observers(self, *observers: "Observer") -> None:
         """Remove observers from this observable."""
         with self.__lock:
+            if self.__debug:
+                self.__OBSERVABLE_LOGGER.debug(
+                    "%s: Removing observers: %s",
+                    self.__name, observers
+                )
             remaining_observers = self.__observers.difference(observers)
             removed_observers = self.__observers.intersection(observers)
             self.__observers = remaining_observers
@@ -135,6 +184,11 @@ class Observable(metaclass=ABCMeta):
     def clear_observers(self) -> None:
         """Clear all observers from this observable."""
         with self.__lock:
+            if self.__debug:
+                self.__OBSERVABLE_LOGGER.debug(
+                    "%s: Clearing all observers.",
+                    self.__name
+                )
             for observer in self.__observers:
                 observer._remove_observable(self)
             self.__observers.clear()
@@ -147,11 +201,21 @@ class Observable(metaclass=ABCMeta):
     @tick_rate.setter
     def tick_rate(self, value: int) -> None:
         """Set the tick rate of the internal update clock."""
+        if self.__debug:
+            self.__OBSERVABLE_LOGGER.debug(
+                "%s: Setting tick rate to %s.",
+                self.__name, value
+            )
         self.__clock.tick_rate = value
 
     def notify(self, *observers: "Observer", raise_: bool = False) -> None:
         """Notify given observers that this observable has changed."""
         with self.__lock:
+            if self.__debug:
+                self.__OBSERVABLE_LOGGER.debug(
+                    "%s: Notifying observers: %s",
+                    self.__name, observers
+                )
             if not raise_:
                 self.__changed.update(self.__observers.intersection(observers))
             else:
@@ -165,6 +229,11 @@ class Observable(metaclass=ABCMeta):
     def notify_all(self) -> None:
         """Notify all observers that this observable has changed."""
         with self.__lock:
+            if self.__debug:
+                self.__OBSERVABLE_LOGGER.debug(
+                    "%s: Notifying all observers.",
+                    self.__name
+                )
             self.__changed.update(self.__observers)
 
     def __update_observers(self) -> None:
@@ -177,10 +246,20 @@ class Observable(metaclass=ABCMeta):
 
     def enable_updates(self) -> None:
         """Enable updates to observers."""
+        if self.__debug:
+            self.__OBSERVABLE_LOGGER.debug(
+                "%s: Enabling updates.",
+                self.__name
+            )
         self.__clock.start()
 
     def disable_updates(self) -> None:
         """Disable updates to observers."""
+        if self.__debug:
+            self.__OBSERVABLE_LOGGER.debug(
+                "%s: Disabling updates.",
+                self.__name
+            )
         self.__clock.stop()
 
 
@@ -191,15 +270,39 @@ class Observer:
     Observer classes must implement an `update` method and be hashable.
     """
 
+    __OBSERVER_LOGGER = logging.getLogger("Observer")
+
     __slots__ = {
+        "__name": "Name of the observer.",
         "__observables": "The observables being observed.",
-        "__lock": "Lock that ensure atomic updates to the observer."
+        "__lock": "Lock that ensure atomic updates to the observer.",
+        "__debug": "Whether to log debug messages."
     }
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        name: str | None = None, *,
+        debug: bool = False
+    ) -> None:
         """Create an observer."""
+        self.__name: str
+        if name is None:
+            self.__name = f"{type(self).__name__}@{hex(id(self))}"
+        else:
+            self.__name = name
         self.__observables: list[Observable] = []
         self.__lock = threading.RLock()
+        self.__debug: bool = debug
+
+    @property
+    def observer_name(self) -> str:
+        """Return the name of the observer."""
+        return self.__name
+
+    @property
+    def debug(self) -> bool:
+        """Return whether to log debug messages."""
+        return self.__debug
 
     @abstractmethod
     def update_observer(self, observable: Observable) -> None:
@@ -210,6 +313,11 @@ class Observer:
     def _sync_update_observer(self, observable: Observable) -> None:
         """Update the observer synchronously."""
         with self.__lock:
+            if self.__debug:
+                self.__OBSERVER_LOGGER.debug(
+                    "Updating observer %s from observable %s.",
+                    self.__name, observable.observable_name
+                )
             self.update_observer(observable)
 
     @final
@@ -229,36 +337,6 @@ class Observer:
         """Remove an observable from the observer."""
         with self.__lock:
             self.__observables.remove(observable)
-
-
-class Updater:
-    """Mixin for creating updater classes."""
-
-    __slots__ = {"__observables", "__lock"}
-
-    def __init__(self) -> None:
-        """Create an observer."""
-        self.__observables: list[Observable] = []
-        self.__lock = threading.Lock()
-
-    @final
-    @property
-    def observables(self) -> list[Observable]:
-        """Return the observables being updated."""
-        return self.__observables
-
-    @final
-    def add_observables(self, *observables: Observable) -> None:
-        """Add observables to the updater."""
-        with self.__lock:
-            self.__observables.extend(observables)
-
-    @final
-    def remove_observables(self, *observables: Observable) -> None:
-        """Remove observables from the updater."""
-        with self.__lock:
-            for observable in observables:
-                self.__observables.remove(observable)
 
 
 SP = ParamSpec("SP")

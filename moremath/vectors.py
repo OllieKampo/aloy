@@ -46,6 +46,16 @@ def vector_divide(
     return [a / b for a, b in zip(vector_a, vector_b)]
 
 
+def vector_modulo(
+    vector_a: Iterable[NT],
+    vector_b: Iterable[NT] | NT
+) -> list[NT]:
+    """Get the modulo of two vectors."""
+    if isinstance(vector_b, Number):
+        return [a % vector_b for a in vector_a]
+    return [a % b for a, b in zip(vector_a, vector_b)]
+
+
 def vector_dot(
     vector_a: Iterable[NT],
     vector_b: Iterable[NT]
@@ -76,6 +86,17 @@ def vector_cross(
 def vector_magnitude(vector: Iterable[NT]) -> NT:
     """Get the magnitude of a vector."""
     return sum([item ** 2 for item in vector]) ** 0.5
+
+
+def vector_distance(
+    vector_a: Iterable[NT],
+    vector_b: Iterable[NT],
+    manhattan: bool = False
+) -> NT:
+    """Get the distance between two vectors."""
+    if manhattan:
+        return sum([abs(a - b) for a, b in zip(vector_a, vector_b)])
+    return vector_magnitude(vector_subtract(vector_a, vector_b))
 
 
 def vector_normalize(vector: Iterable[NT]) -> list[NT]:
@@ -247,7 +268,7 @@ def vector_project_onto(
                            / vector_dot(vector_b, vector_b))
 
 
-def enlarge_vector_through_point(   
+def enlarge_vector_through_point(
     vector: Iterable[NT],
     point: Iterable[NT],
     factor: NT
@@ -257,6 +278,7 @@ def enlarge_vector_through_point(
         vector_multiply(vector, factor),
         vector_multiply(point, 1 - factor)
     )
+
 
 def vector_refraction(
     vector: Iterable[NT],

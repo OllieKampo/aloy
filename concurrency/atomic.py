@@ -56,6 +56,77 @@ def __dir__() -> tuple[str]:
     return __all__
 
 
+class JinxAtomicObjectError(RuntimeError):
+    """An exception raised when an error occurs in an atomic object."""
+
+
+OT = TypeVar("OT")
+
+
+@final
+class AtomicObject(Generic[OT]):
+    """
+    A thread-safe object wrapper.
+
+    Getting the wrapped object is only allowed within a context manager.
+    """
+
+    __slots__ = {
+        "__object": "The object being wrapped.",
+        "__lock": "The lock used to ensure atomic updates."
+    }
+
+    def __init__(self, object_: OT, /) -> None:
+        """Create a new atomic object."""
+        self.__object: NT = object_
+        self.__lock = OwnedRLock()
+
+    def __str__(self) -> str:
+        return f"AtomicObject: {self.__object!s}"
+
+    def __repr__(self) -> str:
+        return f"AtomicObject({self.__object!r})"
+
+    def __enter__(self) -> "AtomicObject[OT]":
+        self.__lock.acquire()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type | None,
+        exc_val: BaseException | None,
+        exc_tb: types.TracebackType | None
+    ) -> None:
+        self.__lock.release()
+
+    def get_object(self) -> OT:
+        """Returns the current value of the object."""
+        if not self.__lock.is_locked:
+            raise JinxAtomicObjectError("Cannot get AtomicObject outside of a context manager.")
+        if not self.__lock.is_owner:
+            raise JinxAtomicObjectError("Attempted to get AtomicObject from a non-owner thread.")
+        return self.__object
+
+    def set_object(self, object_: OT) -> None:
+        """Sets the object to the given value."""
+        if not self.__lock.is_locked:
+            raise JinxAtomicObjectError("Cannot set AtomicObject outside of a context manager.")
+        if not self.__lock.is_owner:
+            raise JinxAtomicObjectError("Attempted to set AtomicObject from a non-owner thread.")
+        self.__object = object_
+
+
+if __name__ == "__main__":
+    a = AtomicObject((1, 2))
+    with a:
+        print(a.get_object())
+        a.set_object((3, 4))
+    try:
+        print(a.get_object())
+    except JinxAtomicObjectError:
+        print("Cannot get object outside of a context manager.")
+
+
 NT = TypeVar("NT", int, float, complex)
 
 

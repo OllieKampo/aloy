@@ -1,22 +1,68 @@
+###########################################################################
+###########################################################################
+## Module defining GUI classes.                                          ##
+##                                                                       ##
+## Copyright (C)  2023  Oliver Michael Kamperis                          ##
+## Email: o.m.kamperis@gmail.com                                         ##
+##                                                                       ##
+## This program is free software: you can redistribute it and/or modify  ##
+## it under the terms of the GNU General Public License as published by  ##
+## the Free Software Foundation, either version 3 of the License, or     ##
+## any later version.                                                    ##
+##                                                                       ##
+## This program is distributed in the hope that it will be useful,       ##
+## but WITHOUT ANY WARRANTY; without even the implied warranty of        ##
+## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          ##
+## GNU General Public License for more details.                          ##
+##                                                                       ##
+## You should have received a copy of the GNU General Public License     ##
+## along with this program. If not, see <https://www.gnu.org/licenses/>. ##
+###########################################################################
+###########################################################################
 
-import functools
-from typing import Any, Callable
-from PyQt6 import QtCore, QtGui, QtWidgets
+"""Module defining GUI classes."""
+
+from typing import Any
+from PyQt6 import QtWidgets
+from PyQt6.QtCore import QTimer
+from concurrency.clocks import ClockThread
 
 import guis.observable as observable
 
+__copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
+__license__ = "GPL-3.0"
+
+__all__ = (
+    "JinxGuiData",
+    "JinxObserverWidget",
+    "JinxGuiWindow"
+)
+
+
+def __dir__() -> tuple[str]:
+    """Get the names of module attributes."""
+    return __all__
+
 
 class JinxGuiData(observable.Observable):
+    """A class defining a gui data object."""
 
     __slots__ = {
+        "__weakref__": "Weak reference to the object.",
         "__desired_view_state": "The currently desired view state.",
         "__view_states": "The list of view states.",
         "__data": "Arbitrary data associated with the gui."
     }
 
-    def __init__(self, data_dict: dict[str, Any] = {}) -> None:
+    def __init__(
+        self,
+        name: str | None = None,
+        data_dict: dict[str, Any] = {}, /,
+        clock: ClockThread | QTimer | None = None, *,
+        debug: bool = False
+    ) -> None:
         """Create a new Jinx gui data."""
-        super().__init__()
+        super().__init__(name, clock, debug=debug)
         self.__desired_view_state: str | None = None
         self.__view_states: list[str] = []
         self.__data: dict[str, Any] = data_dict.copy()
@@ -54,12 +100,18 @@ class JinxObserverWidget(observable.Observer):
     """A class defining an observer widget."""
 
     __slots__ = {
+        "__weakref__": "Weak reference to the object.",
         "__widget": "The encapsulated widget."
     }
 
-    def __init__(self, widget: QtWidgets.QWidget) -> None:
+    def __init__(
+        self,
+        widget: QtWidgets.QWidget, /,
+        name: str | None = None, *,
+        debug: bool = False
+    ) -> None:
         """Create a new Jinx widget within the given parent widget."""
-        super().__init__()
+        super().__init__(name, debug=debug)
         self.__widget: QtWidgets.QWidget = widget
 
     @property
@@ -76,26 +128,11 @@ class JinxObserverWidget(observable.Observer):
         pass
 
 
-def make_observer_widget(
-    widget: QtWidgets.QWidget,
-    update_observer: Callable[
-        [JinxObserverWidget, JinxGuiData], None] = lambda data: None
-) -> JinxObserverWidget:
-    """Create a new observer widget."""
-    return type("AnonymousObserverWidget", (JinxObserverWidget,),
-                {"update_observer": update_observer})(widget)
-
-
-def combo_box_changed(view_name: str, data: JinxGuiData) -> None:
-    """Handle a change in the combo box."""
-    print("combo box changed", view_name)
-    data.desired_view_state = view_name
-
-
 class JinxGuiWindow(observable.Observer):
     """A class defining a PyQt6 window used by Jinx."""
 
     __slots__ = {
+        "__weakref__": "Weak reference to the object.",
         "__window": "The main window.",
         "__main_widget": "The main widget.",
         "__vbox": "The main vertical box layout.",
@@ -103,20 +140,19 @@ class JinxGuiWindow(observable.Observer):
         "__combo_box": "The combo box for the views selection.",
         "__data": "The Jinx gui data for the window.",
         "__views": "The views of the window.",
-        "__current_view_state": "The current view state of the window."
+        "__current_view_state": "The current view state of the window.",
+        "__default_widget": "The default widget."
     }
 
     def __init__(
         self,
         window: QtWidgets.QMainWindow,
         data: JinxGuiData,
-        upper_tabs: bool = False,
-        lower_tabs: bool = False,
-        left_tabs: bool = False,
-        right_tabs: bool = False
+        name: str | None = None, *,
+        debug: bool = False
     ) -> None:
         """Create a new Jinx window within the given parent widget."""
-        super().__init__()
+        super().__init__(name, debug=debug)
 
         # self.__window: QtWidgets.QWidget = window
         self.__main_widget = QtWidgets.QWidget()
@@ -127,7 +163,7 @@ class JinxGuiWindow(observable.Observer):
         self.__stack = QtWidgets.QStackedWidget()
         self.__combo_box = QtWidgets.QComboBox()
         self.__combo_box.currentTextChanged.connect(
-            functools.partial(combo_box_changed, data=data)
+            self.__combo_box_changed
         )
         self.__vbox.addWidget(self.__combo_box)
         self.__vbox.addWidget(self.__stack)
@@ -138,6 +174,7 @@ class JinxGuiWindow(observable.Observer):
 
         self.__views: dict[str, JinxObserverWidget] = {}
         self.__current_view_state: str | None = None
+        self.__default_widget = QtWidgets.QWidget()
 
         self.__data.notify_all()
 
@@ -145,6 +182,10 @@ class JinxGuiWindow(observable.Observer):
     def current_view_state(self) -> str:
         """Get the current view state of the window."""
         return self.__current_view_state
+
+    def __combo_box_changed(self, view_name: str) -> None:
+        """Handle a change in the combo box."""
+        self.__data.desired_view_state = view_name
 
     def add_view(self, name: str, widget: JinxObserverWidget) -> None:
         """Add a new view state to the window."""
@@ -168,6 +209,7 @@ class JinxGuiWindow(observable.Observer):
             self.__data.desired_view_state = None
 
     def update_observer(self, data: JinxGuiData) -> None:
+        """Update the observer."""
         desired_view_state: str | None = self.__data.desired_view_state
         if self.__current_view_state != desired_view_state:
             if self.__current_view_state is not None:
@@ -179,7 +221,6 @@ class JinxGuiWindow(observable.Observer):
                 self.__stack.setCurrentWidget(qt_widget)
                 self.__data.assign_observers(jinx_widget)
                 self.__data.notify(jinx_widget)
-            # else:
-            #     self.__stack.setCurrentWidget(default_widget)
-            #     self.__data.assign_observers(default_widget)
+            else:
+                self.__stack.setCurrentWidget(self.__default_widget)
             self.__current_view_state = desired_view_state
