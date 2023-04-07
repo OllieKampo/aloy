@@ -48,6 +48,7 @@ from auxiliary.progressbars import ResourceProgressBar
 from datahandling.makedata import DataHolder
 from optimization.decayfunctions import DecayFunctionType, get_decay_function
 
+
 @dataclasses.dataclass(frozen=True)
 class Dimension:
     """
@@ -56,103 +57,124 @@ class Dimension:
     Fields
     ------
     `lower_bound: float` - The lower bound of the domain of the dimension.
-    
+
     `upper_bound: float` - The upper bound of the domain of the dimension.
-    
+
     `max_velocity: float` - The maximum velocity of a particle moving along the dimension.
     """
-    
+
     lower_bound: Real
     upper_bound: Real
     max_velocity: Real
+
 
 @dataclasses.dataclass(frozen=True)
 class ParticleSwarmSolution:
     """
     Represents the solution of a particle swarm optimisation algorithm.
-    
+
     Elements
     --------
-    `best_position : npt.NDArray[np.float64]` - The best position of the swarm of shape `(n_dimensions,)`.
-    
-    `best_fitness : np.float64` - The best fitness of the swarm.
-    
-    `positions : npt.NDArray[np.float64]` - The positions of the particles in the swarm at the end of the algorithm of shape `(n_particles, n_dimensions)`.
-    
-    `fitnesses : npt.NDArray[np.float64]` - The fitnesses of the particles in the swarm at the end of the algorithm of shape `(n_particles,)`.
-    
-    `total_iterations : int` - The total number of iterations that the algorithm ran for.
-    
-    `stagnated_at_iteration : int` - The iteration at which the stagnation limit was reached.
-    
-    `iterations_limit_reached : bool` - Whether the iterations limit was reached.
-    
-    `stagnation_limit_reached : bool` - Whether the stagnation limit was reached.
-    
-    `fitness_limit_reached : bool` - Whether the fitness limit was reached.
+    `best_position: npt.NDArray[np.float64]` - The best position of the swarm
+    of shape `(n_dimensions,)`.
+
+    `best_fitness: np.float64` - The best fitness of the swarm.
+
+    `positions: npt.NDArray[np.float64]` - The positions of the particles in
+    the swarm when the algorithm ends of shape `(n_particles, n_dimensions)`.
+
+    `fitnesses: npt.NDArray[np.float64]` - The fitnesses of the particles in
+    the swarm when the algorithm ends of shape `(n_particles,)`.
+
+    `total_iterations: int` - The total number of iterations that the
+    algorithm ran for.
+
+    `stagnated_at_iteration: int` - The iteration at which the stagnation
+    limit was reached.
+
+    `iterations_limit_reached: bool` - Whether the iterations limit was
+    reached.
+
+    `stagnation_limit_reached: bool` - Whether the stagnation limit was
+    reached.
+
+    `fitness_limit_reached: bool` - Whether the fitness limit was reached.
     """
-    
+
     ## Particles
     best_position: npt.NDArray[np.float64]
     best_fitness: np.float64
     positions: npt.NDArray[np.float64]
     fitnesses: npt.NDArray[np.float64]
-    
+
     ## Loop variables
     total_iterations: int
     stagnated_at_iteration: int
-    
+
     ## Stop conditions
     iterations_limit_reached: bool = False
     stagnation_limit_reached: bool = False
     fitness_limit_reached: bool = False
-    
+
     ## Approximation error
     approximation_error: float = 0.0
-    
+
     def __str__(self) -> str:
-        """Return a decscription of the best solution obtained and the stop condition that was reached."""
-        best_parameters = ", ".join(f"{param:.4f}" for param in self.best_position)
+        """
+        Return a decscription of the best solution obtained and the stop
+        condition that was reached.
+        """
+        best_parameters = ", ".join(
+            f"{param:.4f}" for param in self.best_position)
         stop_condition: str = ""
         if self.iterations_limit_reached:
             stop_condition = "iterations limit reached"
         if self.stagnation_limit_reached:
             stop_condition = "stagnation limit reached"
-            stop_condition += f" (stagnated at iteration {self.stagnated_at_iteration})"
+            stop_condition += " (stagnated at iteration " \
+                              f"{self.stagnated_at_iteration})"
         if self.fitness_limit_reached:
             stop_condition = "fitness limit reached"
-        return f"PSO Solution :: best parameters = [{best_parameters}], best fitness = {self.best_fitness}, " \
-               f"total iterations = {self.total_iterations}, stop condition = {stop_condition}"
+        return "PSO Solution :: " \
+               f"best parameters = [{best_parameters}], " \
+               f"best fitness = {self.best_fitness}, " \
+               f"total iterations = {self.total_iterations}, " \
+               f"stop condition = {stop_condition}"
+
 
 class ParticleSwarmSystem:
     """
     Particle swarm optimisation algorithm.
-    
+
     Algorithm
     ---------
-    
-    There are three coefficients used in particle velocity updates; the personal and global coefficients.
-    
+    There are three coefficients used in particle velocity updates;
+    the personal, neighbour, and global coefficients.
     """
-    
-    __slots__ = {"__dimensions" : "A list of dimensions of the search space.",
-                 "__fitness_function" : "The objective function to be optimised.",
-                 "__maximise" : "Whether to maximise the objective function or minimise it."}
-    
-    def __init__(self,
-                 dimensions: Sequence[Dimension],
-                 fitness_function: Callable[[npt.NDArray[np.float64]], np.float64],
-                 maximise: bool = True
-                 ) -> None:
+
+    __slots__ = {
+        "__dimensions": "A list of dimensions of the search space.",
+        "__fitness_function": "The objective function to be optimised.",
+        "__maximise": "Whether to maximise or minimise the objective function."
+    }
+
+    def __init__(
+        self,
+        dimensions: Sequence[Dimension],
+        fitness_function: Callable[[npt.NDArray[np.float64]], np.float64],
+        maximise: bool = True
+    ) -> None:
         """
-        Create a particle swarm optimisation system from a list of dimensions and an objective function.
-        
-        A dimension must be added for each variable of the objective function (i.e. the search space).
+        Create a particle swarm optimisation system from a list of dimensions
+        and an objective function.
+
+        A dimension must be added for each variable of the objective function
+        (i.e. the search space).
         """
         self.__dimensions: list[Dimension] = list(dimensions)
         self.__fitness_function: Callable[[npt.NDArray[np.float64]], np.float64] = fitness_function
         self.__maximise: bool = maximise
-    
+
     def yield_run(self):
         pass
 
@@ -177,7 +199,7 @@ class ParticleSwarmSystem:
             # replace_clustered_for: int | float = 0.1,
             # replace_clustered_rate: int | float = 10,
             # replace_clustered_quantity: int | float = 0.1,
-            
+
             # replace_low_fitness: bool = True,
             # replace_low_fitness_for: int | float = 0.1,
             # replace_low_fitness_rate: int | float = 10,
@@ -191,7 +213,7 @@ class ParticleSwarmSystem:
             # replace_random: bool = True,
             # replace_random_rate: int | float = 10,
             # replace_random_quantity: int | float = 0.1,
-            
+
             # replace_strategy: Literal["random-space", "random-partner", "random-cast"] = "random",
 
             ## Stop criteria
@@ -199,7 +221,7 @@ class ParticleSwarmSystem:
             stagnation_limit: int | float | Fraction | None = 0.25,
             fitness_limit: Real | None = None,
             bounce: bool = True,
-            
+
             ## Particle inertia
             inertia: float = 1.0,
             final_inertia: float = 0.25,
@@ -209,7 +231,7 @@ class ParticleSwarmSystem:
             inertia_decay_start: int = 0,
             inertia_decay_end: int | None = None,
             inertia_decay_rate: float = 1.0,
-            
+
             ## Particle direction of movement coefficients
             personal_coef: float = 1.0,
             personal_coef_final: float = 0.0,
@@ -238,7 +260,7 @@ class ParticleSwarmSystem:
             neighbour_coef_decay_start: int | None = None,
             neighbour_coef_decay_end: int | None = None,
             neighbour_coef_decay_rate: float | None = None,
-            
+
             ## Neighbourhood options.
             use_neighbourhood: bool = False,
             neighbour_update: int = 10,
@@ -331,100 +353,129 @@ class ParticleSwarmSystem:
         inertia_decay_function, personal_coef_decay_function, \
               global_coef_decay_function, neighbour_coef_decay_function \
                   = self.get_decay_functions(**locals())
-        
-        ## Random number generator
+
+        # Random number generator
         rng = np.random.default_rng()
-        
-        ## Array of dimensions: (lower_bound, upper_bound, max_velocity)
-        dimensions = np.array([dataclasses.astuple(dimension) for dimension in self.__dimensions])
-        
-        ## Create positions and velocities for each particle;
-        ##   - Arrays have row for each particle and column for each dimension.
+
+        # Array of dimensions: (lower_bound, upper_bound, max_velocity)
+        dimensions = np.array(
+            [dataclasses.astuple(dimension)
+             for dimension in self.__dimensions]
+        )
+
+        # Create positions and velocities for each particle;
+        #   - Arrays have row for each particle and column for each dimension.
         total_dimensions: int = dimensions.shape[0]
-        position_vectors, velocity_vectors = self._initialise_particles(total_particles, init_strategy, rng, dimensions, total_dimensions)
-        
-        ## Evaluate fitness of particles;
-        particles_fitness = self._calculate_fitness(total_particles, parallelise, threads, total_dimensions, position_vectors)
-        
-        ## Personal best fitness and position for each particle (initialise to current fitness)
+        position_vectors, velocity_vectors = self._initialise_particles(
+            total_particles, init_strategy, rng, dimensions, total_dimensions)
+
+        # Evaluate fitness of particles;
+        particles_fitness = self._calculate_fitness(
+            total_particles, parallelise, threads, total_dimensions,
+            position_vectors)
+
+        # Personal best fitness and position for each particle (initialise to current fitness)
         best_particles_fitness: np.ndarray = particles_fitness.copy()
         best_position_vectors: np.ndarray = position_vectors.copy()
-        
-        ## Global best fitness and position over all particles
+
+        # Global best fitness and position over all particles
         if self.__maximise:
             global_best_index = np.argmax(particles_fitness)
-        else: global_best_index = np.argmin(particles_fitness)
+        else:
+            global_best_index = np.argmin(particles_fitness)
         global_best_fitness = particles_fitness[global_best_index]
         global_best_position = position_vectors[global_best_index]
 
-        ## Create a model for finding the neighbours of each particle.
+        # Create a model for finding the neighbours of each particle.
         neighbour_model: skn.BallTree | skn.KDTree | skn.KNeighborsRegressor | None = None
         if use_neighbourhood:
             if neighbour_update < 1:
-                raise ValueError(f"Neighbourhood update must be at least 1. Got; {neighbour_update}.")
+                raise ValueError("Neighbourhood update must be at least 1. "
+                                 f"Got; {neighbour_update}.")
             if neighbour_size < 1:
-                raise ValueError(f"Neighbourhood size must be at least 1. Got; {neighbour_size}.")
-            
-            ## Keep a record of the best position and fitness for each particle for evaluating the neighbourhood.
+                raise ValueError("Neighbourhood size must be at least 1. "
+                                 f"Got; {neighbour_size}.")
+
+            # Keep a record of the best position and fitness for each
+            # particle for evaluating the neighbourhood.
             neighbour_best_particles_fitness = best_particles_fitness.copy()
             neighbour_best_position_vectors = best_position_vectors.copy()
-            
-            ## Create a model for finding the neighbours of each particle.
-            neighbour_model = self._create_neighbour_model(neighbour_update, neighbour_method, neighbour_method_params,
-                                                           fitness_approximation_update, fitness_approximation_method, position_vectors)
-        
-        ## Create a model for approximating the fitness function.
+
+            # Create a model for finding the neighbours of each particle.
+            neighbour_model = self._create_neighbour_model(
+                neighbour_update, neighbour_method, neighbour_method_params,
+                fitness_approximation_update, fitness_approximation_method,
+                position_vectors
+            )
+
+        # Create a model for approximating the fitness function.
         if use_fitness_approximation:
             if fitness_approximation_update < 2:
-                raise ValueError(f"Fitness approximation update rate must be at least 2. Got; {fitness_approximation_update}.")
+                fau = fitness_approximation_update
+                raise ValueError("Fitness approximation update rate must be "
+                                 f"at least 2. Got; {fau}.")
             if fitness_approximation_start < 0:
-                raise ValueError(f"Fitness approximation start must be at least 0. Got; {fitness_approximation_start}.")
-            
-            ## Particle position and fitness clouds are a history of the particles' exploration of the search space.
-            ## These are used to build a regression model that approximates the fitness function over the search space.
+                fas = fitness_approximation_start
+                raise ValueError("Fitness approximation start must be at "
+                                 f"least 0. Got; {fas}.")
+
+            # Particle position and fitness clouds are a history of the
+            # particles' exploration of the search space. These are used to
+            # build a regression model that approximates the fitness function
+            # over the search space.
             position_cloud = position_vectors.copy()
             fitness_cloud = particles_fitness.copy()
 
             ## Create a model for approximating the fitness function.
-            fitness_approximation_model = self._create_fitness_approximation_model(fitness_approximation_method, fitness_approximation_model_params,
-                                                                                   neighbour_size, neighbour_method, neighbour_method_params)
-            if use_neighbourhood and fitness_approximation_method == "knr" and neighbour_method == "knr":
+            fitness_approximation_model = self._create_fitness_approx_model(
+                fitness_approximation_method,
+                fitness_approximation_model_params,
+                neighbour_size, neighbour_method, neighbour_method_params
+            )
+            if (use_neighbourhood
+                    and fitness_approximation_method == "knr"
+                    and neighbour_method == "knr"):
                 neighbour_model = fitness_approximation_model
                 neighbour_model.fit(position_cloud, fitness_cloud)
-        
-        ## Variable for storing the running fitness approximation error.
+
+        # Variable for storing the running fitness approximation error.
         approximation_error: float = 0.0
-        
+
         if parallelise and threads is None:
             threads = os.cpu_count()
-        
-        ## Loop variables
+
+        # Loop variables
         iterations: int = 0
         stagnated_iterations: int = 0
         stagnated_at: int = 0
-        
-        ## Stop conditions
+
+        # Stop conditions
         iteration_limit_reached: bool = False
         stagnation_limit_reached: bool = False
         fitness_limit_reached: bool = False
-        
-        ## Data structure for storing history of best fitness and position.
+
+        # Data structure for storing history of best fitness and position.
         if gather_stats:
             dataholder = self.create_data_holder()
-        
+
         if use_tqdm:
-            progress_bar = ResourceProgressBar(total=iterations_limit, desc="Iterations")
-        
-        ## Iterate until some stop condition is reached.
+            progress_bar = ResourceProgressBar(
+                total=iterations_limit,
+                desc="Iterations"
+            )
+
+        # Iterate until some stop condition is reached.
         while not ((iterations_limit is not None
                     and (iteration_limit_reached := iterations >= iterations_limit))
                    or (stagnation_limit is not None
                        and (stagnation_limit_reached := stagnated_iterations >= stagnation_limit))
                    or (fitness_limit is not None
-                       and (fitness_limit_reached := ((self.__maximise and global_best_fitness >= fitness_limit
-                                                       or global_best_fitness <= fitness_limit))))):
-            
-            ## Update inertia and coefficients.
+                       and (fitness_limit_reached := (
+                            (self.__maximise
+                             and global_best_fitness >= fitness_limit
+                             or global_best_fitness <= fitness_limit))))):
+
+            # Update inertia and coefficients.
             if iterations != 0:
                 if inertia_decay_function is not None:
                     inertia = inertia_decay_function(iterations)
@@ -434,71 +485,143 @@ class ParticleSwarmSystem:
                     global_coef = global_coef_decay_function(iterations)
                 if use_neighbourhood and neighbour_coef_decay_function is not None:
                     neighbour_coef = neighbour_coef_decay_function(iterations)
-            
-            ## For each particle, generate two random numbers for each dimension;
-            ##      - one for the personal best, and one for the global best.
-            update_vectors = rng.random((total_particles, 3 if use_neighbourhood else 2, total_dimensions))
-            
+
+            # For each particle, generate two random numbers for each dimension;
+            #   - one for the personal best, and one for the global best.
+            update_vectors = rng.random(
+                (total_particles,
+                 3 if use_neighbourhood else 2,
+                 total_dimensions)
+            )
+
             if use_neighbourhood:
                 if neighbour_method == "knr":
-                    neighbours_indices = neighbour_model.kneighbors(position_vectors, return_distance=False)
-                    neighbours_best_position = position_cloud[np.argmax(fitness_cloud[np.ravel(neighbours_indices)].reshape(total_particles, neighbour_size), axis=1)]
+                    neighbours_indices = neighbour_model.kneighbors(
+                        position_vectors, return_distance=False)
+                    neighbours_best_position = position_cloud[
+                        np.argmax(
+                            fitness_cloud[
+                                np.ravel(neighbours_indices)
+                            ].reshape(total_particles, neighbour_size),
+                            axis=1
+                        )
+                    ]
                 else:
-                    neighbours_indices = neighbour_model.query(position_vectors, k=neighbour_size, return_distance=False)
-                    neighbours_best_position = neighbour_best_position_vectors[np.argmax(neighbour_best_particles_fitness[np.ravel(neighbours_indices)].reshape(total_particles, neighbour_size), axis=1)]
+                    neighbours_indices = neighbour_model.query(
+                        position_vectors, k=neighbour_size,
+                        return_distance=False)
+                    neighbours_best_position = neighbour_best_position_vectors[
+                        np.argmax(
+                            neighbour_best_particles_fitness[
+                                np.ravel(neighbours_indices)
+                            ].reshape(total_particles, neighbour_size),
+                            axis=1
+                        )
+                    ]
             
-            ## Velocity is updated based on inertia and random contribution of displacement from;
-            ##      - personal best position,
-            ##      - global best position.
+            # Velocity is updated based on inertia and random contribution of
+            # displacement from;
+            #   - personal best position,
+            #   - neighbours best position,
+            #   - global best position.
             personal_displacements = best_position_vectors - position_vectors
             global_displacements = global_best_position - position_vectors
-            velocity_vectors = (inertia * velocity_vectors
-                                + (personal_coef * update_vectors[:,0] * personal_displacements)
-                                + (global_coef * update_vectors[:,1] * global_displacements))
+            velocity_vectors = (
+                (inertia * velocity_vectors)
+                + ((personal_coef * update_vectors[:, 0])
+                   * personal_displacements)
+                + ((global_coef * update_vectors[:, 1])
+                   * global_displacements)
+            )
             if use_neighbourhood:
-                neighbour_displacements = neighbours_best_position - position_vectors
-                velocity_vectors += (neighbour_coef * update_vectors[:,2] * neighbour_displacements)
-            velocity_vectors = np.maximum(np.minimum(velocity_vectors, dimensions[:, 2]), -dimensions[:, 2])
-            
-            ## Position is updated based on previous position and velocity:
-            ##  - take the maximum of;
-            ##      - the lower bound of each dimension and the minimum of;
-            ##          - the upper bound of each dimension and the new position (old position plus velocity).
+                neighbour_displacements = (
+                    neighbours_best_position - position_vectors)
+                velocity_vectors += (
+                    neighbour_coef
+                    * update_vectors[:, 2]
+                    * neighbour_displacements
+                )
+            velocity_vectors = np.maximum(
+                np.minimum(velocity_vectors, dimensions[:, 2]),
+                -dimensions[:, 2]
+            )
+
+            # Position is updated based on previous position and velocity:
+            #  - take the maximum of;
+            #      - the lower bound of each dimension and the minimum of;
+            #          - the upper bound of each dimension and the new
+            #            position (old position plus velocity).
             position_vectors += velocity_vectors
             if bounce:
-                less_than = position_vectors < dimensions[:,0]
+                less_than = position_vectors < dimensions[:, 0]
                 print(less_than)
                 if np.any(less_than):
-                    position_vectors[less_than] = (dimensions[:,0] * 2.0) - position_vectors[less_than]
-                greater_than = position_vectors > dimensions[:,1]
+                    position_vectors[less_than] = (
+                        (dimensions[:, 0] * 2.0)
+                        - position_vectors[less_than]
+                    )
+                greater_than = position_vectors > dimensions[:, 1]
                 print(greater_than)
                 if np.any(greater_than):
-                    position_vectors[greater_than] = (dimensions[:,1] * 2.0) - position_vectors[greater_than]
-            else: position_vectors = np.maximum(np.minimum(position_vectors, dimensions[:, 1]), dimensions[:, 0])
-            
-            ## Evaluate fitness of each particle.
+                    position_vectors[greater_than] = (
+                        (dimensions[:, 1] * 2.0)
+                        - position_vectors[greater_than]
+                    )
+            else:
+                position_vectors = np.maximum(
+                    np.minimum(position_vectors, dimensions[:, 1]),
+                    dimensions[:, 0]
+                )
+
+            # Evaluate fitness of each particle.
             if not use_fitness_approximation:
-                particles_fitness = self._calculate_fitness(total_particles, parallelise, threads, total_dimensions, position_vectors)
+                particles_fitness = self._calculate_fitness(
+                    total_particles, parallelise, threads,
+                    total_dimensions, position_vectors
+                )
 
             else:
-                if iterations < fitness_approximation_start or (iterations - fitness_approximation_start) % fitness_approximation_update == 0:
-                    particles_fitness = self._calculate_fitness(total_particles, parallelise, threads, total_dimensions, position_vectors)
-                    
-                    ## Compare fitness approximation model prediction (with model from before update) with actual fitnesses of current particle positions
-                    ## to find prediction error, which is used to calculate a fitness approximation error score.
-                    if iterations >= (fitness_approximation_start + fitness_approximation_update):
+                if (iterations < fitness_approximation_start
+                        or ((iterations - fitness_approximation_start)
+                            % fitness_approximation_update == 0)):
+
+                    # Calculate fitnesses of current particle positions.
+                    particles_fitness = self._calculate_fitness(
+                        total_particles, parallelise, threads,
+                        total_dimensions, position_vectors
+                    )
+
+                    # Compare fitness approximation model prediction (with
+                    # model from before update) with actual fitnesses of
+                    # current particle positions to find prediction error,
+                    # which is used to calculate a fitness approximation error score.
+                    if iterations >= (fitness_approximation_start
+                                      + fitness_approximation_update):
                         predicted_particle_fitness = fitness_approximation_model.predict(position_vectors)
                         approximation_updates = (iterations - fitness_approximation_start) / fitness_approximation_update
-                        approximation_error = ((approximation_error * (approximation_updates - 1)) \
-                            + mean_absolute_error(particles_fitness, predicted_particle_fitness)) / approximation_updates
-                    
-                    ## Update the fitness approximation model with the current particle positions and fitnesses.
-                    if iterations >= fitness_approximation_start or fitness_approximation_method == "knr" and neighbour_method == "knr" and iterations % neighbour_update == 0:
-                        position_cloud = np.concatenate((position_cloud, position_vectors), axis=0)
-                        fitness_cloud = np.concatenate((fitness_cloud, particles_fitness), axis=0)
+                        approximation_error = (
+                            ((approximation_error
+                              * (approximation_updates - 1))
+                             + mean_absolute_error(
+                                particles_fitness,
+                                predicted_particle_fitness))
+                            / approximation_updates
+                        )
+
+                    # Update the fitness approximation model with the current
+                    # particle positions and fitnesses.
+                    if (iterations >= fitness_approximation_start
+                            or fitness_approximation_method == "knr"
+                            and neighbour_method == "knr"
+                            and iterations % neighbour_update == 0):
+                        position_cloud = np.concatenate(
+                            (position_cloud, position_vectors), axis=0)
+                        fitness_cloud = np.concatenate(
+                            (fitness_cloud, particles_fitness), axis=0)
                         if iterations >= fitness_approximation_start:
-                            fitness_approximation_model.fit(position_cloud, fitness_cloud)
-                    
+                            fitness_approximation_model.fit(
+                                position_cloud, fitness_cloud)
+
                 else:
                     ## Fitness approximation is only done if the particle is currently "close" to N existing points in the position cloud.
                     ## Use kdtree to find the nearest neighbours of each particle, if the cdist of the particle to the nearest neighbours is less than a threshold, use the fitness approximation.
@@ -507,83 +630,105 @@ class ParticleSwarmSystem:
                         use_approximation = ~np.any(distances > (fitness_approximation_threshold * (dimensions[:,1] - dimensions[:,0])), axis=1)
                         particles_fitness[use_approximation] = fitness_approximation_model.predict(position_vectors[use_approximation])
                         particles_fitness[~use_approximation] = self._calculate_fitness(total_particles, parallelise, threads, total_dimensions, position_vectors[~use_approximation])
-                    else: particles_fitness = fitness_approximation_model.predict(position_vectors)
-            
-            ## Find the personal best fitness and position for each particle.
+                    else:
+                        particles_fitness = fitness_approximation_model.predict(position_vectors)
+
+            # Find the personal best fitness and position for each particle.
             if self.__maximise:
-                particles_better_than_best = particles_fitness >= best_particles_fitness
-            else: particles_better_than_best = particles_fitness < best_particles_fitness
-            best_particles_fitness[particles_better_than_best] = particles_fitness[particles_better_than_best]
-            best_position_vectors[particles_better_than_best] = position_vectors[particles_better_than_best]
-            
-            ## Update record current particle positions, and their personal best fitness and position, if using neighbourhood.
-            if use_neighbourhood and neighbour_method != "knr" and iterations % neighbour_update == 0:
+                particles_better_than_best = (
+                    particles_fitness >= best_particles_fitness
+                )
+            else:
+                particles_better_than_best = (
+                    particles_fitness < best_particles_fitness
+                )
+            best_fit = particles_fitness[particles_better_than_best]
+            best_pos = position_vectors[particles_better_than_best]
+            best_particles_fitness[particles_better_than_best] = best_fit
+            best_position_vectors[particles_better_than_best] = best_pos
+
+            # Update record current particle positions, and their personal
+            # best fitness and position, if using neighbourhood.
+            if (use_neighbourhood
+                    and neighbour_method != "knr"
+                    and iterations % neighbour_update == 0):
                 match neighbour_method:
                     case "kd_tree":
-                        neighbour_model = skn.KDTree(position_vectors, **neighbour_method_params)
+                        neighbour_model = skn.KDTree(
+                            position_vectors, **neighbour_method_params)
                     case "ball_tree":
-                        neighbour_model = skn.BallTree(position_vectors, **neighbour_method_params)
+                        neighbour_model = skn.BallTree(
+                            position_vectors, **neighbour_method_params)
                 neighbour_best_particles_fitness = best_particles_fitness.copy()
                 neighbour_best_position_vectors = best_position_vectors.copy()
-            
-            ## Find the global best fitness and position over all particles.
+
+            # Find the global best fitness and position over all particles.
             if self.__maximise:
                 current_best_index = np.argmax(particles_fitness)
-            else: current_best_index = np.argmin(particles_fitness)
+            else:
+                current_best_index = np.argmin(particles_fitness)
             current_best_fitness = particles_fitness[current_best_index]
-            if ((self.__maximise and current_best_fitness >= global_best_fitness)
-                or (not self.__maximise and current_best_fitness < global_best_fitness)):
+            if ((self.__maximise
+                 and current_best_fitness >= global_best_fitness)
+                    or (not self.__maximise
+                        and current_best_fitness < global_best_fitness)):
                 global_best_fitness = current_best_fitness
                 global_best_position = position_vectors[current_best_index]
                 stagnated_iterations = 0
                 stagnated_at = iterations
-            else: stagnated_iterations += 1
+            else:
+                stagnated_iterations += 1
             iterations += 1
-            
+
             if use_tqdm:
-                progress_bar.update(data={"Stagnated" : stagnated_iterations})
-            
+                progress_bar.update(data={"Stagnated": stagnated_iterations})
+
             if gather_stats:
                 ## https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.distance.cdist.html#scipy.spatial.distance.cdist
                 particles_distance_from_global_best = scipy_spatial.distance.cdist(position_vectors, global_best_position[np.newaxis,:])
-                dataholder.add_row([iterations,
-                                    stagnated_iterations,
-                                    total_particles,
-                                    global_best_fitness,
-                                    global_best_position,
-                                    best_particles_fitness.mean(),
-                                    best_particles_fitness.std(),
-                                    particles_fitness.mean(),
-                                    particles_fitness.std(),
-                                    position_vectors.mean(),
-                                    position_vectors.std(),
-                                    # (position_vectors.std(axis=0) / (dimensions[:,1] - dimensions[:,0])).mean(),
-                                    particles_distance_from_global_best.mean(),
-                                    particles_distance_from_global_best.std(),
-                                    velocity_vectors.mean(),
-                                    velocity_vectors.std(),
-                                    # np.exp(np.abs(velocity_vectors) - dimensions[:,2]).mean(),
-                                    inertia,
-                                    personal_coef,
-                                    global_coef,
-                                    neighbour_coef])
+                dataholder.add_row([
+                    iterations,
+                    stagnated_iterations,
+                    total_particles,
+                    global_best_fitness,
+                    global_best_position,
+                    best_particles_fitness.mean(),
+                    best_particles_fitness.std(),
+                    particles_fitness.mean(),
+                    particles_fitness.std(),
+                    position_vectors.mean(),
+                    position_vectors.std(),
+                    # (position_vectors.std(axis=0) / (dimensions[:,1] - dimensions[:,0])).mean(),
+                    particles_distance_from_global_best.mean(),
+                    particles_distance_from_global_best.std(),
+                    velocity_vectors.mean(),
+                    velocity_vectors.std(),
+                    # np.exp(np.abs(velocity_vectors) - dimensions[:,2]).mean(),
+                    inertia,
+                    personal_coef,
+                    global_coef,
+                    neighbour_coef]
+                )
         
-        solution = ParticleSwarmSolution(## Solution attributes
-                                         global_best_position,
-                                         global_best_fitness,
-                                         position_vectors,
-                                         particles_fitness,
-                                         ## Stop conditions
-                                         iterations,
-                                         stagnated_at,
-                                         iteration_limit_reached,
-                                         stagnation_limit_reached,
-                                         fitness_limit_reached,
-                                         ## Performance scores
-                                         approximation_error)
+        solution = ParticleSwarmSolution(
+            # Solution attributes
+            global_best_position,
+            global_best_fitness,
+            position_vectors,
+            particles_fitness,
+            # Stop conditions
+            iterations,
+            stagnated_at,
+            iteration_limit_reached,
+            stagnation_limit_reached,
+            fitness_limit_reached,
+            # Performance scores
+            approximation_error
+        )
         if gather_stats:
             return (solution, dataholder.to_dataframe())
-        else: return solution
+        else:
+            return solution
 
     def create_data_holder(self):
         dataholder = DataHolder(["iteration",
@@ -611,38 +756,40 @@ class ParticleSwarmSystem:
         return dataholder
     
     @staticmethod
-    def get_decay_functions(self, *,
-                            iterations_limit,
-                            inertia,
-                            final_inertia,
-                            inertia_decay_type,
-                            inertia_decay_start,
-                            inertia_decay_end,
-                            inertia_decay_rate,
-                            personal_coef,
-                            personal_coef_final,
-                            global_coef,
-                            global_coef_final,
-                            neighbour_coef,
-                            neighbour_coef_final,
-                            coef_decay_type,
-                            coef_decay_start,
-                            coef_decay_end,
-                            coef_decay_rate,
-                            personal_coef_decay_type,
-                            personal_coef_decay_start,
-                            personal_coef_decay_end,
-                            personal_coef_decay_rate,
-                            global_coef_decay_type,
-                            global_coef_decay_start,
-                            global_coef_decay_end,
-                            global_coef_decay_rate,
-                            neighbour_coef_decay_type,
-                            neighbour_coef_decay_start,
-                            neighbour_coef_decay_end,
-                            neighbour_coef_decay_rate,
-                            use_neighbourhood,
-                            **kwargs) -> tuple[Callable[[int], float], ...]:
+    def get_decay_functions(
+        self, *,
+        iterations_limit,
+        inertia,
+        final_inertia,
+        inertia_decay_type,
+        inertia_decay_start,
+        inertia_decay_end,
+        inertia_decay_rate,
+        personal_coef,
+        personal_coef_final,
+        global_coef,
+        global_coef_final,
+        neighbour_coef,
+        neighbour_coef_final,
+        coef_decay_type,
+        coef_decay_start,
+        coef_decay_end,
+        coef_decay_rate,
+        personal_coef_decay_type,
+        personal_coef_decay_start,
+        personal_coef_decay_end,
+        personal_coef_decay_rate,
+        global_coef_decay_type,
+        global_coef_decay_start,
+        global_coef_decay_end,
+        global_coef_decay_rate,
+        neighbour_coef_decay_type,
+        neighbour_coef_decay_start,
+        neighbour_coef_decay_end,
+        neighbour_coef_decay_rate,
+        use_neighbourhood,
+        **kwargs
+    ) -> tuple[Callable[[int], float], ...]:
         """Get the decay functions for the inertia, personal, global and neighbourhood coefficients."""
 
         if inertia_decay_end is None:
