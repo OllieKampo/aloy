@@ -76,6 +76,11 @@ class Observable(metaclass=ABCMeta):
         """
         Create a new observable.
 
+        Sub-classes must always call this method in their `__init__` method.
+        For Qt6 GUI applications, `clock` should always be an existing QTimer
+        and `start_clock` should be False (it should be started externally
+        after construction of the sub-class instance has completed).
+
         Parameters
         ----------
         `name: str | None = None` - The name of the observable. If None, the
@@ -141,16 +146,19 @@ class Observable(metaclass=ABCMeta):
                 raise TypeError("Clock must be of type ClockThread or QTimer."
                                 f"Got; {clock} of {type(clock)}.")
 
+    @final
     @property
     def observable_name(self) -> str:
         """Return the name of this observable."""
         return self.__name
 
+    @final
     @property
     def observers(self) -> set["Observer"]:
         """Return the observers of this observable."""
         return self.__observers
 
+    @final
     def assign_observers(self, *observers: "Observer") -> None:
         """Assign observers to this observable."""
         with self.__lock:
@@ -167,6 +175,7 @@ class Observable(metaclass=ABCMeta):
                     raise TypeError("Observer must be of type Observer. "
                                     f"Got; {observer} of {type(observer)}.")
 
+    @final
     def remove_observers(self, *observers: "Observer") -> None:
         """Remove observers from this observable."""
         with self.__lock:
@@ -181,6 +190,7 @@ class Observable(metaclass=ABCMeta):
             for observer in removed_observers:
                 observer._remove_observable(self)
 
+    @final
     def clear_observers(self) -> None:
         """Clear all observers from this observable."""
         with self.__lock:
@@ -193,11 +203,13 @@ class Observable(metaclass=ABCMeta):
                 observer._remove_observable(self)
             self.__observers.clear()
 
+    @final
     @property
     def tick_rate(self) -> int:
         """Return the tick rate of the internal update clock."""
         return self.__clock.tick_rate
 
+    @final
     @tick_rate.setter
     def tick_rate(self, value: int) -> None:
         """Set the tick rate of the internal update clock."""
@@ -208,8 +220,14 @@ class Observable(metaclass=ABCMeta):
             )
         self.__clock.tick_rate = value
 
+    @final
     def notify(self, *observers: "Observer", raise_: bool = False) -> None:
-        """Notify given observers that this observable has changed."""
+        """
+        Notify given observers that this observable has changed.
+
+        If `raise_` is True, raise a ValueError if any of the given observers
+        are not observing this observable.
+        """
         with self.__lock:
             if self.__debug:
                 self.__OBSERVABLE_LOGGER.debug(
@@ -226,6 +244,37 @@ class Observable(metaclass=ABCMeta):
                         raise ValueError(f"Observer {observer} is not "
                                          "observing this observable.")
 
+    @final
+    def notify_by_name(self, *names: str, raise_: bool = False) -> None:
+        """
+        Notify observers by name that this observable has changed.
+
+        If `raise_` is True, raise a ValueError if any of the given names
+        do not correspond to an observer of this observable.
+        """
+        with self.__lock:
+            if self.__debug:
+                self.__OBSERVABLE_LOGGER.debug(
+                    "%s: Notifying observers by name: %s",
+                    self.__name, names
+                )
+            if not raise_:
+                self.__changed.update(
+                    observer
+                    for observer in self.__observers
+                    if observer.observer_name in names
+                )
+            else:
+                for name in names:
+                    for observer in self.__observers:
+                        if observer.observer_name == name:
+                            self.__changed.add(observer)
+                            break
+                    else:
+                        raise ValueError(f"Observer with name {name} is not "
+                                         "observing this observable.")
+
+    @final
     def notify_all(self) -> None:
         """Notify all observers that this observable has changed."""
         with self.__lock:
@@ -236,6 +285,7 @@ class Observable(metaclass=ABCMeta):
                 )
             self.__changed.update(self.__observers)
 
+    @final
     def __update_observers(self) -> None:
         """Update all observers that have been notified."""
         with self.__lock:
@@ -244,6 +294,7 @@ class Observable(metaclass=ABCMeta):
         for observer in observers:
             observer._sync_update_observer(self)
 
+    @final
     def enable_updates(self) -> None:
         """Enable updates to observers."""
         if self.__debug:
@@ -253,6 +304,7 @@ class Observable(metaclass=ABCMeta):
             )
         self.__clock.start()
 
+    @final
     def disable_updates(self) -> None:
         """Disable updates to observers."""
         if self.__debug:
@@ -263,7 +315,7 @@ class Observable(metaclass=ABCMeta):
         self.__clock.stop()
 
 
-class Observer:
+class Observer(metaclass=ABCMeta):
     """
     Mixin for creating observer classes.
 
@@ -294,11 +346,13 @@ class Observer:
         self.__lock = threading.RLock()
         self.__debug: bool = debug
 
+    @final
     @property
     def observer_name(self) -> str:
         """Return the name of the observer."""
         return self.__name
 
+    @final
     @property
     def debug(self) -> bool:
         """Return whether to log debug messages."""
@@ -343,18 +397,37 @@ SP = ParamSpec("SP")
 ST = TypeVar("ST")
 
 
-def notifies_observers(function: Callable[SP, ST]) -> Callable[SP, ST]:
+def notifies_observers(
+    *names: str,
+    raise_: bool = False
+) -> Callable[[Callable[SP, ST]], Callable[SP, ST]]:
     """
     Decorate methods of an observable class.
 
-    Schedules all observers to be updated after the method has returned.
+    If `names` is not given, then schedules all observers to be updated after
+    the method has returned. Otherwise, if `names` is given, then schedules
+    observers with the given names to be updated after the method has returned.
+    If `raise_` is True, raise a ValueError if any of the given names do not
+    correspond to an observer of the observable.
     """
-    @functools.wraps(function)
-    def wrapper(self, *args: SP.args, **kwargs: SP.kwargs) -> ST:
-        return_value = function(self, *args, **kwargs)
-        self.notify_all()
-        return return_value
-    return wrapper
+    if not names:
+        def inner(function: Callable[SP, ST]) -> Callable[SP, ST]:
+            @functools.wraps(function)
+            def wrapper(self, *args: SP.args, **kwargs: SP.kwargs) -> ST:
+                return_value = function(self, *args, **kwargs)
+                self.notify_all()
+                return return_value
+            return wrapper
+        return inner
+    else:
+        def inner(function: Callable[SP, ST]) -> Callable[SP, ST]:
+            @functools.wraps(function)
+            def wrapper(self, *args: SP.args, **kwargs: SP.kwargs) -> ST:
+                return_value = function(self, *args, **kwargs)
+                self.notify_by_name(*names, raise_=raise_)
+                return return_value
+            return wrapper
+        return inner
 
 
 def notifies_observables(function: Callable[SP, ST]) -> Callable[SP, ST]:
