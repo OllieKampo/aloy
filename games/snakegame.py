@@ -24,7 +24,6 @@
 
 from itertools import count
 from math import copysign
-import threading
 from PyQt6.QtWidgets import QApplication, QWidget, QGridLayout, QHBoxLayout, QLabel, QPushButton, QGraphicsScene, QGraphicsView, QMainWindow, QSpinBox, QComboBox, QSlider, QCheckBox, QSizePolicy, QLayout
 from PyQt6.QtCore import Qt, QTimer, QEvent
 from PyQt6.QtGui import QBrush, QPen, QColor, QFont
@@ -92,15 +91,32 @@ class SnakeGameLogic:
 
     def __init__(
         self,
-        grid_size: tuple[int, int]
+        cells_grid_size: tuple[int, int]
     ) -> None:
-        """Create a new snake game logic object."""
+        """
+        Create a new snake game logic object.
+
+        Parameters
+        ----------
+        `cells_grid_size: tuple[int, int]` - The size of the grid in cells.
+        This is the number of cells in the x and y directions.
+        """
+        if not isinstance(cells_grid_size, tuple):
+            raise TypeError("The grid size must be a tuple. "
+                            f"Got; {type(cells_grid_size)!r}.")
+        if len(cells_grid_size) != 2:
+            raise ValueError("The grid size must be a tuple of length 2. "
+                             f"Got; {len(cells_grid_size)}.")
+        if any(size <= 0 for size in cells_grid_size):
+            raise ValueError("The grid size must be positive. "
+                             f"Got; {cells_grid_size}.")
+
         ## Actions
         self._direction: AtomicObject[tuple[int, int]]
         self._direction = AtomicObject(_INITIAL_DIRECTION)
 
         ## Game state
-        self._grid_size: tuple[int, int] = grid_size
+        self._grid_size: tuple[int, int] = cells_grid_size
         self._score: int = _INITIAL_SCORE
         self._seconds_per_move: float = _INITIAL_SECONDS_PER_MOVE
         self._game_over: bool = False

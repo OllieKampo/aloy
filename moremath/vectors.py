@@ -95,14 +95,43 @@ def vector_distance(
 ) -> NT:
     """Get the distance between two vectors."""
     if manhattan:
-        return sum([abs(a - b) for a, b in zip(vector_a, vector_b)])
+        return sum(abs(a - b) for a, b in zip(vector_a, vector_b))
     return vector_magnitude(vector_subtract(vector_a, vector_b))
+
+
+def vector_distance_torus_wrapped(
+    vector_a: Iterable[NT],
+    vector_b: Iterable[NT],
+    size: Iterable[NT],
+    manhattan: bool = False
+) -> NT:
+    """Get the distance between two vectors on a torus."""
+    delta = vector_abs(vector_subtract(vector_a, vector_b))
+    for index, component in enumerate(delta):
+        if component > size[index] / 2:
+            delta[index] = size[index] - component
+    if manhattan:
+        return sum(delta)
+    return vector_magnitude(delta)
+
+
+def vector_midpoint(
+    vector_a: Iterable[NT],
+    vector_b: Iterable[NT]
+) -> list[NT]:
+    """Get the midpoint between two vectors."""
+    return vector_divide(vector_add(vector_a, vector_b), 2)
 
 
 def vector_normalize(vector: Iterable[NT]) -> list[NT]:
     """Normalize a vector."""
     magnitude = vector_magnitude(vector)
     return [item / magnitude for item in vector]
+
+
+def vector_abs(vector: Iterable[NT]) -> list[NT]:
+    """Get the absolute value of a vector."""
+    return [abs(item) for item in vector]
 
 
 def vector_angle_between(
