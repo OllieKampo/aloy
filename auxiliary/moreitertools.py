@@ -284,8 +284,6 @@ def chunk(
     sequence slices of the same type as the argument sequence. If `as_type`
     is a type object, the chunks are cast to the given type before yielding.
     """
-    if not isinstance(sequence, Sequence):
-        raise TypeError(f"Input must be a sequence. Got; {type(sequence)}.")
     if quantity is not None:
         if size * quantity > len(sequence):
             raise ValueError("Size and quantity are too large. "
