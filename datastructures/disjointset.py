@@ -312,39 +312,49 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         """Get the element to rank mapping."""
         return self.__rank_of
 
-    def add(self,
-            parent: ST,
-            *elements: ST,
-            union: bool = True
-            ) -> ST:
+    def add(
+        self,
+        parent: ST,
+        *elements: ST,
+        union: bool = True
+    ) -> ST:
         """
-        Add the element(s) to the disjoint sub-set with the given root.
+        Add the element(s) to the disjoint sub-set with the given parent.
 
-        If the root is not already in the disjoint-set, then add it as a new element as well.
+        If the root is not already in the disjoint-set, then add it as a new
+        element as well.
 
-        If `union` is True, and both the parent and the element are already in the disjoint-set,
-        then this method simply unions the disjoint sub-sets containing the given elements,
-        i.e. it performs the same operation as `union(root, element)`.
-        If `union` is False, then it is an error to add an element that is already in the disjoint-set.
+        If `union` is True, and both the parent and the element are already in
+        the disjoint-set, then this method simply unions the disjoint sub-sets
+        containing the given elements, i.e. it performs the same operation as
+        `union(root, element)`. If `union` is False, then it is an error to
+        add an element that is already in the disjoint-set.
 
         Parameters
         ----------
-        `parent: ST@DisjointSet` - The parent of the element or set of elements to to add to the disjoint-set.
-        If the parent is not already in the disjoint-set, then it is added as a new root element, and the element or set of elements to add become its children.
-        If the parent is already in the disjoint-set, then the element or set of elements to add is unioned onto to the disjoint sub-set containing the parent.
+        `parent: ST@DisjointSet` - The parent of the element or set of
+        elements to to add to the disjoint-set. If the parent is not already
+        in the disjoint-set, then it is added as a new root element, and the
+        element or set of elements to add become its children. If the parent
+        is already in the disjoint-set, then the element or set of elements to
+        add is unioned onto to the disjoint sub-set containing the parent.
 
-        `element_or_set: ST@DisjointSet | set[ST@DisjointSet]` - The element or set of elements to add.
+        `*elements: ST@DisjointSet` - The elements to add to the disjoint-set.
 
-        `union: bool = True` - Whether to union the disjoint sub-sets containing the parent and the element or set of elements if they are already in the disjoint-set.
-        If False, then an error is raised if the element or set of elements are already in the disjoint-set.
+        `union: bool = True` - Whether to union the disjoint sub-sets
+        containing the parent and the element or set of elements if they are
+        already in the disjoint-set. If False, then an error is raised if the
+        element or set of elements are already in the disjoint-set.
 
         Returns
         -------
-        `ST@DisjointSet` - The root element of the disjoint sub-set the given element or set of elements was added to.
+        `ST@DisjointSet` - The root element of the disjoint sub-set the given
+        element or set of elements was added to.
 
         Raises
         ------
-        `ValueError` - If `union` is False and the given element(s) are already in the disjoint-set.
+        `ValueError` - If `union` is False and the given element(s) are
+        already in the disjoint-set.
         """
         self.__is_changed: bool = True
 
@@ -363,7 +373,8 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
                 if union:
                     root = self.union(root, element)
                 else:
-                    raise ValueError(f"The element {element} is already in the disjoint-set.")
+                    raise ValueError(f"The element {element} is already in "
+                                     "the disjoint-set.")
 
         return root
 
@@ -418,10 +429,11 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
 
         return root
 
-    def find_root_recurse(self,
-                          element: ST,
-                          compress: bool = True
-                          ) -> ST:
+    def find_root_recurse(
+        self,
+        element: ST,
+        compress: bool = True
+    ) -> ST:
         """
         Recursive variant of the `find_root` method.
 
@@ -454,9 +466,7 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
             return root
         return element
 
-    def find_root_path_split(self,
-                             element: ST
-                             ) -> ST:
+    def find_root_path_split(self, element: ST) -> ST:
         """
         Find the root of the sub-set containing the given element with path
         splitting.
@@ -489,9 +499,7 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
             element = parent
         return parent
 
-    def find_root_path_halve(self,
-                             element: ST
-                             ) -> ST:
+    def find_root_path_halve(self, element: ST) -> ST:
         """
         Find the root of the sub-set containing the given element with path
         halving.
@@ -528,9 +536,7 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
             element = self.__parent_of[parent]
         return parent
 
-    def find_path(self,
-                  element: ST
-                  ) -> list[ST]:
+    def find_path(self, element: ST) -> list[ST]:
         """
         Find the current path from the given element to the root element of
         its disjoint sub-set.
@@ -552,71 +558,82 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
             element = parent
         return path
 
-    def find_set(self,
-                 element: ST,
-                 compress: Optional[bool] = None,
-                 cache: bool = True,
-                 default: Optional[set[ST]] = None
-                 ) -> frozenset[ST]:
+    def find_set(
+        self,
+        element: ST,
+        compress: Optional[bool] = None,
+        cache: bool = True,
+        default: Optional[set[ST]] = None
+    ) -> frozenset[ST]:
         """
         Get a single distinct sub-set in this disjoint-set.
-        
+
         This operation requires finding all dictinct sub-sets,
         and as such `find_all_sets(...)` or `cache=True` should
         be used if more than one distinct sub-set needs to be found.
-        
+
         Parameters
         ----------
         `element: ST@DisjointSet` - An element of the distinct sub-set to find.
-        All other elements with the same root as the given element will be returned in the sub-set.
-        
+        All other elements with the same root as the given element will be
+        returned in the sub-set.
+
         `compress: bool = True` - Whether to compress all paths,
         from all elements, of all sets, to their respective roots.
         This will achieve the maximum possible compression of the disjoint-set.
-        If the default find method is; path splitting or path halving, this parameter is ignored.
-        
+        If the default find method is; path splitting or path halving, this
+        parameter is ignored.
+
         `cache: bool = True` - Whether to cache the result.
         Future calls to this function will return the cached result,
-        if and only if the disjoint-set has not been modified since the previous call.
-        
+        if and only if the disjoint-set has not been modified since the
+        previous call.
+
         `default: {None | set[ST@DisjointSet]}` - If given and not None,
-        acts as a default sub-set to return if the given element is not in this disjoint-set.
-        
+        acts as a default sub-set to return if the given element is not in
+        this disjoint-set.
+
         Returns
         -------
-        `set[ST@DisjointSet]` - A distinct sub-set containing the given element.
-        
+        `set[ST@DisjointSet]` - A distinct sub-set containing the given
+        element.
+
         Raises
         ------
-        `KeyError` - If the element is not in this disjoint-set and `default` is None.
+        `KeyError` - If the element is not in this disjoint-set and `default`
+        is None.
         """
         if element not in self:
             if default is None:
-                raise KeyError(f"The element {element} of type {type(element)} is not in the disjoint-set {self!s}.")
+                raise KeyError(f"The element {element!r} of {type(element)!r} "
+                               f"is not in the disjoint-set {self!s}")
             return default
-        
+
         if not self.__is_changed:
             return self.__sets[element]
         return self.find_all_sets(compress, cache)[element]
-    
-    def find_all_sets(self,
-                      compress: Optional[bool] = None,
-                      cache: bool = True
-                      ) -> dict[ST, frozenset[ST]]:
+
+    def find_all_sets(
+        self,
+        compress: Optional[bool] = None,
+        cache: bool = True
+    ) -> dict[ST, frozenset[ST]]:
         """
         Find all distinct sub-sets in this disjoint-set.
-        
+
         Parameters
         ----------
         `compress: bool = True` - Whether to compress all paths,
         from all elements, of all sets, to their respective roots.
         This will achieve the maximum possible compression of the disjoint-set.
-        If the default find method is; path splitting or path halving, this parameter is ignored.
-        
+        If the default find method is; path splitting or path halving, this
+        parameter is ignored.
+
         `cache: bool = True` - Whether to cache the result.
         Future calls to this function will return the cached result,
-        if and only if the disjoint-set has not been modified since the previous call.
-        
+        if and only if the disjoint-set has not been modified since the
+        previous call.
+
         Returns
         -------
         `dict[ST@DisjointSet, set[ST@DisjointSet]]` - A dictionary,
@@ -625,148 +642,163 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         """
         if not self.__is_changed:
             return self.__sets
-        
+
         ## Find all disjoint sub-sets by finding the root of all
         ## elements and then grouping elements with the same root.
         sets: dict[ST, set[ST]] = {}
         for element in self:
-            sets.setdefault(self.__find_method(self, element, compress), set()).add(element)
-        
+            sets.setdefault(
+                self.__find_method(self, element, compress),
+                set()
+            ).add(element)
+
         ## If compression is enabled and the default find method
         ## accepts the compress parameter, the ranks can be reset,
         ## since all sub-sets are now fully compressed.
-        if compress and DefaultFindMethod[self.__find_method.__name__].value[1]:
+        if compress and DefaultFindMethod[self.__find_method.__name__].value[1]: ## TODO
             self.__rank_of = {}
             for root, set_ in sets.items():
                 self.__rank_of[root] = 0 if len(set_) == 1 else 1
-        
+
         # frozen_sets = FrozenDict(sets) TODO: use frozen dict for the dictionary itself cannot be changed
         frozen_sets = {root : frozenset(set_) for root, set_ in sets.items()}
-        
+
         if cache:
             self.__sets = frozen_sets
             self.__is_changed = False
         return frozen_sets
-    
-    def __find_root_pair(self,
-                         element_1: ST,
-                         element_2: ST,
-                         compress: Optional[bool] = None
-                         ) -> tuple[ST, ST]:
+
+    def __find_root_pair(
+        self,
+        element_1: ST,
+        element_2: ST,
+        compress: Optional[bool] = None
+    ) -> tuple[ST, ST]:
         """
-        Find the roots of a pair of two different elements of this disjoint-set.
-        
-        Used by union methods, to simultaneously find the roots of two different
-        elements of this disjoint-set, whose distinct sub-sets are to be unioned.
+        Find the roots of a pair of two different elements of this
+        disjoint-set.
+
+        Used by union methods, to simultaneously find the roots of two
+        different elements of this disjoint-set, whose distinct sub-sets are
+        to be unioned.
         """
-        return (self.__find_method(self, element_1, compress),
-                self.__find_method(self, element_2, compress))
-    
-    def union_left(self,
-                   element_1: ST,
-                   element_2: ST,
-                   compress: Optional[bool] = None
-                   ) -> ST:
-        # noqa: D205, D400
+        return (
+            self.__find_method(self, element_1, compress),
+            self.__find_method(self, element_2, compress)
+        )
+
+    def union_left(
+        self,
+        element_1: ST,
+        element_2: ST,
+        compress: Optional[bool] = None
+    ) -> ST:
         """
         Union the sub-set containing the second element (right argument) onto
         the sub-set containing the first element (left argument).
-        
+
         This is such that the root of the new combined set, is the root
         of the original sub-set containing the first element.
-        
+
         Parameters
         ----------
         `element_1: ST@DisjointSet` - Any element of the disjoint-set.
-        
+
         `element_2: ST@DisjointSet` - Any element of the disjoint-set.
-        
-        `compress: {bool | None} = None` - Whether to compress the paths from both
-        of the given elements to the original root elements of their respective original sub-sets.
-        
+
+        `compress: {bool | None} = None` - Whether to compress the paths from
+        both of the given elements to the original root elements of their
+        respective original sub-sets.
+
         Returns
         -------
         `ST@DisjointSet` - The root element of the new combined set.
         """
         root_1, root_2 = self.__find_root_pair(element_1, element_2, compress)
-        if root_1 == root_2: return
+        if root_1 == root_2:
+            return
         self.__is_changed = True
         self.__parent_of[root_2] = root_1
         self.__rank_of[root_1] = self.__rank_of[root_1] + 1
         return root_1
-    
-    def union_right(self,
-                    element_1: ST,
-                    element_2: ST,
-                    compress: Optional[bool] = None
-                    ) -> ST:
-        # noqa: D205, D400
+
+    def union_right(
+        self,
+        element_1: ST,
+        element_2: ST,
+        compress: Optional[bool] = None
+    ) -> ST:
         """
         Union the sub-set containing the first element (left argument) onto
         the sub-set containing the second element (right argument).
-        
+
         This is such that the root of the new combined set, is the root
         of the original sub-set containing the second element.
-        
+
         Parameters
         ----------
         `element_1: ST@DisjointSet` - Any element of the disjoint-set.
-        
+
         `element_2: ST@DisjointSet` - Any element of the disjoint-set.
-        
-        `compress: {bool | None} = None` - Whether to compress the paths from both
-        of the given elements to the original root elements of their respective original sub-sets.
-        
+
+        `compress: {bool | None} = None` - Whether to compress the paths from
+        both of the given elements to the original root elements of their
+        respective original sub-sets.
+
         Returns
         -------
         `ST@DisjointSet` - The root element of the new combined set.
         """
         root_1, root_2 = self.__find_root_pair(element_1, element_2, compress)
-        if root_1 == root_2: return
+        if root_1 == root_2:
+            return
         self.__is_changed = True
         self.__parent_of[root_1] = root_2
         self.__rank_of[root_2] = self.__rank_of[root_2] + 1
         return root_2
-    
-    def union(self,
-              element_1: ST,
-              element_2: ST,
-              compress: Optional[bool] = None
-              ) -> ST:
-        # noqa: D205, D400
+
+    def union(
+        self,
+        element_1: ST,
+        element_2: ST,
+        compress: Optional[bool] = None
+    ) -> ST:
         """
         Union the sub-sets containing the given elements together,
         using the union-by-rank algorithm.
-        
+
         This ensures that the smaller original sub-set is unioned onto
         the larger original sub-set. This is such that the root of the
         new combined set, is the root of the larger original sub-set.
-        
+
         This is beneficial, since it reduces the average path length
         from any given descendent element of the combined set, to it's root.
-        If the larger set were unioned onto the smaller, there would be a greater
-        number of set elements, that were one element further from the root node
-        after the union operation. Performing such an operation many times without
-        path compression, can massively increase the complexity of the find operation
-        on the disjoint set (i.e. searching the sub-set's trees).
-        
+        If the larger set were unioned onto the smaller, there would be a
+        greater number of set elements, that were one element further from the
+        root node after the union operation. Performing such an operation many
+        times without path compression, can massively increase the complexity
+        of the find operation on the disjoint set (i.e. searching the
+        sub-set's trees).
+
         Parameters
         ----------
         `element_1: ST@DisjointSet` - Any element of the disjoint-set.
-        
+
         `element_2: ST@DisjointSet` - Any element of the disjoint-set.
-        
-        `compress: {bool | None} = None` - Whether to compress the paths from both
-        of the given elements to the original root elements of their respective original sub-sets.
-        
+
+        `compress: {bool | None} = None` - Whether to compress the paths from
+        both of the given elements to the original root elements of their
+        respective original sub-sets.
+
         Returns
         -------
         `ST@DisjointSet` - The root element of the new combined set.
         """
         root_1, root_2 = self.__find_root_pair(element_1, element_2, compress)
-        if root_1 == root_2: return
+        if root_1 == root_2:
+            return
         self.__is_changed = True
-        
+
         ## Union by rank - Always union the shorter tree into the longer tree;
         ##      - If you put the longer tree onto the shorter;
         ##          - The tree may grow linearly,
@@ -778,33 +810,40 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         if self.__rank_of[root_1] > self.__rank_of[root_2]:
            root_1, root_2 = root_2, root_1
         self.__parent_of[root_1] = root_2
-        
+
         ## If the ranks of the roots are the same then the tree whose root was unioned onto has now grown
         ## (if the ranks are different that means that the tree unioned onto was already deeper than the other so it hasn't grown),
         ## and therefore the rank of the root that was unioned onto must increase (this will always be root_2),
         ## to keep the rank proportionate to depth growth from union operations.
         if self.__rank_of[root_1] == self.__rank_of[root_2]:
             self.__rank_of[root_2] = self.__rank_of[root_2] + 1
-        
+
         return root_2
-    
-    def union_many(self,
-                   elements: Iterable[ST],
-                   compress: Optional[bool] = None
-                   ) -> ST:
-        """Union all elements in the given iterable of elements and return the root of the resulting sub-set."""
+
+    def union_many(
+        self,
+        elements: Iterable[ST],
+        compress: Optional[bool] = None
+    ) -> ST:
+        """
+        Union all elements in the given iterable of elements and return the
+        root of the resulting sub-set.
+        """
         iter_: Iterator[ST] = iter(elements)
-        try: first: ST = next(iter_)
-        except: return
+        try:
+            first: ST = next(iter_)
+        except StopIteration:
+            return
         for element in iter_:
             root: ST = self.union(first, element, compress)
         return root
-    
-    def is_connected(self,
-                     element_1: ST,
-                     *elements: ST,
-                     compress: Optional[bool] = None
-                     ) -> bool:
+
+    def is_connected(
+        self,
+        element_1: ST,
+        *elements: ST,
+        compress: Optional[bool] = None
+    ) -> bool:
         """
         Determine whether the two elements are in the same disjoint sub-set.
         
