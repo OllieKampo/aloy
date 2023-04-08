@@ -89,9 +89,10 @@ class SnakeGameEnv(gym.Env[np.ndarray, tuple[int, int]]):
     def get_obs(self):
         obs = np.zeros(self.game._grid_size, dtype=np.int8)
         obs[self.game._food] = 1
-        obs[tuple(segment for segment in zip(*self.game._snake))] = 2
+        obs[tuple(segment for segment in zip(*self.game._snake[1:]))] = 2
+        obs[self.game._snake[0]] = 3
         if self.game._obstacles:
-            obs[tuple(obstacle for obstacle in zip(*self.game._obstacles))] = 3
+            obs[tuple(obstacle for obstacle in zip(*self.game._obstacles))] = 4
         return obs
 
 snake_env = SnakeGameEnv(10, 10)
@@ -104,31 +105,34 @@ class DQN(nn.Module):
     def __init__(self, n_observations, n_actions):
         super().__init__()
         self.n_observations = n_observations
-        self.layer1 = nn.Linear(n_observations, 1024)
-        self.layer2 = nn.Linear(1024, 512)
-        self.layer3 = nn.Linear(512, 128)
+        self.layer1 = nn.Conv2d(1, 32, kernel_size=2, stride=1)
+        self.layer2 = nn.Conv2d(32, 64, kernel_size=2, stride=1)
+        self.layer3 = nn.Linear(4096, 128)
         self.layer4 = nn.Linear(128, n_actions)
 
     # Called with either one element to determine next action, or a batch
     # during optimization. Returns tensor([[left0exp,right0exp]...]).
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = F.relu(self.layer1(x.view(-1, self.n_observations))) # -1 is the batch size
+        x = x.unsqueeze(1)
+        x = F.relu(self.layer1(x))
         x = F.relu(self.layer2(x))
+        # x = F.max_pool2d(x, 2)
+        x = x.view(-1, 4096)
         x = F.relu(self.layer3(x))
         return self.layer4(x)
 
 # BATCH_SIZE is the number of transitions sampled from the replay buffer
-# GAMMA is the discount factor as mentioned in the previous section
+# GAMMA is the discount factor
 # EPS_START is the starting value of epsilon
 # EPS_END is the final value of epsilon
 # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
 # TAU is the update rate of the target network
 # LR is the learning rate of the AdamW optimizer
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 GAMMA = 0.99
-EPS_START = 0.9
+EPS_START = 0.95
 EPS_END = 0.05
-EPS_DECAY = 1000
+EPS_DECAY = 5000
 TAU = 0.005
 LR = 1e-4
 
