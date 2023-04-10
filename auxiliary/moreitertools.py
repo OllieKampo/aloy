@@ -266,8 +266,6 @@ def index_sequence(
     indices: Iterable[int]
 ) -> Iterator[VT]:
     """Get an iterator over the sequence at the given indices."""
-    if not isinstance(sequence, Sequence):
-        raise TypeError(f"Input must be a sequence. Got; {sequence} of type {type(sequence)}.")
     yield from (sequence[i] for i in indices)
 
 
