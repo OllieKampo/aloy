@@ -31,13 +31,13 @@ import itertools
 import math
 from numbers import Number, Real
 from random import getrandbits as randbits
-from typing import Any, Callable, Generic, Iterable, Iterator, Literal, Optional, Type, TypeVar
+from typing import Any, Generic, Iterable, Iterator, Literal, Type, TypeVar
 from typing_extensions import override
 from numpy.random import choice, random_integers, Generator, default_rng
-from moremath.mathutils import normalize_between, normalize_to_sum
+from moremath.mathutils import normalize_to_sum
 
 from auxiliary.progressbars import ResourceProgressBar
-from auxiliary.moreitertools import arg_max_n, chunk, ichunk_sequence, cycle_for, getitem_zip, index_sequence, max_n
+from auxiliary.moreitertools import arg_max_n, chunk, cycle_for, getitem_zip, index_sequence, max_n
 
 import numpy as np
 
@@ -229,7 +229,7 @@ class GeneticEncoder(Generic[ST], metaclass=ABCMeta):
     def __init__(self,
                  chromosome_length: int,
                  permutation: bool = False,
-                 base: BitStringBaseTypes | Literal["bin", "oct", "hex"] | list[GT] | ArbitraryBase = "bin"  ## TODO
+                 base: BitStringBaseTypes | Literal["bin", "oct", "hex"] | list[GT] | NumericalBase | ArbitraryBase = "bin"  ## TODO
                  ) -> None:
         """Create a genetic encoder with a given gene length and base type."""
         self.__chromosome_length: int = chromosome_length
@@ -239,9 +239,10 @@ class GeneticEncoder(Generic[ST], metaclass=ABCMeta):
             self.__base = base.value
         elif isinstance(base, list):
             self.__base = ArbitraryBase("arbitrary", base)
-        elif isinstance(base, ArbitraryBase):
+        elif isinstance(base, (NumericalBase, ArbitraryBase)):
             self.__base = base
-        else: raise TypeError(F"Unknown base; {base} of type {type(base)}. Expected one of: BitStringBase, str, list, ArbitraryBase.")
+        else:
+            raise TypeError(F"Unknown base; {base} of type {type(base)!r}. Expected one of: BitStringBase, str, list, NumericalBase, ArbitraryBase.")
     
     @property
     def chromosome_length(self) -> int:
@@ -633,7 +634,8 @@ class PairSwapMutator(GeneticMutator):
                              f"Got; {pairs} of type {type(pairs)}.")
         self.__pairs: int = pairs
         ## Monkey patch the mutate method for the single pair case.
-        if pairs == 1: self.mutate = self.__one_pair_swap_mutate
+        if pairs == 1:
+            self.mutate = self.__one_pair_swap_mutate
     
     def __one_pair_swap_mutate(self, chromosome: CT, base: GeneBase) -> CT:
         """Swap mutate the given chromosome encoded in the given base."""
@@ -643,7 +645,7 @@ class PairSwapMutator(GeneticMutator):
     
     def mutate(self, chromosome: CT, base: GeneBase) -> CT:
         """Swap mutate the given chromosome encoded in the given base."""
-        pairs = ichunk(self.generator.integers(len(chromosome), size=(self.__pairs * 2)), 2)
+        pairs = chunk(self.generator.integers(len(chromosome), size=(self.__pairs * 2)), 2)
         for index_1, index_2 in pairs:
             chromosome[index_1], chromosome[index_2] = chromosome[index_2], chromosome[index_1]
         return chromosome
@@ -988,7 +990,7 @@ class GeneticSystem:
               solution is then the sum of the quality of its parts.
         
         - Identifier list representation - Any sized set of arbitrary identifiers for properties or elements of a solution;
-            - The nucleotide bases are any of a set of identifiers; "london", "birmingham", "leeds".
+            - The nucleotide bases are any of a set of identifiers; "london", "birmingham", "manchester", etc.
             - Useful when solution length is known, but ordering needs to be optimised.
         
         - Multiple chromosome representation
@@ -1373,10 +1375,11 @@ class GeneticSystem:
     
     def create_population(self, population_size: int) -> list[CT]:
         """Create a new population of the given size."""
-        total_bits: int = self.__encoder.base.bits * self.__encoder.chromosome_length
-        return [format(randbits(total_bits),
-                       self.__encoder.base.format_).zfill(self.__encoder.chromosome_length)
-                for _ in range(population_size)]
+        # total_bits: int = self.__encoder.base.bits * self.__encoder.chromosome_length
+        # return [format(randbits(total_bits),
+        #                self.__encoder.base.format_).zfill(self.__encoder.chromosome_length)
+        #         for _ in range(population_size)]
+        return self.__encoder.base.random_chromosomes(self.__encoder.chromosome_length, population_size)
     
     def cull_population(self,
                         population: list[CT],
