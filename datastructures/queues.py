@@ -25,8 +25,8 @@ import collections.abc
 import heapq
 from dataclasses import dataclass
 from numbers import Real
-from typing import (Callable, Generic, Hashable, Iterable, Iterator, TypeVar,
-                    overload)
+from typing import (Callable, Generic, Hashable, ItemsView, Iterable, Iterator,
+                    KeysView, TypeVar, ValuesView, overload)
 
 from auxiliary.typingutils import HashableSupportsRichComparison
 
@@ -39,9 +39,9 @@ __all__ = (
 )
 
 
-def __dir__() -> tuple[str]:
+def __dir__() -> tuple[str, ...]:
     """Get the names of module attributes."""
-    return sorted(__all__)
+    return tuple(sorted(__all__))
 
 
 ST = TypeVar("ST", bound=HashableSupportsRichComparison)
@@ -68,8 +68,8 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
     Wraps Python's built-in heap-queue algorithm for OOP use, and adds
     fast membership tests and deletes via a hash table and lazy delete list.
 
-    Iterating over the queue does not necessary yield items in priority order.
-    Unlike a heap-queue, the first iten in the queue is not necessarily the
+    Iterating over the queue does not necessary yield items in priority order,
+    and unlike a heap-queue, the first item in the queue is not necessarily the
     item with the lowest priority value, because of the lazy delete list.
 
     Instances are not thread-safe.
@@ -88,9 +88,8 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
         """
         Create a sorted queue from a series of items.
 
-        The order of the items is defined by the
-        natural ordering of the items according to
-        their rich comparison methods.
+        The order of the items is defined by the natural ordering of the items
+        according to their rich comparison methods.
         """
         ...
 
@@ -104,77 +103,55 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
         """
         Create a sorted queue from a series of items and a key function.
 
-        The order of the items is defined by the ordering over the
-        respective values returned from the key function, where the
-        ordering can be set to pop either the min of max value first.
-        """
-        ...
-
-    @overload
-    def __init__(self, iterable: Iterable[ST], /) -> None:
-        """
-        Create a sorted queue from an iterable.
-
-        The order of the items is defined by the
-        natural ordering of the items according to
-        their rich comparison methods.
-        """
-        ...
-
-    @overload
-    def __init__(
-        self,
-        iterable: Iterable[ST], /, *,
-        key: Callable[[ST], Real] | None = None,
-        min_first: bool = True
-    ) -> None:
-        """
-        Create a sorted queue from an iterable and a key function.
-
-        The order of the items is defined by the ordering over the
-        respective values returned from the function, where the
-        ordering can be set to pop either the min of max value first.
+        The order of the items is defined by the ordering over the respective
+        values returned from the key function, where the ordering can be set
+        to pop either the min of max value first.
         """
         ...
 
     def __init__(
         self,
-        *items: ST | Iterable[ST],
+        *items: ST,
         key: Callable[[ST], Real] | None = None,
         min_first: bool = True
     ) -> None:
         """Create a sorted queue of items."""
-        if len(items) == 1:
-            try:
-                # Must not assign items = items[0] first,
-                # as this breaks the except.
-                iterable = iter(items[0])
-                items = items[0]
-            except TypeError:
-                items = [items]
-                iterable = iter(items)
-        else:
-            iterable = iter(items)
+        # The queue itself is a heap.
+        self.__heap: list[ST | QItem[ST]]
 
-        # The queue itself is a heap;
-        #       - The get and set functions convert
-        #         to and from the value-item tuples
-        #         if the key function is given.
+        # The get and set functions convert to and from the value-item tuples
+        # if the key function is given.
+        self.__get: Callable[[ST | QItem[ST]], ST]
+        self.__set: Callable[[ST], QItem[ST] | ST]
+
+        iterable = iter(items)
         if key is None:
-            self.__heap: list[ST] = list(iterable)
-            self.__get: Callable[[ST], ST] = lambda item: item
-            self.__set: Callable[[ST], ST] = self.__get
+            self.__heap = list(iterable)
+
+            def _get(item):
+                return item
+
+            self.__get = _get
+            self.__set = _get
         else:
             if not min_first:
                 def _key(item: ST) -> Real:
-                    return -key(item)
+                    return -key(item)  # type: ignore
                 key = _key
-            self.__heap: list[QItem[ST]] = [QItem(key(item), item)
-                                            for item in iterable]
-            self.__get: Callable[[QItem[ST]], ST]
-            self.__get = lambda qitem: qitem.item
-            self.__set: Callable[[ST], QItem[ST]]
-            self.__set = lambda item: QItem(key(item), item)
+
+            self.__heap = [
+                QItem(key(item), item)
+                for item in iterable
+            ]
+
+            def _get(qitem):
+                return qitem.item
+
+            def _set(item):
+                return QItem(key(item), item)
+
+            self.__get = _get
+            self.__set = _set
 
         # Heapify the heap.
         heapq.heapify(self.__heap)
@@ -185,20 +162,68 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
         # Store a lazy delete "list" for fast item removal.
         self.__delete: set[ST] = set()
 
+    @overload
+    @classmethod
+    def from_iterable(cls, iterable: Iterable[ST], /) -> "SortedQueue[ST]":
+        """
+        Create a sorted queue from an iterable.
+
+        The order of the items is defined by the
+        natural ordering of the items according to
+        their rich comparison methods.
+        """
+        ...
+
+    @overload
+    @classmethod
+    def from_iterable(
+        cls,
+        iterable: Iterable[ST], /, *,
+        key: Callable[[ST], Real] | None = None,
+        min_first: bool = True
+    ) -> "SortedQueue[ST]":
+        """
+        Create a sorted queue from an iterable and a key function.
+
+        The order of the items is defined by the ordering over the
+        respective values returned from the function, where the
+        ordering can be set to pop either the min of max value first.
+        """
+        ...
+
+    @classmethod
+    def from_iterable(
+        cls,
+        iterable: Iterable[ST],
+        key: Callable[[ST], Real] | None = None,
+        min_first: bool = True
+    ) -> "SortedQueue[ST]":
+        """Create a sorted queue from an iterable."""
+        return cls(*iterable, key=key, min_first=min_first)
+
+    def copy(self) -> "SortedQueue[ST]":
+        """Return a shallow copy of the queue."""
+        heap: "SortedQueue[ST]" = self.__class__()
+        heap.__members = self.__members.copy()  # pylint: disable=W0212,W0238
+        heap.__get = self.__get                 # pylint: disable=W0212,W0238
+        heap.__set = self.__set                 # pylint: disable=W0212,W0238
+        heap.__heap = self.__heap.copy()        # pylint: disable=W0212,W0238
+        heap.__delete = self.__delete.copy()    # pylint: disable=W0212,W0238
+        return heap
+
     def __str__(self) -> str:
         """Return a string representation of the queue."""
-        return f"Priority Queue with {len(self)} items"
+        return f"Sorted Queue with {len(self)} items"
 
     def __repr__(self) -> str:
         """Return an instantiable string representation of the queue."""
-        if not self.__delete:
-            heap = [self.__get(item) for item in self.__heap]
-            return f"{self.__class__.__name__}({heap})"
-        heap = [self.__get(item) for item in self.__heap
-                if item not in self.__delete]
-        return f"{self.__class__.__name__}({heap!r})"
+        heap = ", ".join(
+            str(item_priority)
+            for item_priority in self
+        )
+        return f"{self.__class__.__name__}({heap})"
 
-    def __contains__(self, item: ST) -> bool:
+    def __contains__(self, item: object) -> bool:
         """Return whether an item is in the queue."""
         return item in self.__members
 
@@ -215,7 +240,19 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
         return bool(self.__members)
 
     def iter_ordered(self) -> Iterator[ST]:
-        """Iterate over the items in the queue in priority order."""
+        """
+        Iterate over the items in the queue in sorted order.
+
+        Note that this method has to clear the lazy delete list, which
+        can be expensive if the queue is large and many deletions have
+        been made since the last pop.
+
+        Returns
+        -------
+        `Iterator[ST]` - An iterator over the items in the queue in sorted
+        order.
+        """
+        self.clear_deletes()
         if not self:
             return
         indices: list[int] = [0]
@@ -223,13 +260,36 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
         len_ = len(self)
         while indices:
             min_index = min(indices, key=__getitem__)
-            yield self.__heap[min_index][1]
+            yield self.__get(self.__heap[min_index])
             indices.remove(min_index)
             index: int = (min_index * 2) + 1
             if index < len_:
                 indices.append(index)
             if index + 1 < len_:
                 indices.append(index + 1)
+
+    def clear_deletes(self) -> None:
+        """
+        Clear the lazy delete list.
+
+        Lazy deletes are usually cleared progressively as items are
+        popped from the queue, and as such calling this method is
+        usually unnecessary. However, if one wants to store or save
+        a large queue that has had many deletions, it may save some
+        memory to clear the lazy delete list explicitly.
+        """
+        if not self:
+            self.__delete.clear()
+            self.__heap.clear()
+        else:
+            remove_indices: list[int] = []
+            for index, item in enumerate(self.__heap):
+                if item in self.__delete:
+                    remove_indices.append(index)
+            for remove_index in reversed(remove_indices):
+                self.__heap[remove_index] = self.__heap[-1]
+                self.__heap.pop()
+            self.__delete.clear()
 
     def push(self, item: ST, /) -> None:
         """
@@ -246,7 +306,6 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
             else:
                 heapq.heappush(self.__heap, self.__set(item))
 
-    @overload
     def push_all(self, *items: ST) -> None:
         """
         Push a series of items onto the queue in-place.
@@ -255,10 +314,10 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
         ----------
         `*items: ST@SortedQueue` - The items to push.
         """
-        ...
+        for item in items:
+            self.push(item)
 
-    @overload
-    def push_all(self, items: Iterable[ST], /) -> None:
+    def push_from(self, iterable: Iterable[ST], /) -> None:
         """
         Push an iterable of items onto the queue in-place.
 
@@ -266,18 +325,11 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
         ----------
         `items: Iterable[ST@SortedQueue]` - The items to push.
         """
-        ...
-
-    def push_all(self, *items: ST | Iterable[ST]) -> None:
-        """Push a series of items onto the queue in-place."""
-        if len(items) == 1:
-            items = items[0]
-
         # If the iterable is a set we can use the hash-based set
         # operations to speed up the necessary membership testing.
-        if isinstance(items, set):
+        if isinstance(iterable, set):
             # Add all items that are not already members.
-            items = items - self.__members
+            items = iterable - self.__members
             self.__members |= items
 
             # Push all items not in the lazy delete list to the heap.
@@ -290,7 +342,7 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
 
         # Otherwise simply iterate over the items.
         else:
-            for item in items:
+            for item in iterable:
                 self.push(item)
 
     def pop(self) -> ST:
@@ -356,18 +408,19 @@ VT = TypeVar("VT", bound=HashableSupportsRichComparison)
 QT = TypeVar("QT", bound=Hashable)
 
 
-class PriorityQueue(collections.abc.MutableMapping, Generic[VT, QT]):
+class PriorityQueue(collections.abc.Mapping, Generic[VT, QT]):
     """
     Class defining a priority queue implementation.
 
-    A priority queue is a queue where items are popped in priority order.
-    The priority of an item is given when the item is pushed onto the queue.
+    A priority queue is a queue where items are popped in priority order
+    (always lowest priority first). The priority of an item must be given when
+    the item is pushed onto the queue.
 
     Wraps Python's built-in heap-queue algorithm for OOP use, and adds
-    fast membership tests and delete via a hash table and lazy delete list.
+    fast membership tests and deletes via a hash table and lazy delete list.
 
-    Iterating over the queue does not necessary yield items in priority order.
-    Unlike a heap-queue, the first iten in the queue is not necessarily the
+    Iterating over the queue does not necessary yield items in priority order,
+    and unlike a heap-queue, the first item in the queue is not necessarily the
     item with the lowest priority value, because of the lazy delete list.
 
     Instances are not thread-safe.
@@ -379,41 +432,18 @@ class PriorityQueue(collections.abc.MutableMapping, Generic[VT, QT]):
         "__delete": "Lazy delete 'list' (a set) for fast item removal."
     }
 
-    @overload
     def __init__(self, *items: tuple[QT, VT]) -> None:
         """
         Create a priority queue from a series of item-priority tuple pairs.
 
         Items with lower priority values are popped from the queue first.
         """
-        ...
-
-    @overload
-    def __init__(self, iterable: Iterable[tuple[QT, VT]], /) -> None:
-        """
-        Create a priority queue from an iterable of item-priority tuple pairs.
-
-        The iterable itself must not be a tuple.
-
-        Items with lower priority values are popped from the queue first.
-        """
-        ...
-
-    def __init__(
-        self,
-        *items: tuple[QT, VT] | Iterable[tuple[QT, VT]]
-    ) -> None:
-        """Create a priority queue of item-priority tuple pairs."""
-        if len(items) == 1:
-            if not isinstance(items[0], tuple):
-                items = iter(items[0])
-
         # Store a set of members for fast membership checks.
         self.__members: dict[QT, VT] = dict(items)
 
         # The queue itself is a heap.
         self.__heap: list[tuple[VT, QT]] = [
-            (value, item) for item, value in self.__members.items()
+            (value, item) for item, value in items
         ]
 
         # Heapify the heap.
@@ -422,12 +452,24 @@ class PriorityQueue(collections.abc.MutableMapping, Generic[VT, QT]):
         # Store a lazy delete "list" for fast item removal.
         self.__delete: set[tuple[VT, QT]] = set()
 
+    @classmethod
+    def from_iterable(
+        cls,
+        iterable: Iterable[tuple[QT, VT]], /
+    ) -> "PriorityQueue[VT, QT]":
+        """
+        Create a priority queue from an iterable of item-priority tuple pairs.
+
+        Items with lower priority values are popped from the queue first.
+        """
+        return cls(*iterable)
+
     def copy(self) -> "PriorityQueue[VT, QT]":
         """Return a shallow copy of the queue."""
-        heap = self.__class__()
-        heap.__members = self.__members.copy()
-        heap.__heap = self.__heap.copy()
-        heap.__delete = self.__delete.copy()
+        heap: "PriorityQueue[VT, QT]" = self.__class__()
+        heap.__members = self.__members.copy()  # pylint: disable=W0212,W0238
+        heap.__heap = self.__heap.copy()        # pylint: disable=W0212,W0238
+        heap.__delete = self.__delete.copy()    # pylint: disable=W0212,W0238
         return heap
 
     def __str__(self) -> str:
@@ -436,14 +478,13 @@ class PriorityQueue(collections.abc.MutableMapping, Generic[VT, QT]):
 
     def __repr__(self) -> str:
         """Return an instantiable string representation of the queue."""
-        if not self.__delete:
-            heap = [(item, priority) for priority, item in self.__heap]
-            return f"{self.__class__.__name__}({heap!r})"
-        heap = [(item, priority) for priority, item in self.__heap
-                if item not in self.__delete]
-        return f"{self.__class__.__name__}({heap!r})"
+        heap = ", ".join(
+            str(item_priority)
+            for item_priority in self.items()
+        )
+        return f"{self.__class__.__name__}({heap})"
 
-    def __contains__(self, item: QT) -> bool:
+    def __contains__(self, item: object) -> bool:
         """Return whether an item is in the queue."""
         return item in self.__members
 
@@ -451,16 +492,12 @@ class PriorityQueue(collections.abc.MutableMapping, Generic[VT, QT]):
         """Return the priority of an item in the queue."""
         return self.__members[item]
 
-    def __setitem__(self, item: QT, priority: VT) -> None:
-        """Push an item onto the queue with given priority in-place."""
-        self.push(item, priority)
-
-    def __delitem__(self, item: QT) -> None:
-        """Delete an item from the queue."""
-        self.remove(item)
-
     def __iter__(self) -> Iterator[QT]:
-        """Return an iterator over the items in the queue."""
+        """
+        Return an iterator over the items in the queue.
+
+        The items are yielded in arbitrary order (not in priority order).
+        """
         yield from self.__members
 
     def __len__(self) -> int:
@@ -471,8 +508,31 @@ class PriorityQueue(collections.abc.MutableMapping, Generic[VT, QT]):
         """Return True if the queue is not empty."""
         return bool(self.__members)
 
+    def keys(self) -> KeysView[QT]:
+        """Return a view of the items in the queue."""
+        return self.__members.keys()
+
+    def values(self) -> ValuesView[VT]:
+        """Return a view of the priorities in the queue."""
+        return self.__members.values()
+
+    def items(self) -> ItemsView[QT, VT]:
+        """Return a view of the items and their priorities in the queue."""
+        return self.__members.items()
+
     def iter_ordered(self) -> Iterator[QT]:
-        """Iterate over the items in the queue in priority order."""
+        """
+        Iterate over the items in the queue in priority order.
+
+        Note that this method has to clear the lazy delete list, which
+        can be expensive if the queue is large and many deletions have
+        been made since the last pop.
+
+        Returns
+        -------
+        `Iterator[QT]` - An iterator over the items in the queue in priority
+        order.
+        """
         if not self:
             return
         indices: list[int] = [0]
@@ -492,9 +552,41 @@ class PriorityQueue(collections.abc.MutableMapping, Generic[VT, QT]):
         """
         Iterate over the items and their priorities in the queue in priority
         order.
+
+        Note that this method has to clear the lazy delete list, which
+        can be expensive if the queue is large and many deletions have
+        been made since the last pop.
+
+        Returns
+        -------
+        `Iterator[tuple[QT, VT]]` - An iterator over the items and their
+        priorities in the queue in priority order.
         """
         yield from ((item, self.__members[item])
                     for item in self.iter_ordered())
+
+    def clear_deletes(self) -> None:
+        """
+        Clear the lazy delete list.
+
+        Lazy deletes are usually cleared progressively as items are
+        popped from the queue, and as such calling this method is
+        usually unnecessary. However, if one wants to store or save
+        a large queue that has had many deletions, it may save some
+        memory to clear the lazy delete list explicitly.
+        """
+        if not self:
+            self.__delete.clear()
+            self.__heap.clear()
+        else:
+            remove_indices: list[int] = []
+            for index, item_priority in enumerate(self.__heap):
+                if item_priority in self.__delete:
+                    remove_indices.append(index)
+            for remove_index in reversed(remove_indices):
+                self.__heap[remove_index] = self.__heap[-1]
+                self.__heap.pop()
+            self.__delete.clear()
 
     def push(self, item: QT, priority: VT, /) -> None:
         """
@@ -521,8 +613,6 @@ class PriorityQueue(collections.abc.MutableMapping, Generic[VT, QT]):
             self.__members[item] = priority
             heapq.heappush(self.__heap, (priority, item))
 
-    ## TODO: collections.abc.MutableMapping takes key: KT, and optional default: VT, but this does not make sense for a priority queue (it would just be a remove).
-    ## Sequence takes optioal index: int, but this also does not make sense for a priority queue (it would have to pop the lowest priority item, or pop indexed based on priority).
     def pop(self) -> QT:
         """
         Pop the lowest priority item from the queue.
@@ -564,7 +654,7 @@ class PriorityQueue(collections.abc.MutableMapping, Generic[VT, QT]):
             self.__delete.remove(priority_item)
         raise IndexError("Pop from empty priority queue.")
 
-    def __push_pop(self, item: QT, priority: VT, /) -> tuple[QT, VT]:
+    def __push_pop(self, item: QT, priority: VT, /) -> tuple[VT, QT]:
         if item not in self:
             self.__members[item] = priority
             priority_item = (priority, item)
