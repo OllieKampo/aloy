@@ -38,9 +38,9 @@ __all__ = (
 )
 
 
-def __dir__() -> tuple[str]:
+def __dir__() -> tuple[str, ...]:
     """Get the names of module attributes."""
-    return __all__
+    return tuple(sorted(__all__))
 
 
 @runtime_checkable
@@ -144,7 +144,7 @@ class ClockThread:
     @property
     def tick_rate(self) -> int:
         """Return the tick rate of the clock."""
-        return 1.0 / self.__sleep_time
+        return int(1.0 / self.__sleep_time)
 
     @tick_rate.setter
     def tick_rate(self, value: int) -> None:
@@ -211,22 +211,3 @@ class ClockThread:
             if self.__running.is_set():
                 self.__stopped.set()
                 self.__running.wait()
-
-
-if __name__ == "__main__":
-    import time
-    import threading
-
-    class Test:
-        def __init__(self, name: str) -> None:
-            self.name = name
-            self.value = 0
-
-        def tick(self) -> None:
-            self.value += 1
-            sorted(np.random.random(10000))
-            print("Tick", self.name, self.value)
-
-    clock = ClockThread(Test("A"), Test("B"), Test("C"), tick_rate=10)
-    clock.start()
-    time.sleep(100)
