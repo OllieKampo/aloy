@@ -1,8 +1,11 @@
-from build.example import add, arg_first_where, Mult
+from build.example import add, arg_first_where, simulate_control, Mult
 
 from concurrent.futures import ThreadPoolExecutor
 import time
 import numpy as np
+
+from control.pid import PIDController
+from control.systems import InvertedPendulumSystem
 
 print(add(1, 2))
 m = Mult(2)
@@ -22,11 +25,6 @@ with ThreadPoolExecutor(max_workers=4) as executor:
         print(r)
 
 print("--- %s seconds ---" % (time.time() - start_time))
-
-from build.example import simulate_control
-
-from control.pid import PIDController
-from control.systems import InvertedPendulumSystem
 
 pend_system = InvertedPendulumSystem()
 controller = PIDController(15.94104423478139, 1.0806148906694266, 5.159623499281683, initial_error=pend_system.get_control_input())
