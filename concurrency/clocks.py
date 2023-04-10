@@ -27,8 +27,6 @@ import time
 from typing import Callable, Protocol, final, runtime_checkable
 import warnings
 
-import numpy as np
-
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
 
