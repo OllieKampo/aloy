@@ -31,7 +31,8 @@ class MovingAverage(Generic[NT]):
         self,
         window: int,
         initial: NT | None = None,
-        track_window: bool = False,
+        track_window: bool = True,
+        fast_track: bool = True,
         under_full_zero: bool = True
     ) -> None:
         """
@@ -45,8 +46,8 @@ class MovingAverage(Generic[NT]):
         approximate method can be more than 5x faster. However, for cases
         where appended numbers have a large and random variance, the
         approximate method can be extremely inaccurate. In cases where
-        append numbers have small variance, or increase or increase
-        monotomically, the approximate method is reasonably accurate.
+        append numbers have small variance, or increase or decrease
+        monotonically, the approximate method is reasonably accurate.
 
         Parameters
         ----------
@@ -59,6 +60,14 @@ class MovingAverage(Generic[NT]):
         window. If `False`, the data will be discarded after it is used to
         calculate the average. If `True`, the data will be stored in a
         `collections.deque` and can be accessed via the `data` property.
+
+        `fast_track: bool = True` - Whether to use the fast track method.
+        If `track_window` is `True`; then if `fast_track` is `True`, instead
+        of summing the data in the window, the total oldest value is
+        substracted from the currrent running total and the new value is
+        added (this is faster, but can become inaccurate over a large number
+        of appends), otherwise if `False`, the data in the window will be
+        summed each time a new value is appended.
 
         `under_full_zero: bool = True` - Whether to return 0 if the window
         is not full. If `True`, the average will return 0 if the window is
@@ -83,7 +92,10 @@ class MovingAverage(Generic[NT]):
         if track_window:
             self.__data = deque(maxlen=window)
             self.__stored = None
-            self.__append = self.__append_track
+            if fast_track:
+                self.__append = self.__append_track_fast
+            else:
+                self.__append = self.__append_track
         else:
             self.__data = None
             self.__stored = 0
@@ -134,6 +146,17 @@ class MovingAverage(Generic[NT]):
     def __append_track(self, value: NT) -> None:
         self.__data.append(value)
         self.__total = sum(self.__data)
+        if len(self.__data) == self.__window or not self.__under_full:
+            self.__average = self.__total / len(self.__data)
+        else:
+            self.__average = 0
+
+    @functools.wraps(append)
+    def __append_track_fast(self, value: NT) -> None:
+        if len(self.__data) == self.__window:
+            self.__total -= self.__data[0]
+        self.__data.append(value)
+        self.__total += value
         if len(self.__data) == self.__window or not self.__under_full:
             self.__average = self.__total / len(self.__data)
         else:
