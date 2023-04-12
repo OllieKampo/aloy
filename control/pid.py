@@ -35,7 +35,7 @@ __all__ = (
 )
 
 
-def __dir__() -> tuple[str]:
+def __dir__() -> tuple[str, ...]:
     """Get the names of module attributes."""
     return __all__
 
@@ -219,7 +219,7 @@ class PIDController(Controller):
 
         `(Tp: float, Ti: float, Td: float)` - The PID control output terms.
         """
-        return self.__Tp, self.__Ti, self.__Td
+        return PIDControllerTerms(self.__Tp, self.__Ti, self.__Td)
 
     @property
     def gains(self) -> PIDControllerGains:
@@ -271,10 +271,10 @@ class PIDController(Controller):
         """
         Get or set the moving average derivative error window size.
 
-        `average_derivative : int` - The number of error points to use for
+        `average_derivative: int` - The number of error points to use for
         the moving average calculation of the derivative error as an integer.
         """
-        return self.__derivatives.maxlen
+        return self.__derivatives.maxlen  # type: ignore
 
     @average_derivative.setter
     def average_derivative(
@@ -331,7 +331,7 @@ class PIDController(Controller):
                              f"Got; {delta_time}.")
 
         # Calculate control input and error.
-        control_input: float = self.transform_input(control_input)
+        control_input = self.transform_input(control_input)
         control_error: float = calc_error(control_input, setpoint,
                                           *self.input_limits)
         control_error = self.transform_error(control_error)
@@ -354,9 +354,9 @@ class PIDController(Controller):
         control_output = clamp(self.transform_output(control_output),
                                *self.output_limits)
 
-        self._latest_input = control_input
-        self._latest_error = control_error
-        self._latest_output = control_output
+        self._latest_input = control_input    # type: ignore
+        self._latest_error = control_error    # type: ignore
+        self._latest_output = control_output  # type: ignore
 
         return control_output
 
