@@ -197,43 +197,44 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
                                         "path_split", "path_halve"] = "loop_compress"
                  ) -> None:
         """Create a new disjoint-set."""
-        ## Variables for storing the disjoint-set elements themselves.
-        self.__parent_of: dict[ST, ST] = {} # Maps: child element -> its parent element
-        self.__rank_of: dict[ST, int] = {} # Maps: root element -> rank of its set
-        
+        # Variables for storing the disjoint-set elements themselves.
+        self.__parent_of: dict[ST, ST] = {}  # Maps: child -> parent element
+        self.__rank_of: dict[ST, int] = {}   # Maps: root -> rank of its set
+
         if isinstance(sets_or_elements, Mapping):
-            ## If the disjoint-set elements are given as a mapping, create
-            ## a disjoint sub-set for each item of the mapping, where the
-            ## keys are the sub-sets' root and the values the set elements.
+            # If the disjoint-set elements are given as a mapping, create
+            # a disjoint sub-set for each item of the mapping, where the
+            # keys are the sub-sets' root and the values the set elements.
             for root, set_ in sets_or_elements.items():
-                
-                ## If this sub-set's given root is already in the disjoint-set, then fall back
-                ## on unioning this sub-set with the existing sub-set that contains the given root.
-                ## Therefore instead set the parent of all of this sub-sets elements to the root of
-                ## the existing sub-set that already contains the originally given root.
+
+                # If this sub-set's given root is already in the disjoint-set,
+                # then fall back on unioning this sub-set with the existing
+                # sub-set that contains the given root. Therefore, instead set
+                # the parent of all of this sub-sets elements to the root of
+                # the existing sub-set that already contains the originally given root.
                 if root in self:
                     if not isinstance(set_, set):
                         set_ = {set_}
                     root = self.find_root(root, compress=False)
                 else:
-                    ## Otherwise this is a valid disjoint sub-set, and it is
-                    ## necessary to ensure the root is in the sub-set.
+                    # Otherwise this is a valid disjoint sub-set, and it is
+                    # necessary to ensure the root is in the sub-set.
                     if not isinstance(set_, set):
                         set_ = {set_, root}
                     else:
                         set_ = set_ | {root}
-                
-                ## Assign the parent of all elements in the sub-set to be its root.
+
+                # Assign the parent of all elements in the sub-set to be its root.
                 for element in set_:
                     self.__parent_of[element] = root
-                
-                ## Initialise rank as 0 if the sub-set is a single element
-                ## (just the root), otherwise initialise the rank as 1 since
-                ## the set starts fully compressed.
+
+                # Initialise rank as 0 if the sub-set is a single element
+                # (just the root), otherwise initialise the rank as 1 since
+                # the set starts fully compressed.
                 self.__rank_of[root] = 0 if len(set_) == 1 else 1
         elif sets_or_elements is not None:
-            ## If the disjoint-set elements are given as an iterable, assign
-            ## each to its own disjoint sub-set and initialise rank as zero.
+            # If the disjoint-set elements are given as an iterable, assign
+            # each to its own disjoint sub-set and initialise rank as zero.
             self.__parent_of = {
                 element: element for element in sets_or_elements
             }
@@ -243,20 +244,20 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         else:
             self.__parent_of = {}
             self.__rank_of = {}
-        
-        ## Variables for caching containing disjoint sub-sets;
-        ##      - Only add and union operations will change the sub-sets,
-        ##      - Path compression only changes the paths within the sets.
+
+        # Variables for caching containing disjoint sub-sets;
+        #       - Only add and union operations will change the sub-sets,
+        #       - Path compression only changes the paths within the sets.
         self.__is_changed: bool = True
         self.__sets: dict[ST, frozenset[ST]] = {}
-        
-        ## Determine the default find method used by this disjoint set.
+
+        # Determine the default find method used by this disjoint set.
         if isinstance(find_method, DefaultFindMethod):
             default_find, can_compress = find_method.value
         else:
             default_find, can_compress = DefaultFindMethod[find_method].value
-        
-        ## Create an alias for calling the default find method.
+
+        # Create an alias for calling the default find method.
         if can_compress:
             if "compress" in find_method:
                 def _default_find(self, element: ST, compress: bool) -> ST:
@@ -272,13 +273,20 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
             self.__find_method = _default_find
 
     def __str__(self) -> str:
-        """Return string summary representation describing number of elements and disjoint sub-sets."""
-        sets_: dict[ST, set[ST]] = self.find_all_sets(compress=None, cache=True)
-        return f"Disjoint-Set: total elements = {len(self)}, total disjoint sub-sets = {len(sets_)}"
+        """
+        Return string summary representation describing number of elements and
+        disjoint sub-sets.
+        """
+        sets_: dict[ST, frozenset[ST]] = self.find_all_sets(
+            compress=None, cache=True)
+        return (f"Disjoint-Set: total elements = {len(self)}, "
+                f"total disjoint sub-sets = {len(sets_)}")
 
     def __repr__(self) -> str:
         """Return an instantiable string representation of the disjoint-set."""
-        return f"{self.__class__.__name__}({self.find_all_sets(compress=None, cache=True)})"
+        sets_: dict[ST, frozenset[ST]] = self.find_all_sets(
+            compress=None, cache=True)
+        return f"{self.__class__.__name__}({sets_!r})"
 
     def __getitem__(
         self,
@@ -290,7 +298,7 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         """
         return self.__find_method(self, element, compress=None)
 
-    def __contains__(self, element: ST) -> bool:
+    def __contains__(self, element: object) -> bool:
         """Whether an element is in the disjoint-set."""
         return element in self.__parent_of
 
@@ -308,7 +316,7 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         return self.__parent_of
 
     @property
-    def ranks(self) -> dict[ST, ST]:
+    def ranks(self) -> dict[ST, int]:
         """Get the element to rank mapping."""
         return self.__rank_of
 
@@ -356,7 +364,7 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         `ValueError` - If `union` is False and the given element(s) are
         already in the disjoint-set.
         """
-        self.__is_changed: bool = True
+        self.__is_changed = True
 
         root: ST
         if parent not in self:
@@ -548,9 +556,10 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
 
         Returns
         -------
-        `list[ST@DisjointSet]` - A list of elements on the path from the given element,
-        to the root element of its disjoint sub-set. The list will contain only the given
-        element if and only if the given element is the root of its own sub-set.
+        `list[ST@DisjointSet]` - A list of elements on the path from the given
+        element, to the root element of its disjoint sub-set. The list will
+        contain only the given element if and only if the given element is the
+        root of its own sub-set.
         """
         path: list[ST] = [element]
         while (parent := self.__parent_of[element]) != element:
@@ -563,7 +572,7 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         element: ST,
         compress: Optional[bool] = None,
         cache: bool = True,
-        default: Optional[set[ST]] = None
+        default: Optional[frozenset[ST]] = None
     ) -> frozenset[ST]:
         """
         Get a single distinct sub-set in this disjoint-set.
@@ -661,7 +670,7 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
                 self.__rank_of[root] = 0 if len(set_) == 1 else 1
 
         # frozen_sets = FrozenDict(sets) TODO: use frozen dict for the dictionary itself cannot be changed
-        frozen_sets = {root : frozenset(set_) for root, set_ in sets.items()}
+        frozen_sets = {root: frozenset(set_) for root, set_ in sets.items()}
 
         if cache:
             self.__sets = frozen_sets
@@ -716,7 +725,7 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         """
         root_1, root_2 = self.__find_root_pair(element_1, element_2, compress)
         if root_1 == root_2:
-            return
+            return root_1
         self.__is_changed = True
         self.__parent_of[root_2] = root_1
         self.__rank_of[root_1] = self.__rank_of[root_1] + 1
@@ -751,7 +760,7 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         """
         root_1, root_2 = self.__find_root_pair(element_1, element_2, compress)
         if root_1 == root_2:
-            return
+            return root_1
         self.__is_changed = True
         self.__parent_of[root_1] = root_2
         self.__rank_of[root_2] = self.__rank_of[root_2] + 1
@@ -796,7 +805,7 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         """
         root_1, root_2 = self.__find_root_pair(element_1, element_2, compress)
         if root_1 == root_2:
-            return
+            return root_1
         self.__is_changed = True
 
         ## Union by rank - Always union the shorter tree into the longer tree;
@@ -808,13 +817,15 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         ##      - root_1 should always be the smaller rank,
         ##      - With this method, we always get log(n) complexity.
         if self.__rank_of[root_1] > self.__rank_of[root_2]:
-           root_1, root_2 = root_2, root_1
+            root_1, root_2 = root_2, root_1
         self.__parent_of[root_1] = root_2
 
-        ## If the ranks of the roots are the same then the tree whose root was unioned onto has now grown
-        ## (if the ranks are different that means that the tree unioned onto was already deeper than the other so it hasn't grown),
-        ## and therefore the rank of the root that was unioned onto must increase (this will always be root_2),
-        ## to keep the rank proportionate to depth growth from union operations.
+        # If the ranks of the roots are the same then the tree whose root was
+        # unioned onto has now grown (if the ranks are different that means
+        # that the tree unioned onto was already deeper than the other so it
+        # hasn't grown), and therefore the rank of the root that was unioned
+        # onto must increase (this will always be root_2),  to keep the rank
+        # proportionate to depth growth from union operations.
         if self.__rank_of[root_1] == self.__rank_of[root_2]:
             self.__rank_of[root_2] = self.__rank_of[root_2] + 1
 
@@ -832,8 +843,9 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         iter_: Iterator[ST] = iter(elements)
         try:
             first: ST = next(iter_)
-        except StopIteration:
-            return
+        except StopIteration as exc:
+            messsge: str = "Cannot union an empty iterable of elements."
+            raise ValueError(messsge) from exc
         for element in iter_:
             root: ST = self.union(first, element, compress)
         return root
@@ -846,13 +858,17 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
     ) -> bool:
         """
         Determine whether the two elements are in the same disjoint sub-set.
-        
-        If two elements are given, equivalent to: `self.find_root(element_1) == self.find_root(element_2)`.
-        
-        If more than two elements are given, equivalent to: `all(self.find_root(element_1) == self.find_root(other) for other in elements)`.
+
+        If two elements are given, equivalent to:
+            `self.find_root(element_1) == self.find_root(element_2)`.
+
+        If more than two elements are given, equivalent to:
+            `all(self.find_root(element_1) == self.find_root(other)
+             for other in elements)`.
         """
         root_1: ST = self.__find_method(self, element_1, compress)
-        return all(root_1 == self.__find_method(self, element, compress) for element in elements)
+        return all(root_1 == self.__find_method(self, element, compress)
+                   for element in elements)
 
 class DefaultFindMethod(enum.Enum):
     """
