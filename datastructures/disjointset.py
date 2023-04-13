@@ -20,17 +20,37 @@
 ###########################################################################
 ###########################################################################
 
-"""Module contain a disjoint-set data structure."""
+"""Module containing a disjoint-set data structure."""
 
 import collections.abc
 import enum
-from typing import (Generic, Hashable, Iterable, Iterator,
-                    Literal, Mapping, Optional, TypeVar, overload)
+from typing import (Generic, Hashable, Iterable, Iterator, Literal, Mapping,
+                    NamedTuple, Optional, TypeAlias, TypeVar, overload)
+
+from datastructures.mappings import frozendict
+
+__copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
+__license__ = "GPL-3.0"
 
 __all__ = (
     "DisjointSet",
-    "DefaultFindMethod"
+    "FindMethod"
 )
+
+
+def __dir__() -> tuple[str, ...]:
+    """Get the names of module attributes."""
+    return __all__
+
+
+FindMethodNames: TypeAlias = Literal[
+    "loop",
+    "loop_compress",
+    "recurse",
+    "recurse_compress",
+    "path_split",
+    "path_halve"
+]
 
 
 ## Disjoint-set generic element type (must be hashable).
@@ -84,6 +104,16 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
     time (in the size of the disjoint-set) since unioning two sets would
     involve reassigning the root of all elements of one of the two sets.
 
+    This implementation support tracking of sub-sets. This is useful if the
+    disjoint sub-sets need to be accessed many times and the disjoint-set will
+    be updated very often. This is unlike caching the disjoint sub-sets when
+    then are accessed, because the cache is usually invalidated when the
+    disjoint-set is updated (with an add or a union). Accessing the disjoint
+    sub-sets when they are not tracked is computationally expensive, but it
+    saves memory during operation and updates are less expensive. Tracking the
+    sets uses more memory during operation and is more computationally
+    expensive during updates, but accessing the disjoint sub-sets is trivial.
+
     Example Usage
     -------------
     ```
@@ -129,89 +159,101 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         "__parent_of",
         "__rank_of",
         "__is_changed",
-        # "__track_sets",
+        "__track_sets",
         "__sets",
         "__find_method"
     )
 
     @overload
-    def __init__(self) -> None:
-        """Create an empty disjoint-set."""
-        ...
-
-    @overload
-    def __init__(self,
-                 sets: Mapping[ST, set[ST]]
-                 # track_subsets: bool = False
-                 # Useful if the disjoint sub-sets need to be accessed many times and the disjoint-set will be updated very often.
-                 # This is unlike caching the disjoint sub-sets when then are accessed, because the cache is usually invalidated when the disjoint-set is updated (with an add or a union).
-                 # Accessing the disjoint sub-sets when they are not tracked is computationally expensive, but it saves memory during operation and updates are less expensive.
-                 # Tracking the sets uses more memory during operation and is more computationally expensive during updates, but accessing the disjoint sub-sets is trivial.
-                 ) -> None:
-        """Create a new disjoint-set from a root element to sub-set mapping."""
-        ...
-
-    @overload
-    def __init__(self,
-                 sets: Mapping[ST, set[ST]],
-                 find_method: "DefaultFindMethod" | Literal["loop", "loop_compress",
-                                                            "recurse", "recurse_compress",
-                                                            "path_split", "path_halve"]
-                 ) -> None:
+    def __init__(
+        self, *,
+        find_method: "FindMethod" | FindMethodNames = "loop_compress",
+        track_subsets: bool = False
+    ) -> None:
         """
-        Create a new disjoint-set from a root element to sub-set mapping.
-        
+        Create an empty disjoint-set.
+
+        Valid sub-sets are either a single element, or a set of elements.
+
         Optionally specify a default root finding method used for; disjoint
         sub-set finding, union operations, and element connectedness checking.
+        Set whether to track the sub-sets of the disjoint-set.
         """
         ...
-    
+
     @overload
-    def __init__(self,
-                 elements: Iterable[ST]
-                 ) -> None:
-        """Create a new disjoint-set from an iterable of elements (unit sub-sets)."""
+    def __init__(
+        self,
+        sets: Mapping[ST, ST | set[ST]], /,
+        find_method: "FindMethod" | FindMethodNames = "loop_compress",
+        track_subsets: bool = False
+    ) -> None:
+        """
+        Create a new disjoint-set from a root element to sub-set mapping.
+
+        Valid sub-sets are either a single element, or a set of elements.
+
+        Optionally specify a default root finding method used for; disjoint
+        sub-set finding, union operations, and element connectedness checking.
+        Set whether to track the sub-sets of the disjoint-set.
+
+        For example, to create a disjoint-set containing to sub-sets;
+        ```
+        >>> dset: DisjointSet[int] = DisjointSet({0: {1, 2}, 3: {4, 5}})
+        >>> dset
+        DisjointSet({0: {0, 1, 2}, 3: {3, 4, 5}})
+        ```
+        Note that the root element of each sub-set is implicitly part of the
+        sub-set, and does not need to be explicitly included.
+        """
         ...
-    
+
     @overload
-    def __init__(self,
-                 elements: Iterable[ST],
-                 find_method: "DefaultFindMethod" | Literal["loop", "loop_compress",
-                                                            "recurse", "recurse_compress",
-                                                            "path_split", "path_halve"]
-                 ) -> None:
+    def __init__(
+        self,
+        elements: Iterable[ST], /,
+        find_method: "FindMethod" | FindMethodNames = "loop_compress",
+        track_subsets: bool = False
+    ) -> None:
         """
         Create a new disjoint-set from an iterable of elements (unit sub-sets).
-        
-        Specify a default root finding method for; disjoint sub-set
-        finding, union operations, and element connectedness checking.
+
+        Optionally specify a default root finding method used for; disjoint
+        sub-set finding, union operations, and element connectedness checking.
+        Set whether to track the sub-sets of the disjoint-set.
+
+        For example, to create a disjoint-set of integers from 0 to 4:
+        ```
+        >>> dset: DisjointSet[int] = DisjointSet([i for i in range(5)])
+        >>> dset
+        DisjointSet({0: {0}, 1: {1}, 2: {2}, 3: {3}, 4: {4}})
+        ```
         """
         ...
-    
-    def __init__(self,
-                 sets_or_elements: Optional[Mapping[ST, ST | set[ST]]
-                                            | Iterable[ST]] = None,
-                 find_method: "DefaultFindMethod"
-                              | Literal["loop", "loop_compress",
-                                        "recurse", "recurse_compress",
-                                        "path_split", "path_halve"] = "loop_compress"
-                 ) -> None:
+
+    def __init__(
+        self,
+        sets_elems: Mapping[ST, ST | set[ST]] | Iterable[ST] | None = None,
+        find_method: "FindMethod" | FindMethodNames = "loop_compress",
+        track_subsets: bool = False
+    ) -> None:
         """Create a new disjoint-set."""
         # Variables for storing the disjoint-set elements themselves.
         self.__parent_of: dict[ST, ST] = {}  # Maps: child -> parent element
         self.__rank_of: dict[ST, int] = {}   # Maps: root -> rank of its set
 
-        if isinstance(sets_or_elements, Mapping):
+        if isinstance(sets_elems, Mapping):
             # If the disjoint-set elements are given as a mapping, create
             # a disjoint sub-set for each item of the mapping, where the
             # keys are the sub-sets' root and the values the set elements.
-            for root, set_ in sets_or_elements.items():
+            for root, set_ in sets_elems.items():
 
                 # If this sub-set's given root is already in the disjoint-set,
                 # then fall back on unioning this sub-set with the existing
                 # sub-set that contains the given root. Therefore, instead set
                 # the parent of all of this sub-sets elements to the root of
-                # the existing sub-set that already contains the originally given root.
+                # the existing sub-set that already contains the originally
+                # given root.
                 if root in self:
                     if not isinstance(set_, set):
                         set_ = {set_}
@@ -224,7 +266,8 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
                     else:
                         set_ = set_ | {root}
 
-                # Assign the parent of all elements in the sub-set to be its root.
+                # Assign the parent of all elements in the sub-set to be its
+                # root.
                 for element in set_:
                     self.__parent_of[element] = root
 
@@ -232,11 +275,11 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
                 # (just the root), otherwise initialise the rank as 1 since
                 # the set starts fully compressed.
                 self.__rank_of[root] = 0 if len(set_) == 1 else 1
-        elif sets_or_elements is not None:
+        elif sets_elems is not None:
             # If the disjoint-set elements are given as an iterable, assign
             # each to its own disjoint sub-set and initialise rank as zero.
             self.__parent_of = {
-                element: element for element in sets_or_elements
+                element: element for element in sets_elems
             }
             self.__rank_of = {
                 element: 0 for element in self.__parent_of
@@ -245,32 +288,39 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
             self.__parent_of = {}
             self.__rank_of = {}
 
-        # Variables for caching containing disjoint sub-sets;
+        # Variables for caching disjoint sub-sets;
         #       - Only add and union operations will change the sub-sets,
         #       - Path compression only changes the paths within the sets.
         self.__is_changed: bool = True
-        self.__sets: dict[ST, frozenset[ST]] = {}
+        self.__track_sets: bool = track_subsets
+        self.__sets: frozendict[ST, set[ST]] = {}
 
         # Determine the default find method used by this disjoint set.
-        if isinstance(find_method, DefaultFindMethod):
-            default_find, can_compress = find_method.value
+        if isinstance(find_method, FindMethod):
+            default_find_name, can_compress = find_method.value
         else:
-            default_find, can_compress = DefaultFindMethod[find_method].value
+            default_find_name, can_compress = FindMethod[find_method].value
+        default_find = getattr(self, default_find_name)
 
         # Create an alias for calling the default find method.
         if can_compress:
-            if "compress" in find_method:
-                def _default_find(self, element: ST, compress: bool) -> ST:
+            if "compress" in default_find_name:
+                # Accept `compress` argument, but default to `True`.
+                def _find(self, element: ST, compress: bool | None) -> ST:
                     return default_find(
                         self, element, compress or compress is None
                     )
-                self.__find_method = _default_find
             else:
-                self.__find_method = default_find
+                # Accept `compress` argument, but default to `False`.
+                def _find(self, element: ST, compress: bool | None) -> ST:
+                    return default_find(
+                        self, element, compress is not None and compress
+                    )
         else:
-            def _default_find(self, element: ST, compress: bool) -> ST:
+            # Ignore `compress` argument.
+            def _find(self, element: ST, compress: bool | None) -> ST:
                 return default_find(self, element)
-            self.__find_method = _default_find
+        self.__find_method = _find
 
     def __str__(self) -> str:
         """
@@ -368,16 +418,25 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
 
         root: ST
         if parent not in self:
+            # Add the parent as a new root element.
             self.__parent_of[parent] = parent
             self.__rank_of[parent] = 1
             root = parent
+            if self.__track_sets:
+                self.__sets[root] = {root}
         else:
+            # Find the root of the sub-set containing the parent.
             root = self.find_root(parent)
 
+        # Add the element(s) to...
         for element in elements:
+            # ...the root's sub-set if not already in it,
             if element not in self:
                 self.__parent_of[element] = root
+                if self.__track_sets:
+                    self.__sets[root].add(element)
             else:
+                # ...or union the elements sub-set to the root's sub-set.
                 if union:
                     root = self.union(root, element)
                 else:
@@ -626,7 +685,7 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         self,
         compress: Optional[bool] = None,
         cache: bool = True
-    ) -> dict[ST, frozenset[ST]]:
+    ) -> frozendict[ST, frozenset[ST]]:
         """
         Find all distinct sub-sets in this disjoint-set.
 
@@ -641,7 +700,8 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         `cache: bool = True` - Whether to cache the result.
         Future calls to this function will return the cached result,
         if and only if the disjoint-set has not been modified since the
-        previous call.
+        previous call. Methods `add`, `union`, `union_many` modify the
+        disjoint-set, and as such will invalidate the cache.
 
         Returns
         -------
@@ -649,6 +709,12 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         whose keys are root's of each distinct sub-set,
         and the values are the sub-sets themselves.
         """
+        if self.__track_sets:
+            return frozendict(
+                {root: frozenset(set_)
+                 for root, set_
+                 in self.__sets.items()}
+            )
         if not self.__is_changed:
             return self.__sets
 
@@ -664,13 +730,16 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         ## If compression is enabled and the default find method
         ## accepts the compress parameter, the ranks can be reset,
         ## since all sub-sets are now fully compressed.
-        if compress and DefaultFindMethod[self.__find_method.__name__].value[1]: ## TODO
+        if compress and FindMethod[self.__find_method.__name__].value[1]:
             self.__rank_of = {}
             for root, set_ in sets.items():
                 self.__rank_of[root] = 0 if len(set_) == 1 else 1
 
-        # frozen_sets = FrozenDict(sets) TODO: use frozen dict for the dictionary itself cannot be changed
-        frozen_sets = {root: frozenset(set_) for root, set_ in sets.items()}
+        frozen_sets = frozendict(
+            {root: frozenset(set_)
+             for root, set_
+             in sets.items()}
+        )
 
         if cache:
             self.__sets = frozen_sets
@@ -806,19 +875,27 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         root_1, root_2 = self.__find_root_pair(element_1, element_2, compress)
         if root_1 == root_2:
             return root_1
-        self.__is_changed = True
 
-        ## Union by rank - Always union the shorter tree into the longer tree;
-        ##      - If you put the longer tree onto the shorter;
-        ##          - The tree may grow linearly,
-        ##            a tree with a set of n elements may
-        ##            grow to be up to n elements long
-        ##            (a straight chain without branching).
-        ##      - root_1 should always be the smaller rank,
-        ##      - With this method, we always get log(n) complexity.
+        # Union by rank - Always union the shorter tree into the longer tree;
+        #       - If you put the longer tree onto the shorter;
+        #           - The tree may grow linearly,
+        #             a tree with a set of n elements may
+        #             grow to be up to n elements long
+        #             (a straight chain without branching).
+        #       - root_1 should always be the smaller rank,
+        #       - With this method, we always get log(n) complexity.
         if self.__rank_of[root_1] > self.__rank_of[root_2]:
             root_1, root_2 = root_2, root_1
         self.__parent_of[root_1] = root_2
+
+        # If the disjoint-set is tracking sets, then the set of the root
+        # element that was unioned onto, must be updated to include the set
+        # of the root element that was unioned from.
+        if self.__track_sets:
+            self.__sets[root_2].update(self.__sets[root_1])
+            del self.__sets[root_1]
+        else:
+            self.__is_changed = True
 
         # If the ranks of the roots are the same then the tree whose root was
         # unioned onto has now grown (if the ranks are different that means
@@ -866,37 +943,50 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
             `all(self.find_root(element_1) == self.find_root(other)
              for other in elements)`.
         """
-        root_1: ST = self.__find_method(self, element_1, compress)
-        return all(root_1 == self.__find_method(self, element, compress)
+        fm = self.__find_method
+        root_1: ST = fm(self, element_1, compress)
+        return all(root_1 == fm(self, element, compress)
                    for element in elements)
 
-class DefaultFindMethod(enum.Enum):
+
+class _Find(NamedTuple):
+    """A named tuple for the find method of a disjoint-set."""
+
+    name: str
+    accepts_compress: bool
+
+
+class FindMethod(enum.Enum):
     """
-    The default root finding methods that can be passed as argument to the constructor of a disjoint-set.
-    
+    The default root finding methods that can be passed as argument to the
+    constructor of a disjoint-set.
+
     These are used by the methods;
         - Finding all disjoint sub-sets with `find_all_sets` or `find_set`,
         - Union operations with `union` or `union_many`,
-        - Checking if elements are connected (are in the same disjoint sub-set) with `is_connected`.
-    
+        - Checking if elements are connected (are in the same disjoint
+          sub-set) with `is_connected`.
+
     Items
     -----
     `loop` - Find roots iteratively, never compress the path.
-    
+
     `loop_compress` - Find roots iteratively, always fully compress the path.
-    
+
     `recurse` - Find root recursively, never compress the path.
-    
-    `recurse_compress` - Find roots recursively, always fully compress the path.
-    
+
+    `recurse_compress` - Find roots recursively, always fully compress the
+    path.
+
     `path_split` - Find roots iteratively, partially compress the path.
-    
-    `path_halve` - Find roots iteratively, skip every other element to increase speed, partially compress the path.
+
+    `path_halve` - Find roots iteratively, skip every other element to
+    increase speed, partially compress the path.
     """
-    
-    loop = (DisjointSet.find_root, True)
-    loop_compress = (DisjointSet.find_root, True)
-    recurse = (DisjointSet.find_root_recurse, True)
-    recurse_compress = (DisjointSet.find_root_recurse, True)
-    path_split = (DisjointSet.find_root_path_split, False)
-    path_halve = (DisjointSet.find_root_path_halve, False)
+
+    LOOP = _Find(DisjointSet.find_root.__name__, True)
+    LOOP_COMPRESS = _Find(DisjointSet.find_root.__name__, True)
+    RECURSE = _Find(DisjointSet.find_root_recurse.__name__, True)
+    RECURSE_COMPRESS = _Find(DisjointSet.find_root_recurse.__name__, True)
+    PATH_SPLIT = _Find(DisjointSet.find_root_path_split.__name__, False)
+    PATH_HALVE = _Find(DisjointSet.find_root_path_halve.__name__, False)
