@@ -173,12 +173,14 @@ class PIDController(Controller):
         difficult to deccelerate before the system reaches the setpoint,
         potentially causing overshooting.
         """
-        super().__init__(input_limits,
-                         output_limits,
-                         input_trans,
-                         error_trans,
-                         output_trans,
-                         initial_error)
+        super().__init__(
+            input_limits,
+            output_limits,
+            input_trans,
+            error_trans,
+            output_trans,
+            initial_error
+        )
 
         # PID controller gains.
         self.__Kp: float = Kp
@@ -309,15 +311,15 @@ class PIDController(Controller):
 
         Parameters
         ----------
-        `control_input : float` - The control input
+        `control_input: float` - The control input
         (the measured value of the control variable).
 
-        `setpoint : float` - The control setpoint
+        `setpoint: float` - The control setpoint
         (the desired value of the control variable).
 
-        `delta_time : float` - The time difference since the last call.
+        `delta_time: float` - The time difference since the last call.
 
-        `abs_tol : {float | None} = None` - The absolute tolerance for the
+        `abs_tol: {float | None} = None` - The absolute tolerance for the
         time difference. If given and not None, if the time difference is
         smaller than the given value, then the integral and derivative
         errors are not updated to avoid precision errors.
