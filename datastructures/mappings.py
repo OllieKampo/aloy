@@ -22,6 +22,7 @@
 """Module containing mapping and dictionary structures."""
 
 import collections.abc
+import itertools
 from typing import (Generic, Hashable, ItemsView, Iterable, Iterator, Mapping,
                     Optional, TypeVar, final, overload)
 
@@ -116,7 +117,7 @@ class frozendict(collections.abc.Mapping, Generic[KT, VT]):
         """Get the value associated with the given key."""
         return self.__dict[key]
 
-    def __iter__(self) -> Iterator[VT]:
+    def __iter__(self) -> Iterator[KT]:
         """Iterate over the keys in the dictionary."""
         return iter(self.__dict)
 
@@ -506,7 +507,7 @@ class TwoWayMap(collections.abc.Mapping, Generic[MT]):
     mapping, and keys of the backwards mapping automatically map back those of
     the forwards that map to them.
 
-    This structure is very useful for specifying one-to-many mappings such as
+    This structure is very useful for specifying many-to-many mappings such as
     input-output connections or parent-child relationships. It is similar to
     an undirected graph-like structure, except keys in the same side of the
     mapping cannot map to each other.
@@ -601,17 +602,23 @@ class TwoWayMap(collections.abc.Mapping, Generic[MT]):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.__forwards})"
 
-    def __getitem__(self, key: KT, /) -> set[MT]:
-        return self.__forwards[key]
+    def __getitem__(self, key: MT, /) -> set[MT]:
+        forwards_value = self.__forwards.get(key)
+        if forwards_value is not None:
+            return forwards_value
+        backwards_value = self.__backwards.get(key)
+        if backwards_value is not None:
+            return backwards_value
+        raise KeyError(key)
 
     def __iter__(self) -> Iterator[MT]:
-        return iter(self.__forwards)
+        return itertools.chain(self.__forwards, self.__backwards)
 
     def __len__(self) -> int:
-        return len(self.__forwards)
+        return len(self.__forwards) + len(self.__backwards)
 
-    def __call__(self, value: MT, /) -> set[MT]:
-        return self.__backwards[value]
+    def __contains__(self, key: object, /) -> bool:
+        return key in self.__forwards or key in self.__backwards
 
     @property
     def forwards(self) -> dict[MT, set[MT]]:
@@ -623,25 +630,25 @@ class TwoWayMap(collections.abc.Mapping, Generic[MT]):
         """Get the backwards mapping."""
         return self.__backwards
 
-    def backwards_items(self) -> ItemsView[MT, set[MT]]:
-        """Get the items of the backwards mapping."""
-        return self.__backwards.items()
-
-    def backwards_get(
-            self,
-            value: MT,
-            default: set[MT] | None = None, /
-    ) -> set[MT] | None:
-        """Get the keys that map to a value in the backwards mapping."""
-        return self.__backwards.get(value, default)
-
     def add(self, forwards_key: MT, backwards_key: MT, /) -> None:
         """Add a new key pair to the mapping."""
+        if forwards_key in self.__backwards:
+            raise KeyError(f"Key {forwards_key} already exists in the "
+                           "backwards mapping.")
+        if backwards_key in self.__forwards:
+            raise KeyError(f"Key {backwards_key} already exists in the "
+                           "forwards mapping.")
         self.__forwards.setdefault(forwards_key, set()).add(backwards_key)
         self.__backwards.setdefault(backwards_key, set()).add(forwards_key)
 
     def remove(self, forwards_key: MT, backwards_key: MT, /) -> None:
         """Remove a key pair from the mapping."""
+        if forwards_key not in self.__forwards:
+            raise KeyError(f"Key {forwards_key} does not exist in the "
+                           "forwards mapping.")
+        if backwards_key not in self.__backwards:
+            raise KeyError(f"Key {backwards_key} does not exist in the "
+                           "backwards mapping.")
         self.__forwards[forwards_key].remove(backwards_key)
         self.__backwards[backwards_key].remove(forwards_key)
         if not self.__forwards[forwards_key]:
@@ -653,3 +660,20 @@ class TwoWayMap(collections.abc.Mapping, Generic[MT]):
 @final
 class LayerMap(collections.abc.Mapping):
     pass
+
+
+if __name__ == "__main__":
+    twm = TwoWayMap({"parent_1": ["child_1", "child_2"],
+                        "parent_2": ["child_1"],
+                        "parent_3": ["child_2"]})
+    print(twm)
+    print(twm["parent_1"])
+    print(twm["child_1"])
+    print("parent_3" in twm["child_1"])
+    twm.add("parent_4", "child_1")
+    print(twm)
+    twm.remove("parent_4", "child_1")
+    print(twm)
+    print(list(twm.keys()))
+    print(list(twm.values()))
+    print(list(twm.items()))
