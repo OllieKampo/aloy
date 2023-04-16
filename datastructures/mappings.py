@@ -33,13 +33,15 @@ __license__ = "GPL-3.0"
 __all__ = (
     "frozendict",
     "ReversableDict",
-    "FrozenReversableDict"
+    "FrozenReversableDict",
+    "TwoWayMap",
+    "LayerMap"
 )
 
 
-def __dir__() -> tuple[str]:
+def __dir__() -> tuple[str, ...]:
     """Get the names of module attributes."""
-    return sorted(__all__)
+    return __all__
 
 
 KT = TypeVar("KT", bound=Hashable)
@@ -666,7 +668,21 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[MT]):
     }
 
     @overload
-    def __init__(self, initialiser: Mapping[MT, Iterable[MT]]) -> None:
+    def __init__(self) -> None:
+        """
+        Create a new two-way mapping.
+
+        For example:
+        ```
+        >>> twm = TwoWayMapping()
+        >>> twm
+        TwoWayMapping({})
+        ```
+        """
+        ...
+
+    @overload
+    def __init__(self, initialiser: Mapping[MT, Iterable[MT]], /) -> None:
         """
         Create a new two-way mapping from the given mapping.
 
@@ -684,7 +700,7 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[MT]):
         ...
 
     @overload
-    def __init__(self, initialiser: Iterable[tuple[MT, MT]]) -> None:
+    def __init__(self, initialiser: Iterable[tuple[MT, MT]], /) -> None:
         """
         Create a new two-way mapping from the given iterable of key-value
         pairs.
@@ -705,7 +721,7 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[MT]):
 
     def __init__(
         self,
-        initialiser: Mapping[MT, Iterable[MT]] | Iterable[tuple[MT, MT]]
+        initialiser: Mapping[MT, Iterable[MT]] | Iterable[tuple[MT, MT]] | None = None, /
     ) -> None:
         """Create a new two-way mapping."""
         self.__forwards: dict[MT, set[MT]] = {}
@@ -842,4 +858,3 @@ if __name__ == "__main__":
     twm.add("parent_4", "child_1")
     print(forwards)
     # print(twm)
-    
