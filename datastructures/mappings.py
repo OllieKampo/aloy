@@ -24,8 +24,11 @@
 import collections.abc
 import itertools
 import types
-from typing import (Generic, Hashable, ItemsView, Iterable, Iterator, KeysView, Mapping,
-                    Optional, TypeVar, ValuesView, final, overload)
+from typing import (Generic, Hashable, Iterable, Iterator, Mapping, Optional,
+                    TypeAlias, TypeVar, final, overload)
+
+from datastructures.views import (ListValuedMappingView, ListView,
+                                  SetValuedMappingView, SetView)
 
 __copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
@@ -35,7 +38,7 @@ __all__ = (
     "ReversableDict",
     "FrozenReversableDict",
     "TwoWayMap",
-    "LayerMap"
+    # "LayerMap"
 )
 
 
@@ -142,51 +145,8 @@ class frozendict(collections.abc.Mapping, Generic[KT, VT]):
         return frozendict(self)
 
 
-LT = TypeVar("LT", bound=Hashable)
-
-
-@final
-class ListView(collections.abc.Sequence, Generic[LT]):
-    """Class defining an immutable view of a list."""
-
-    __slots__ = {
-        "__list": "The list being viewed."
-    }
-
-    def __init__(self, list_: list[LT], /) -> None:
-        """Create a new list view."""
-        self.__list = list_
-
-    def __repr__(self) -> str:
-        """Get an instantiable string representation of the list view."""
-        return f"ListView({self.__list})"
-
-    @overload
-    def __getitem__(self, index: int, /) -> LT:
-        """Get the item at the given index."""
-        ...
-
-    @overload
-    def __getitem__(self, index: slice, /) -> list[LT]:
-        """Get the slice at the given index."""
-        ...
-
-    def __getitem__(self, index: int | slice, /) -> LT | list[LT]:
-        return self.__list[index]
-
-    def __iter__(self) -> Iterator[LT]:
-        """Iterate over the items in the list."""
-        return iter(self.__list)
-
-    def __len__(self) -> int:
-        """Get the number of items in the list."""
-        return len(self.__list)
-
-    def __hash__(self) -> int:
-        """Get the hash of the list view."""
-        return hash(tuple(self.__list))
-
-
+# ReversableDict covariant in VT as with a standard dictionary.
+# Mypy does not like this, so we have to ignore the error.
 @final
 class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
     """
@@ -303,7 +263,7 @@ class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
         """Get the value for the given key in the standard mapping."""
         return self.__dict[key]
 
-    def __setitem__(self, key: KT, value: VT, /) -> None:
+    def __setitem__(self, key: KT, value: VT, /) -> None:  # type: ignore
         """
         Add or update an item, given by a (key, value) pair, from the
         standard and reversed mapping.
@@ -320,13 +280,17 @@ class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
         Delete a item (given by a key) from the standard and reversed
         mapping.
         """
-        ## Remove from the standard mapping.
+        # Remove from the standard mapping.
         value: VT = self.__dict[key]
         del self.__dict[key]
-        ## Remove from the reversed mapping.
+        # Remove from the reversed mapping.
         self.__del_reversed_item(key, value)
 
-    def __del_reversed_item(self, key: KT, value: VT, /) -> None:
+    def __del_reversed_item(
+        self,
+        key: KT,
+        value: VT, /  # type: ignore
+    ) -> None:
         """
         Delete an item (given by a [key, value] pair) from the reversed
         mapping.
@@ -345,7 +309,11 @@ class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
         """Get the number of items in the standard dictionary mapping."""
         return len(self.__dict)
 
-    def __call__(self, value: VT, /, max_: int | None = None) -> ListView[KT]:
+    def __call__(
+        self,
+        value: VT, /,  # type: ignore
+        max_: int | None = None
+    ) -> ListView[KT]:
         """
         Get the list of keys that map to a value in the reversed mapping.
 
@@ -356,30 +324,28 @@ class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
         keys: list[KT] = self.__reversed_dict[value]
         return ListView(keys[0:min(max_, len(keys))])
 
-    # @property
-    # def standard_mapping(self) -> dict[KT, VT]:
-    #     """Get the standard mapping as a normal dictionary."""
-    #     return self.__dict
+    @property
+    def standard_mapping(self) -> types.MappingProxyType[KT, VT]:
+        """Get the standard mapping as a normal dictionary."""
+        return types.MappingProxyType(self.__dict)
 
-    # @property
-    # def reversed_mapping(self) -> dict[VT, list[KT]]:
-    #     """Get the reversed mapping as a normal dictionary."""
-    #     return self.__reversed_dict
+    @property
+    def reversed_mapping(self) -> types.MappingProxyType[VT, ListView[KT]]:
+        """
+        Get the reversed mapping as a normal dictionary.
 
-    # def reversed_items(self) -> ItemsView[VT, list[KT]]:
-    #     """
-    #     Get a reversed dictionary items view.
-
-    #     Such that:
-    #         - Its keys are the values of the standard dictionary,
-    #         - Its values are lists of keys from the standard
-    #           dictionary which map to the respective values.
-    #     """
-    #     return self.__reversed_dict.items()
+        Such that:
+            - Its keys are the values of the standard dictionary,
+            - Its values are lists of keys from the standard
+              dictionary which map to the respective values.
+        """
+        return types.MappingProxyType(
+            ListValuedMappingView(self.__reversed_dict)
+        )
 
     def reversed_get(
         self,
-        value: VT,
+        value: VT,  # type: ignore
         default: list[KT] | None = None, /,
         max_: int | None = None
     ) -> ListView[KT] | None:
@@ -397,7 +363,7 @@ class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
             return default
         return self(value, max_=max_)
 
-    def reversed_set(self, value: VT, /, *keys: KT) -> None:
+    def reversed_set(self, value: VT, /, *keys: KT) -> None:  # type: ignore
         """
         Set a value to map to a series of keys in the reversed mapping.
 
@@ -408,7 +374,7 @@ class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
 
     def reversed_pop(
         self,
-        value: VT,
+        value: VT,  # type: ignore
         default: list[KT] | None = None, /
     ) -> list[KT] | None:
         """
@@ -487,27 +453,34 @@ class FrozenReversableDict(collections.abc.Mapping, Generic[KT, VT]):
 
     def __init__(self, *args, **kwargs) -> None:
         """Create a new frozen reversable dictionary."""
-        self.__reversable_dict = ReversableDict(*args, **kwargs)
+        self.__reversable_dict = ReversableDict[KT, VT](*args, **kwargs)
         self.__hash: Optional[int] = None
 
     def __repr__(self) -> str:
+        """
+        Get an instantiable string representation of the frozen reversable
+        dictionary.
+        """
         standard_mapping = self.__reversable_dict.standard_mapping
         return f"{self.__class__.__name__}({standard_mapping!r})"
-    __repr__.__doc__ = ReversableDict.__repr__.__doc__
 
-    def __getitem__(self, key: KT, /) -> VT:
+    def __getitem__(self, key: KT, /) -> VT:  # noqa: D102
         return self.__reversable_dict[key]
     __getitem__.__doc__ = ReversableDict.__getitem__.__doc__
 
-    def __iter__(self) -> Iterator[VT]:
-        return iter(self.__reversable_dict)
+    def __iter__(self) -> Iterator[VT]:  # noqa: D102
+        return iter(self.__reversable_dict)  # type: ignore
     __iter__.__doc__ = ReversableDict.__iter__.__doc__
 
-    def __len__(self) -> int:
+    def __len__(self) -> int:  # noqa: D102
         return len(self.__reversable_dict)
     __len__.__doc__ = ReversableDict.__len__.__doc__
 
-    def __call__(self, value: VT, /, *, max_: Optional[int] = None) -> list[KT]:
+    def __call__(  # noqa: D102
+        self,
+        value: VT, /, *,  # type: ignore
+        max_: Optional[int] = None
+    ) -> ListView[KT]:
         return self.__reversable_dict.reversed_get(value, max_=max_)
     __call__.__doc__ = ReversableDict.reversed_get.__doc__
 
@@ -520,23 +493,21 @@ class FrozenReversableDict(collections.abc.Mapping, Generic[KT, VT]):
             self.__hash = hash_
         return self.__hash
 
-    # @property
-    # def standard_mapping(self) -> dict[KT, VT]:
-    #     return self.__reversable_dict.standard_mapping
-    # standard_mapping.__doc__ = ReversableDict.standard_mapping.__doc__
+    @property
+    def standard_mapping(self) -> types.MappingProxyType[KT, VT]:  # noqa: D102
+        return self.__reversable_dict.standard_mapping
+    standard_mapping.__doc__ = ReversableDict.standard_mapping.__doc__
 
-    # @property
-    # def reversed_mapping(self) -> dict[VT, list[KT]]:
-    #     return self.__reversable_dict.reversed_mapping
-    # reversed_mapping.__doc__ = ReversableDict.reversed_mapping.__doc__
+    @property
+    def reversed_mapping(  # noqa: D102
+        self
+    ) -> types.MappingProxyType[VT, ListView[KT]]:
+        return self.__reversable_dict.reversed_mapping
+    reversed_mapping.__doc__ = ReversableDict.reversed_mapping.__doc__
 
-    # def reversed_items(self) -> ItemsView[VT, list[KT]]:
-    #     return self.__reversable_dict.reversed_items()
-    # reversed_items.__doc__ = ReversableDict.reversed_items.__doc__
-
-    def reversed_get(
+    def reversed_get(  # noqa: D102
         self,
-        value: VT,
+        value: VT,  # type: ignore
         default: Optional[list[KT]] = None, /, *,
         max_: Optional[int] = None
     ) -> Optional[list[KT]]:
@@ -544,72 +515,8 @@ class FrozenReversableDict(collections.abc.Mapping, Generic[KT, VT]):
     reversed_get.__doc__ = ReversableDict.reversed_get.__doc__
 
 
-MT = TypeVar("MT", bound=Hashable)
-
-
-@final
-class SetView(collections.abc.Set, Generic[MT]):
-    """Class defining a set view type."""
-
-    __slots__ = {
-        "__set": "The set being viewed."
-    }
-
-    def __init__(self, set_: set[MT], /) -> None:
-        """Create a new set view."""
-        self.__set = set_
-
-    def __repr__(self) -> str:
-        """Get an instantiable string representation of the set view."""
-        return f"SetView({self.__set!r})"
-
-    def __contains__(self, item: object, /) -> bool:
-        """Check if an item is in the set view."""
-        return item in self.__set
-
-    def __iter__(self) -> Iterator[MT]:
-        """Iterate over the items in the set view."""
-        return iter(self.__set)
-
-    def __len__(self) -> int:
-        """Get the number of items in the set view."""
-        return len(self.__set)
-
-
-@final
-class SetValuedMappingView(collections.abc.Mapping, Generic[KT, VT]):
-    """Class defining a set-valued mapping view type."""
-
-    __slots__ = {
-        "__set_valued_mapping": "The set-valued mapping being viewed."
-    }
-
-    def __init__(self, mapping: Mapping[KT, set[VT]], /) -> None:
-        """Create a new set-valued mapping view."""
-        self.__set_valued_mapping: Mapping[KT, set[VT]] = mapping
-
-    def __repr__(self) -> str:
-        """
-        Get an instantiable string representation of the set-valued mapping
-        view.
-        """
-        return f"SetValuedDictView({self.__set_valued_mapping!r})"
-
-    def __contains__(self, key: object, /) -> bool:
-        """Check if a key is in the set-valued mapping view."""
-        return key in self.__set_valued_mapping
-
-    def __getitem__(self, key: KT, /) -> SetView[VT]:
-        """Get the set of items in the set-valued mapping view."""
-        return SetView(self.__set_valued_mapping[key])
-
-    def __iter__(self) -> Iterator[KT]:
-        """Iterate over the items in the set-valued mapping view."""
-        return iter(self.__set_valued_mapping)
-
-    def __len__(self) -> int:
-        """Get the number of items in the set-valued mapping view."""
-        return len(self.__set_valued_mapping)
+MT = TypeVar("MT")
+TwoWayMapInit: TypeAlias = Mapping[MT, Iterable[MT]] | Iterable[tuple[MT, MT]]
 
 
 @final
@@ -670,7 +577,7 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[MT]):
     @overload
     def __init__(self) -> None:
         """
-        Create a new two-way mapping.
+        Create a new empty two-way mapping.
 
         For example:
         ```
@@ -682,7 +589,7 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[MT]):
         ...
 
     @overload
-    def __init__(self, initialiser: Mapping[MT, Iterable[MT]], /) -> None:
+    def __init__(self, mapping: Mapping[MT, Iterable[MT]], /) -> None:
         """
         Create a new two-way mapping from the given mapping.
 
@@ -700,7 +607,7 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[MT]):
         ...
 
     @overload
-    def __init__(self, initialiser: Iterable[tuple[MT, MT]], /) -> None:
+    def __init__(self, iterable: Iterable[tuple[MT, MT]], /) -> None:
         """
         Create a new two-way mapping from the given iterable of key-value
         pairs.
@@ -719,22 +626,23 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[MT]):
         """
         ...
 
-    def __init__(
+    def __init__(  # type: ignore
         self,
-        initialiser: Mapping[MT, Iterable[MT]] | Iterable[tuple[MT, MT]] | None = None, /
+        init: TwoWayMapInit | None = None, /
     ) -> None:
         """Create a new two-way mapping."""
         self.__forwards: dict[MT, set[MT]] = {}
         self.__backwards: dict[MT, set[MT]] = {}
-        if isinstance(initialiser, Mapping):
-            for key, values in initialiser.items():
-                self.__forwards[key] = set(values)
-                for value in values:
+        if init is not None:
+            if isinstance(init, Mapping):
+                for key, values in init.items():
+                    self.__forwards[key] = set(values)
+                    for value in values:
+                        self.__backwards.setdefault(value, set()).add(key)
+            else:
+                for key, value in init:
+                    self.__forwards.setdefault(key, set()).add(value)
                     self.__backwards.setdefault(value, set()).add(key)
-        else:
-            for key, value in initialiser:
-                self.__forwards.setdefault(key, set()).add(value)
-                self.__backwards.setdefault(value, set()).add(key)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.__forwards})"
@@ -795,6 +703,9 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[MT]):
 
     def __delitem__(self, key_or_keys: MT | tuple[MT, MT], /) -> None:
         """Remove a key or key pair from the two-way mapping."""
+        # The key type might be a tuple, so check if key is present
+        # first, if it is, then it is a single key, otherwise,
+        # assume it is a key pair.
         if key_or_keys in self:
             key: MT = key_or_keys  # type: ignore
             if key in self.__forwards:
@@ -810,8 +721,21 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[MT]):
                     del other_side[other_key]
             del side[key]
         elif isinstance(key_or_keys, tuple):
+            if len(key_or_keys) != 2:
+                raise ValueError("Key pair must be a tuple of length 2."
+                                 f"Got; {len(key_or_keys)} instead."
+                                 "If your mapping is tuple-keyed, then "
+                                 "the key does not exist.")
             forwards_key, backwards_key = key_or_keys
-            self.remove(forwards_key, backwards_key)
+            try:
+                self.remove(forwards_key, backwards_key)
+            except KeyError as error:
+                raise KeyError(
+                    f"Key or keys {key_or_keys} do not exist in "
+                    "the two-way mapping. If your mapping is "
+                    "tuple-keyed, then the key does not exist. "
+                    "Otherwise, one of the keys does not exist."
+                ) from error
         else:
             raise KeyError(f"Key or keys {key_or_keys} do not exist in the "
                            "two-way mapping.")
@@ -832,29 +756,98 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[MT]):
             del self.__backwards[backwards_key]
 
 
-@final
-class LayerMap(collections.abc.Mapping):
-    pass
+# @final
+# class LayerMap(collections.abc.Mapping):
+#     """
+#     Class defining a layered mapping type.
+
+#     A layered mapping is a mapping that contains multiple layers
+#     arranged in a 'horizontal' sequence. Each layer is a mapping
+#     that maps to layers to the 'left' and 'right' of it. The same
+#     key cannot exist in multiple different layers. This is similar
+#     to a graph-like structure, but keys in the same layer cannot
+#     map to themselves (they are not directly connected by an arc).
+#     """
+#     def __init__(self, *layers: collections.abc.Mapping[MT, MT]) -> None:
+#         self.__layers = layers
+#         self.__layer_count = len(layers)
+#         self.__keys = set()
+#         for layer in layers:
+#             self.__keys.update(layer.keys())
+
+#     def __repr__(self) -> str:
+#         return f"{self.__class__.__name__}({self.__layers})"
+
+#     def __str__(self) -> str:
+#         return f"{type(self).__name__}({self.__layers})"
+
+#     def __getitem__(self, key: MT, /) -> MT:
+#         for layer in self.__layers:
+#             if key in layer:
+#                 return layer[key]
+#         raise KeyError(f"Key {key} does not exist in any layer.")
+
+#     def __len__(self) -> int:
+#         return len(self.__keys)
+
+#     def __contains__(self, key: object, /) -> bool:
+#         return key in self.__keys
+
+#     def __iter__(self) -> Iterator[MT]:
+#         return iter(self.__keys)
+
+#     def __reversed__(self) -> Iterator[MT]:
+#         return reversed(self.__keys)
+
+#     def __eq__(self, other: object, /) -> bool:
+#         if isinstance(other, LayerMap):
+#             return self.__layers == other.__layers
+#         return NotImplemented
+
+#     def __ne__(self, other: object, /) -> bool:
+#         if isinstance(other, LayerMap):
+#             return self.__layers != other.__layers
+#         return NotImplemented
+
+#     def __hash__(self) -> int:
+#         return hash(self.__layers)
+
+#     def __copy__(self) -> LayerMap[MT]:
+#         return type(self)(*self.__layers)
+
+#     def __deepcopy__(self, memo: dict[int, object]) -> LayerMap[MT]:
+#         return type(self)(*(copy.deepcopy(layer, memo) for layer in self.__layers))
+
+#     def __getstate__(self) -> tuple[collections.abc.Mapping[MT, MT], ...]:
+#         super().__getstate__()
+#         return self.__layers
+
+#     def __setstate__(self, state: tuple[collections.abc.Mapping[MT, MT], ...], /) -> None:
+#         self.__layers = state
+#         self.__layer_count = len(state)
+#         self.__keys = set()
+#         for layer in state:
+#             self.__keys.update(layer.keys())
 
 
 if __name__ == "__main__":
     twm = TwoWayMap({"parent_1": ["child_1", "child_2"],
                         "parent_2": ["child_1"],
                         "parent_3": ["child_2"]})
-    # print(twm)
-    # print(twm["parent_1"])
-    # print(twm["child_1"])
-    # print("parent_3" in twm["child_1"])
-    # twm.add("parent_4", "child_1")
-    # print(twm)
-    # twm.remove("parent_4", "child_1")
-    # print(twm)
-    # print(list(twm.keys()))
-    # print(list(twm.values()))
-    # print(list(twm.items()))
+    print(twm)
+    print(twm["parent_1"])
+    print(twm["child_1"])
+    print("parent_3" in twm["child_1"])
+    twm.add("parent_4", "child_1")
+    print(twm)
+    twm.remove("parent_4", "child_1")
+    print(twm)
+    print(list(twm.keys()))
+    print(list(twm.values()))
+    print(list(twm.items()))
     forwards = twm.forwards
     print(forwards)
     print(forwards["parent_1"])
     twm.add("parent_4", "child_1")
     print(forwards)
-    # print(twm)
+    print(twm)
