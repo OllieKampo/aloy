@@ -16,9 +16,24 @@ class DataHolder:
     
     def __init__(self,
                  headers: list[str | tuple[str, ...]],
-                 converters: Optional[dict[str, Type]] = None
+                 converters: Optional[dict[str, Type]] = None,
+                 configuration: Optional[dict[str, Any]] = None,
+                 configuration_as_index: bool = False
                  ) -> None:
-        """Create a data holder for gathering and storing data generated during a algorithm or system trial."""
+        """
+        Create a data holder for gathering and storing data generated during a algorithm or system trial.
+        
+        Parameters
+        ----------
+        `headers : list[str | tuple[str, ...]]` - The column headers for the data.
+
+        `converters : Optional[dict[str, Type]]` - A dictionary mapping column headers to types to convert the data to.
+
+        `configuration : Optional[dict[str, Any]]` - A dictionary containing the configuration of the algorithm or system being tested.
+
+        `configuration_as_index : bool` - Whether to add the configuration as a multi-index to the dataframe's rows.
+        Otherwise, they are added as columns.
+        """
         self.__data = [[] for _ in headers]
         self.__headers: list[str | tuple[str, ...]] = headers
         self.__converters: dict[str, Type] = converters if converters is not None else {}
@@ -35,9 +50,24 @@ class DataHolder:
                                       else self.__converters[header](item))
     
     def to_dataframe(self) -> pd.DataFrame:
-        return pd.DataFrame(data={header : data for header, data in zip(self.__headers, self.__data)})
+        return pd.DataFrame(self.__data, columns=self.__headers)
 
-def combine_trials(dataframes: Iterable[pd.DataFrame],
-                   on_rows: bool = True):
-    """Combines a set of dataframes representing different trials of an algorithm or system under different parameter configurations."""
+
+# def combine_trials(dataframes: Iterable[pd.DataFrame],
+#                    on_rows: bool = True):
+#     """Combines a set of dataframes representing different trials of an algorithm or system under different parameter configurations."""
+#     pass
+
+
+class MultiTableDataHolder:
+    """
+    Data holder that can handle multiple dataframes, each representing a different table of data for the same experimental trial of an algorithm or system under the same parameter configuration.
+    """
+    pass
+
+
+class TrialDataCollector:
+    """
+    Wraps multiple data holders, and can handle multiple dataframes, each representing a different trial of an algorithm or system under different parameter configurations.
+    """
     pass
