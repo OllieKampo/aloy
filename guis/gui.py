@@ -39,7 +39,7 @@ __all__ = (
 )
 
 
-def __dir__() -> tuple[str]:
+def __dir__() -> tuple[str, ...]:
     """Get the names of module attributes."""
     return __all__
 
@@ -81,7 +81,7 @@ class JinxGuiData(observable.Observable):
         return self.__desired_view_state
 
     @desired_view_state.setter
-    @observable.notifies_observers
+    @observable.notifies_observers()
     def desired_view_state(self, desired_view_state: str | None) -> None:
         """Set the current desired view state name."""
         self.__desired_view_state = desired_view_state
@@ -179,7 +179,7 @@ class JinxGuiWindow(observable.Observer):
         self.__data.notify_all()
 
     @property
-    def current_view_state(self) -> str:
+    def current_view_state(self) -> str | None:
         """Get the current view state of the window."""
         return self.__current_view_state
 
