@@ -24,8 +24,8 @@
 
 from itertools import count
 from math import copysign
-from PyQt6.QtWidgets import QApplication, QWidget, QGridLayout, QHBoxLayout, QLabel, QPushButton, QGraphicsScene, QGraphicsView, QMainWindow, QSpinBox, QComboBox, QSlider, QCheckBox, QSizePolicy, QLayout
-from PyQt6.QtCore import Qt, QTimer, QEvent
+from PyQt6.QtWidgets import QApplication, QWidget, QGridLayout, QHBoxLayout, QLabel, QPushButton, QGraphicsScene, QGraphicsView, QMainWindow, QSpinBox, QComboBox, QSlider, QCheckBox, QSizePolicy, QLayout, QGraphicsTextItem
+from PyQt6.QtCore import Qt, QTimer, QEvent, QSizeF
 from PyQt6.QtGui import QBrush, QPen, QColor, QFont
 from concurrency.atomic import AtomicObject
 from guis.gui import JinxGuiData, JinxGuiWindow, JinxObserverWidget
@@ -66,10 +66,11 @@ class SnakeGameLogic:
 
     __slots__ = (
         "__weakref__",
+
         # Actions
         "_direction",
+
         # Game state
-        "_timer",
         "_grid_size",
         "_score",
         "_seconds_per_move",
@@ -78,6 +79,7 @@ class SnakeGameLogic:
         "_snake",
         "_food",
         "_obstacles",
+
         # Game options
         "_difficulty",
         "_show_path",
@@ -136,11 +138,6 @@ class SnakeGameLogic:
         # self._seconds_per_move_reduction_per_snake_growth: float = 0.01
         # self._min_seconds_per_move: float = 0.10
         self._initial_snake_length: int = _DEFAULT_INITIAL_SNAKE_LENGTH
-        # self._snake_color: QColor = QColor(0, 255, 0)
-        # self._snake_head_color: QColor = QColor(0, 255, 255)
-        # self._food_color: QColor = QColor(255, 0, 0)
-        # self._obstacle_color: QColor = QColor(255, 255, 255)
-        # self._grid_color: QColor = QColor(255, 255, 255)
 
     def _move_snake(self) -> None:
         """Move the snake in the current direction."""
@@ -321,7 +318,7 @@ class SnakeGameLogic:
         """Get the cells infront of the snake's head."""
         with self._direction:
             direction = self._direction.get_object()
-        a = [
+        return [
             tuple(
                 vector_modulo(
                     vector_add(
@@ -336,8 +333,6 @@ class SnakeGameLogic:
             )
             for _distance in range(1, distance + 1)
         ]
-        print(a)
-        return a
 
     def _reset_game_state(self) -> None:
         """Reset the game state."""
@@ -364,7 +359,7 @@ _CELL_SIZE: int = 20
 
 class SnakeGameJinxWidget(JinxObserverWidget):
     """
-    A class to represent the snake game on the Jinx widget.
+    A class to represent the snake game on a Jinx widget.
     """
 
     def __init__(
@@ -373,6 +368,7 @@ class SnakeGameJinxWidget(JinxObserverWidget):
         width: int,
         height: int, *,
         snake_game_logic: SnakeGameLogic | None = None,
+        manual_update: bool = False,
         debug: bool = False
     ) -> None:
         """Create a new snake game widget."""
@@ -383,19 +379,23 @@ class SnakeGameJinxWidget(JinxObserverWidget):
                 f"Got; {width=} and {height=}, respectively."
             )
         self.__grid_size: tuple[int, int] = (
-            width // _CELL_SIZE, height // _CELL_SIZE)
+            width // _CELL_SIZE,
+            height // _CELL_SIZE
+        )
 
         ## Set up the timer to update the game
+        self.__manual_update: bool = manual_update
         self.__timer = QTimer()
-        self.__timer.setInterval(100)
-        self.__timer.timeout.connect(self.__update_game)
+        if not manual_update:
+            self.__timer.setInterval(100)
+            self.__timer.timeout.connect(self.__update_game)
 
         ## Set up the game logic
         self._logic: SnakeGameLogic
         if snake_game_logic is None:
             self._logic = SnakeGameLogic(self.__grid_size)
         else:
-            self._logic._timer = self.__timer
+            self._logic = snake_game_logic
             self._logic._grid_size = self.__grid_size
 
         ## Widget and layout
@@ -441,11 +441,13 @@ class SnakeGameJinxWidget(JinxObserverWidget):
         self.__layout.addWidget(self.__display_widget, 1, 0, 1, 2)
 
         ## Set up the key press event
-        self.widget.keyPressEvent = self.__key_press_event
+        if not manual_update:
+            self.__key_press_event = self.widget.keyPressEvent
 
         ## Start the game
         self._logic._restart()
-        self.__timer.start()
+        if not manual_update:
+            self.__timer.start()
 
     def update_observer(self, data: JinxGuiData) -> None:
         """Update the observer."""
@@ -461,11 +463,6 @@ class SnakeGameJinxWidget(JinxObserverWidget):
         # self.__min_seconds_per_move = data.get_data("min_seconds_per_move", 0.10)
         self._logic._initial_snake_length = data.get_data("initial_snake_length", 4)
         self._logic._speed = data.get_data("speed", 1.0)
-        # self.__snake_color = data.get_data("snake_color", QColor(0, 255, 0))
-        # self.__snake_head_color = data.get_data("snake_head_color", QColor(0, 255, 255))
-        # self.__food_color = data.get_data("food_color", QColor(255, 0, 0))
-        # self.__obstacle_color = data.get_data("obstacle_color", QColor(255, 255, 255))
-        # self.__grid_color = data.get_data("grid_color", QColor(255, 255, 255))
 
     def __key_press_event(self, event: QEvent) -> None:
         """
@@ -485,11 +482,44 @@ class SnakeGameJinxWidget(JinxObserverWidget):
             elif event.key() == Qt.Key.Key_Space:
                 self._logic._paused = not self._logic._paused
 
-    def __update_game(self) -> None:
-        """Update the game."""
+    def manual_update_game(self, action: str | int) -> None:
+        """Update the game manually."""
+        if not self.__manual_update:
+            raise RuntimeError("Cannot manually update the game.")
+        with self._logic._direction:
+            match action:
+                case "up" | "w" | 0:
+                    self._logic._direction.set_object((0, -1))
+                case "down" | "s" | 1:
+                    self._logic._direction.set_object((0, 1))
+                case "left" | "a" | 2:
+                    self._logic._direction.set_object((-1, 0))
+                case "right" | "d" | 3:
+                    self._logic._direction.set_object((1, 0))
+                case "restart" | "r":
+                    self._logic._restart()
+                case "pause" | "p":
+                    self._logic._paused = not self._logic._paused
+                case _:
+                    raise ValueError(f"Invalid action: {action}")
         self._logic._move_snake()
         self.__draw_all()
+
+    def __update_game(self) -> None:
+        """
+        Update the game.
+
+        This method is called by the widget's internal timer to update the
+        game when it is being played interactively by a human.
+        """
+        self._logic._move_snake()
         self.__update_timer()
+        self.__draw_all()
+
+    def __update_timer(self) -> None:
+        """Update the timer."""
+        self.__timer.setInterval(
+            int((1000 * self._logic._seconds_per_move) / self._logic._speed))
 
     def __draw_all(self) -> None:
         """Draw the snake and food on the grid."""
@@ -500,16 +530,13 @@ class SnakeGameJinxWidget(JinxObserverWidget):
         self.__update_score()
         if self.debug:
             self.__draw_debug()
+        # if self.automated:
+        #     self.__draw_automated()
         if self._logic._game_over:
             self.__draw_game_over()
         elif self._logic._paused:
             self.__draw_paused()
         self.widget.update()
-
-    def __update_timer(self) -> None:
-        """Update the timer."""
-        self.__timer.setInterval(
-            int((1000 * self._logic._seconds_per_move) / self._logic._speed))
 
     def __draw_snake(self) -> None:
         """Draw the snake on the grid."""
@@ -609,17 +636,31 @@ class SnakeGameJinxWidget(JinxObserverWidget):
 
     def __draw_game_over(self) -> None:
         """Draw the game over text."""
-        self.__scene.addText(
+        text: QGraphicsTextItem = self.__scene.addText(
             "Game Over",
             QFont("Arial", 72)
-        ).setPos(self.__grid_size[0] * _CELL_SIZE // 2 - 300, self.__grid_size[1] * _CELL_SIZE // 2 - 100)
-    
+        )
+        text_size: QSizeF = text.boundingRect().size()
+        text.setPos(
+            ((self.__grid_size[0] * _CELL_SIZE) // 2)
+            - (text_size.width() // 2),
+            ((self.__grid_size[1] * _CELL_SIZE) // 2)
+            - (text_size.height() // 2)
+        )
+
     def __draw_paused(self) -> None:
         """Draw the paused text."""
-        self.__scene.addText(
+        text: QGraphicsTextItem = self.__scene.addText(
             "Paused",
             QFont("Arial", 72)
-        ).setPos(self.__grid_size[0] * _CELL_SIZE // 2 - 150, self.__grid_size[1] * _CELL_SIZE // 2 - 100)
+        )
+        text_size: QSizeF = text.boundingRect().size()
+        text.setPos(
+            ((self.__grid_size[0] * _CELL_SIZE) // 2)
+            - (text_size.width() // 2),
+            ((self.__grid_size[1] * _CELL_SIZE) // 2)
+            - (text_size.height() // 2)
+        )
 
     def __update_score(self) -> None:
         self.__score_label.setText(f"Score: {self._logic._score}")
@@ -723,7 +764,11 @@ class SnakeGameOptionsJinxWidget(JinxObserverWidget):
         layout.addWidget(self.__show_path_checkbox)
         self.__layout.addLayout(layout, row, column)
 
-    def __create_food_per_snake_growth_option(self, row: int, column: int) -> None:
+    def __create_food_per_snake_growth_option(
+        self,
+        row: int,
+        column: int
+    ) -> None:
         """Create the option to change the food per snake growth."""
         layout = QHBoxLayout()
         label = QLabel("Food Per Snake Growth:")
