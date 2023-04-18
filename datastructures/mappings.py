@@ -757,7 +757,7 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[MT]):
 
 
 # @final
-# class LayerMap(collections.abc.Mapping):
+# class LayerMap(collections.abc.Mapping, Generic[MT]):
 #     """
 #     Class defining a layered mapping type.
 
@@ -768,7 +768,7 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[MT]):
 #     to a graph-like structure, but keys in the same layer cannot
 #     map to themselves (they are not directly connected by an arc).
 #     """
-#     def __init__(self, *layers: collections.abc.Mapping[MT, MT]) -> None:
+#     def __init__(self, *layers: Mapping[MT, MT]) -> None:
 #         self.__layers = layers
 #         self.__layer_count = len(layers)
 #         self.__keys = set()
@@ -781,11 +781,25 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[MT]):
 #     def __str__(self) -> str:
 #         return f"{type(self).__name__}({self.__layers})"
 
-#     def __getitem__(self, key: MT, /) -> MT:
+#     def __getitem__(self, key: MT, /) -> tuple[MT | None, MT | None]:
 #         for layer in self.__layers:
 #             if key in layer:
 #                 return layer[key]
 #         raise KeyError(f"Key {key} does not exist in any layer.")
+
+#     def get_left(self, key: MT, /) -> MT:
+#         """Get the key to the left of the given key."""
+#         for layer in self.__layers:
+#             if key in layer:
+#                 break
+#             yield layer
+
+#     def get_right(self, key: MT, /) -> MT:
+#         """Get the key to the right of the given key."""
+#         for layer in reversed(self.__layers):
+#             if key in layer:
+#                 break
+#             yield layer
 
 #     def __len__(self) -> int:
 #         return len(self.__keys)
