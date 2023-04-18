@@ -1,6 +1,6 @@
 from collections import deque
 import itertools
-from typing import Any, Generic, Hashable, Iterable, Iterator, KeysView, Mapping, Optional, TypeVar, overload
+from typing import Any, Generic, Hashable, Iterable, Iterator, KeysView, Mapping, Optional, SupportsFloat, TypeVar, overload
 
 import collections.abc
 import numpy as np
@@ -29,7 +29,7 @@ from datastructures.disjointset import DisjointSet
 
 
 VT = TypeVar("VT", bound=Hashable)
-WT = TypeVar("WT", bound=Hashable)
+WT = TypeVar("WT", bound=SupportsFloat)
 
 
 class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
@@ -45,9 +45,8 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
     ## Create a graph whose nodes are represented by integers where;
     ##      - Vertex 1 is adjacent to vertices 2 and 3,
     ##      - Vertex 2 is adjacent to vertex 4.
-    >>> graph: Graph[int]
-    >>> graph = Graph({1 : {2, 3},
-    ...                2 : 4})
+    >>> graph = Graph[int, int]({1: {2, 3},
+    ...                          2: 4})
     >>> graph
     {1: {2, 3}, 2: {1, 4}, 3: {1}, 4: {2}}
 
@@ -82,6 +81,7 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         edges: Iterable[tuple[VT, VT | set[VT] | None]] = [],
         vertex_data: Mapping[VT, dict[str, Any]] = {},
         edge_data: Mapping[tuple[VT, VT], dict[str, Any]] = {},
+        edge_weights: Mapping[tuple[VT, VT], WT] = {},
         directed: bool = False,
         allow_loops: bool = False
     ) -> None:
@@ -97,31 +97,37 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
 
         `vertices: Iterable[VT] | None` - An iterable of disconnected vertices.
 
-        `edges: Iterable[tuple[VT, VT | set[VT] | None]] | None` - An iterable of edge tuples.
-        Each tuple is a pair of vertices, where the first is the start vertex and second is either;
-        one adjacent vertex, set of adjacent vertices, or None.
-        If None, the start vertex is disconnected.
+        `edges: Iterable[tuple[VT, VT | set[VT] | None]] | None` - An iterable
+        of edge tuples. Each tuple is a pair of vertices, where the first is
+        the start vertex and second is either; one adjacent vertex, set of
+        adjacent vertices, or None. If None, the start vertex is disconnected.
 
         `vertex_data: Mapping[VT, dict[str, Any]]` - A mapping of vertex data.
         Each key is a vertex, and the value is a data attribute dictionary.
-        The data attribute dictionary maps of attribute names to arbitrary values.
+        The data attribute dictionary maps of attribute names to arbitrary
+        values.
 
-        `edge_data: Mapping[tuple[VT, VT], dict[str, Any]]` - A mapping of edge data.
-        Each key is an edge tuple, and the value is a data attribute dictionary.
-        The data attribute dictionary maps of attribute names to arbitrary values.
+        `edge_data: Mapping[tuple[VT, VT], dict[str, Any]]` - A mapping of
+        edge data. Each key is an edge tuple, and the value is a data
+        attribute dictionary. The data attribute dictionary maps of attribute
+        names to arbitrary values.
 
-        `directed: bool` - Whether the graph is directed or not.
-        If True, the graph is directed, and the adjacency mapping is asymmetric.
-        Otherwise, the graph is undirected, and the adjacency mapping is symmetric.
+        `edge_weights: Mapping[tuple[VT, VT], WT]` - A mapping of edge weights.
+        Each key is an edge tuple, and the value is the weight of the edge.
+
+        `directed: bool` - Whether the graph is directed or not. If True, the
+        graph is directed, and the adjacency mapping is asymmetric. Otherwise,
+        the graph is undirected, and the adjacency mapping is symmetric.
 
         `allow_loops: bool` - Whether the graph allows loops or not.
-        If True, the graph allows loops, and a vertex can be adjacent to itself.
+        If True, the graph allows loops, and a vertex can be adjacent to
+        itself.
         """
         self.__directed: bool = directed
         self.__allow_loops: bool = allow_loops
 
         self.__adjacency_mapping: dict[VT, set[VT]] = {}
-        self.__edge_weights: dict[tuple[VT, VT], WT] = {}
+        self.__edge_weights: dict[tuple[VT, VT], WT | None] = {}
         for node, connections in itertools.chain(
             graph.items(),
             zip(vertices, itertools.repeat(None)),
@@ -129,18 +135,25 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         ):
             self[node] = connections
 
+        for edge, weight in edge_weights.items():
+            self.set_edge_weight(*edge, weight)
+
         self.__vertex_data: dict[VT, dict[str, Any]] = {}
         for vertex, data in vertex_data.items():
             self.update_vertex_data(vertex, data)
+        
         self.__edge_data: dict[tuple[VT, VT], dict[str, Any]] = {}
         for edge, data in edge_data.items():
-            self.update_edge_data(edge, data)
+            self.update_edge_data(*edge, data)
 
     def __str__(self) -> str:
         return str(self.__adjacency_mapping)
 
     def __repr__(self) -> str:
-        return f"Graph(graph={self.__adjacency_mapping!r}, directed={self.__directed}, allow_loops={self.__allow_loops})"
+        return f"Graph(graph={self.__adjacency_mapping!r}, " \
+               f"vertex_data={self.__vertex_data!r}, " \
+               f"edge_data={self.__edge_data!r}, " \
+               f"directed={self.__directed}, allow_loops={self.__allow_loops})"
 
     def __getitem__(self,
                     vertex: VT
@@ -148,58 +161,68 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         """Get the adjacent vertices to the given vertex."""
         return self.__adjacency_mapping[vertex]
 
-    def __setitem__(self,
-                    vertex: VT,
-                    connections: VT | set[VT] | frozenset[VT] = None
-                    ) -> None:
+    def __setitem__(
+        self,
+        vertex: VT,
+        connections: VT | set[VT] | frozenset[VT] | None = None
+    ) -> None:
         """
-        Add connections between a given vertex, and another vertex (or set of vertices).
+        Add connections between a given vertex, and another vertex (or set of
+        vertices).
 
-        If any of the vertices are not in the graph, add them to the graph as well.
+        If any of the vertices are not in the graph, add them to the graph as
+        well.
         """
-        ## If connections is None then the vertex is disconnected from the graph.
+        # If connections is None then the vertex is disconnected from the
+        # graph.
+        adj_map = self.__adjacency_mapping
+        edge_ws = self.__edge_weights
         if connections is None:
-            if vertex not in self.__adjacency_mapping:
-                self.__adjacency_mapping[vertex] = set()
+            if vertex not in adj_map:
+                adj_map[vertex] = set()
             return
 
-        ## Convert the connections to a set.
+        # Convert the connections to a set.
         _connections: set[VT]
         if not isinstance(connections, (set, frozenset)):
             _connections = {connections}
         else:
-            _connections = connections
+            _connections = connections  # type: ignore
 
-        ## If loops are not allowed, ensure the vertex is not in the set of connections.
+        # If loops are not allowed, ensure the vertex is not in the set of
+        # connections.
         if not self.__allow_loops:
             if isinstance(_connections, frozenset):
                 _connections = _connections - {vertex}
             else:
                 _connections.discard(vertex)
 
-        ## Find the set of existing connections from the specified vertex, and the set
-        ## of new connections (those in the set to add that are not already in the existing set).
-        existing_connections: set[VT] = self.__adjacency_mapping.setdefault(vertex, set())
-        new_connections: set[VT] = _connections.difference(existing_connections)
+        # Find the set of existing connections from the specified vertex, and
+        # the set of new connections (those in the set to add that are not
+        # already in the existing set).
+        existing_connections: set[VT] = adj_map.setdefault(vertex, set())
+        new_connections: set[VT] = _connections - existing_connections
 
-        ## Add the new connections both to and from the specified node
+        # Add the new connections both to and from the specified node
         existing_connections.update(new_connections)
         if not self.__directed:
             for connected_vertex in new_connections:
-                self.__adjacency_mapping.setdefault(connected_vertex, set()).add(vertex)
-                self.__edge_weights.setdefault((connected_vertex, vertex), None)
-                self.__edge_weights.setdefault((vertex, connected_vertex), None)
+                adj_map.setdefault(connected_vertex, set()).add(vertex)
+                edge_ws.setdefault((connected_vertex, vertex), None)
+                edge_ws.setdefault((vertex, connected_vertex), None)
         else:
             for connected_vertex in new_connections:
-                self.__adjacency_mapping.setdefault(connected_vertex, set())
-                self.__edge_weights.setdefault((vertex, connected_vertex), None)
+                adj_map.setdefault(connected_vertex, set())
+                edge_ws.setdefault((vertex, connected_vertex), None)
 
-    def __delitem__(self,
-                    vertex_or_edge: VT | tuple[VT, VT]
-                    ) -> None:
+    def __delitem__(
+        self,
+        vertex_or_edge: VT | tuple[VT, VT]
+    ) -> None:
         """Remove a vertex or an edge from the graph."""
         if isinstance(vertex_or_edge, tuple):
-            ## If the specified item is an edge, remove the connection from the first vertex to the second.
+            # If the specified item is an edge, remove the connection from the
+            # first vertex to the second.
             vertex, connected_vertex = vertex_or_edge
             self.__adjacency_mapping[vertex].discard(connected_vertex)
             self.__edge_data.pop(vertex_or_edge, None)
@@ -209,18 +232,21 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
                 self.__edge_data.pop((connected_vertex, vertex), None)
                 self.__edge_weights.pop((connected_vertex, vertex), None)
         else:
-            ## Get all other nodes connected to the specified node, removing any loops
+            # Get all other nodes connected to the specified node, removing
+            # any loops
             vertex = vertex_or_edge
             connected_vertices: set[VT] = self.__adjacency_mapping[vertex]
             connected_vertices.discard(vertex)
-            
-            ## Remove all the connections from the other vertices to the specified vertex.
+
+            # Remove all the connections from the other vertices to the
+            # specified vertex.
             for connected_vertex in connected_vertices:
                 self.__adjacency_mapping[connected_vertex].discard(vertex)
                 self.__edge_data.pop((connected_vertex, vertex), None)
                 self.__edge_weights.pop((connected_vertex, vertex), None)
-            
-            ## Remove the specified vertex and all its connections to the other vertices.
+
+            # Remove the specified vertex and all its connections to the
+            # other vertices.
             del self.__adjacency_mapping[vertex]
             self.__vertex_data.pop(vertex, None)
 
@@ -232,70 +258,103 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         """The number of vertices in the graph."""
         return len(self.__adjacency_mapping)
 
-    def __contains__(self,
-                     vertex: VT
-                     ) -> bool:
+    def __contains__(
+        self,
+        vertex: object
+    ) -> bool:
         """Check if the given vertex is in the graph."""
         return vertex in self.__adjacency_mapping
 
-    def add_vertex(self,
-                   vertex: VT, /,
-                   connections: VT | set[VT] | frozenset[VT] = None,
-                   **data: Any
-                   ) -> None:
-        """Add a vertex to the graph."""
+    def add_vertex(
+        self,
+        vertex: VT, /,
+        connections: VT | set[VT] | frozenset[VT] | None = None,
+        **data: Any
+    ) -> None:
+        """
+        Add a vertex to the graph.
+
+        Parameters
+        ----------
+        `vertex: VT` - The vertex identifier.
+
+        `connections: VT | set[VT] | frozenset[VT] | None = None` - The vertex
+        identifier(s) of the vertices to connect to. If `None` (the default),
+        the vertex is disconnected from the graph.
+
+        `**data: Any` - Any additional data to associate with the vertex.
+        """
         self[vertex] = connections
         self.update_vertex_data(vertex, data)
 
-    def add_edge(self,
-                 start: VT,
-                 end: VT, /,
-                 weight: float | None = None,
-                 **data: Any
-                 ) -> None:
-        """Add an edge to the graph."""
+    def add_edge(
+        self,
+        start: VT,
+        end: VT, /,
+        weight: WT | None = None,
+        **data: Any
+    ) -> None:
+        """
+        Add an edge to the graph.
+
+        Parameters
+        ----------
+        `start: VT` - The vertex identifier at the start of the edge.
+
+        `end: VT` - The vertex identifier at the end of the edge.
+
+        `weight: WT | None` - The weight of the edge. If `None`, the edge is
+        unweighted.
+
+        `**data: Any` - Any additional data to associate with the edge.
+        """
         self[start] = end
         if weight is not None:
             self.__edge_weights[(start, end)] = weight
         self.update_edge_data(start, end, data)
 
-    def set_vertex_data(self,
-                        vertex: VT,
-                        name: str,
-                        value: Any
-                        ) -> None:
+    def set_vertex_data(
+        self,
+        vertex: VT,
+        name: str,
+        value: Any
+    ) -> None:
         """Set the given data attribute of the given vertex."""
         self.__vertex_data.setdefault(vertex, {})[name] = value
 
-    def update_vertex_data(self,
-                           vertex: VT,
-                           data: dict[str, Any]
-                           ) -> None:
+    def update_vertex_data(
+        self,
+        vertex: VT,
+        data: dict[str, Any]
+    ) -> None:
         """Update the data attributes of the given vertex from a mapping."""
         if not isinstance(data, Mapping):
             raise TypeError(f"The data must be a mapping. Got; {data!r} of type {type(data)}.")
         self.__vertex_data.setdefault(vertex, {}).update(data)
 
     @overload
-    def get_vertex_data(self,
-                        vertex: VT, *,
-                        default: dict[str, Any] = {}
-                        ) -> dict[str, Any]:
+    def get_vertex_data(
+        self,
+        vertex: VT, /, *,
+        default: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         ...
 
     @overload
-    def get_vertex_data(self,
-                        vertex: VT, /,
-                        name: str, *,
-                        default: Any | None = None
-                        ) -> Any | None:
+    def get_vertex_data(
+        self,
+        vertex: VT, /,
+        name: str | None = None, *,
+        default: Any | None = None
+    ) -> Any | None:
         ...
 
-    def get_vertex_data(self,
-                        vertex: VT, /,
-                        name: str | None = None, *,
-                        default: Any | None = None
-                        ) -> Any | None:
+    def get_vertex_data(
+        self,
+        vertex: VT, /,
+        name: str | None = None, *,
+        default: Any | dict[str, Any] | None = None
+    ) -> Any | None:
         """
         Get the data attribute(s) of the given vertex.
 
@@ -306,52 +365,55 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         """
         if name is None:
             return self.__vertex_data.get(vertex, default)
-        if vertex not in self.__vertex_data:
-            return default
         return self.__vertex_data[vertex].get(name, default)
 
-    def set_edge_data(self,
-                      vertex: VT,
-                      adjacent: VT,
-                      name: str,
-                      value: Any
-                      ) -> None:
+    def set_edge_data(
+        self,
+        vertex: VT,
+        adjacent: VT,
+        name: str,
+        value: Any
+    ) -> None:
         """Set the given data attribute of the given edge."""
         self.__edge_data.setdefault((vertex, adjacent), {})[name] = value
 
-    def update_edge_data(self,
-                         vertex: VT,
-                         adjacent: VT,
-                         data: Mapping[str, Any]
-                         ) -> None:
+    def update_edge_data(
+        self,
+        vertex: VT,
+        adjacent: VT,
+        data: Mapping[str, Any]
+    ) -> None:
         """Update the data attributes of the given edge from a mapping."""
         if not isinstance(data, Mapping):
             raise TypeError(f"The data must be a mapping. Got; {data!r} of type {type(data)}.")
         self.__edge_data.setdefault((vertex, adjacent), {}).update(data)
 
     @overload
-    def get_edge_data(self,
-                      vertex: VT,
-                      adjacent: VT, *,
-                      default: dict[str, Any] = {}
-                      ) -> dict[str, Any]:
+    def get_edge_data(
+        self,
+        vertex: VT,
+        adjacent: VT, /, *,
+        default: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         ...
 
     @overload
-    def get_edge_data(self,
-                      vertex: VT,
-                      adjacent: VT, /,
-                      name: str, *,
-                      default: Any | None = None
-                      ) -> Any | None:
+    def get_edge_data(
+        self,
+        vertex: VT,
+        adjacent: VT, /,
+        name: str, *,
+        default: Any | None = None
+    ) -> Any | None:
         ...
 
-    def get_edge_data(self,
-                      vertex: VT,
-                      adjacent: VT,
-                      name: str,
-                      default: Any | None = None
-                      ) -> Any | None:
+    def get_edge_data(
+        self,
+        vertex: VT,
+        adjacent: VT, /,
+        name: str | None = None, *,
+        default: Any | dict[str, Any] | None = None
+    ) -> Any | None:
         """
         Get the data attribute(s) of the given edge.
 
@@ -360,24 +422,50 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         If the edge is not in the graph or the edge does not have the
         given attribute, return the default value.
         """
+        if name is None:
+            return self.__edge_data.get((vertex, adjacent), default)
         return self.__edge_data[(vertex, adjacent)].get(name, default)
 
-    def iter_edge_data(self,
-                       edges: Iterable[tuple[VT, VT]],
-                       names: Iterable[str] | None = None
-                       ) -> Iterator[tuple[tuple[VT, VT], dict[str, Any]]]:
-        """Iterate over the data of the given edges."""
+    def iter_edge_data(
+        self,
+        edges: Iterable[tuple[VT, VT]] | None = None,
+        names: Iterable[str] | None = None
+    ) -> Iterator[tuple[tuple[VT, VT], dict[str, Any]]]:
+        """
+        Yield and iterator over the data of the given edges.
+
+        Parameters
+        ----------
+        `edges: Iterable[tuple[VT, VT]] | None = None` - The edges to iterate
+        over. If `None`, iterate over all the edges in the graph.
+
+        `names: Iterable[str] | None = None` - The names of the data attributes
+        to yield. If `None`, yield all the data attributes.
+
+        Yields
+        ------
+        `tuple[tuple[VT, VT], dict[str, Any]]` - The edge and the data
+        attributes associated with it.
+        """
+        edge_data = self.__edge_data
+        if edges is None:
+            edges = self.edges
         if names is None:
             for edge in edges:
-                yield edge, self.__edge_data[edge]
+                yield edge, edge_data[edge]
         else:
             for edge in edges:
-                yield edge, {name: self.__edge_data[edge][name] for name in names}
+                data = {
+                    name: edge_data[edge][name]
+                    for name in names
+                }
+                yield edge, data
 
-    def iter_vertex_data(self,
-                         vertices: Iterable[VT],
-                         names: Iterable[str] | None = None
-                         ) -> Iterator[tuple[VT, dict[str, Any]]]:
+    def iter_vertex_data(
+        self,
+        vertices: Iterable[VT],
+        names: Iterable[str] | None = None
+    ) -> Iterator[tuple[VT, dict[str, Any]]]:
         """Iterate over the data of the given vertices."""
         if names is None:
             for vertex in vertices:
@@ -391,19 +479,21 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         """The set of edges in the graph."""
         return self.__edge_weights.keys()
 
-    def set_edge_weight(self,
-                        start: VT,
-                        end: VT,
-                        weight: float
-                        ) -> None:
+    def set_edge_weight(
+        self,
+        start: VT,
+        end: VT,
+        weight: WT
+    ) -> None:
         """Set the weight of the given edge."""
         self.__edge_weights[(start, end)] = weight
 
-    def get_edge_weight(self,
-                        start: VT,
-                        end: VT,
-                        default: float = 0.0
-                        ) -> float:
+    def get_edge_weight(
+        self,
+        start: VT,
+        end: VT,
+        default: WT = 0.0
+    ) -> WT:
         """Get the weight of the given edge."""
         return self.__edge_weights.get((start, end), default)
 
@@ -415,7 +505,7 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         while frontier:
             element: VT = frontier.pop()
 
-            connected_to: frozenset[VT] = self[element]
+            connected_to: set[VT] = self[element]
             frontier -= connected_to
 
             dset.add(element, connected_to)
@@ -425,16 +515,17 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
     def get_sub_graph(
         self,
         start_vertex: Optional[VT] = None
-    ) -> "Graph[VT]":
+    ) -> "Graph[VT, WT]":
         """Get the sub-graph containing the given vertex."""
         if start_vertex is None:
             start_vertex = next(iter(self))
         elif start_vertex not in self:
-            raise ValueError(f"The vertex {start_vertex} is not in the graph {self}.")
+            raise ValueError(f"The vertex {start_vertex} is "
+                             f"not in the graph {self}.")
 
         frontier: set[VT] = {start_vertex}
         expanded: set[VT] = set()
-        sub_graph: Graph[VT] = Graph()
+        sub_graph: Graph[VT, WT] = Graph()
 
         while frontier:
             vertex: VT = frontier.pop()
@@ -454,54 +545,89 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         raise_: bool = True
     ) -> list[VT] | None:
         """
-        Get the shortest path between the two given vertices.
+        Get the shortest discrete path between the two given vertices
+        (ignoring edge weights). For the minimal weighted path, use
+        `Graph.get_minimal_path()`.
 
-        If the start and end vertices are the same, then the path will be empty,
-        unless `find_cycle` is True, in which case the path will the shortest cycle
-        whose start and end vertices are the given vertices.
+        If the start and end vertices are the same, then the path will be
+        empty, unless `find_cycle` is True, in which case the path will the
+        shortest cycle whose start and end vertices are the given vertices.
 
-        If `raise_` is True, then a ValueError will be raised if no path exists.
-        Otherwise, if `raise_` is False, then None will be returned if no path exists.
+        Parameters
+        ----------
+        `start_vertex: VT` - The vertex to start the path from.
+
+        `end_vertex: VT` - The vertex to end the path at.
+
+        `find_cycle: bool = False` - Whether to find a cycle if the start and
+        end vertices are the same. Otherwise, the path will be empty.
+
+        `raise_: bool` - Whether to raise a ValueError if no path exists.
+        Otherwise, None will be returned if no path exists.
+
+        Returns
+        -------
+        `path: list[VT] | None` - The path between the two vertices, or None
+        if no path exists and `raise_` is False.
         """
         if start_vertex not in self:
-            raise ValueError(f"The vertex {start_vertex} is not in the graph {self}.")
+            raise ValueError(f"The vertex {start_vertex} is "
+                             f"not in the graph {self}.")
         elif end_vertex not in self:
-            raise ValueError(f"The vertex {end_vertex} is not in the graph {self}.")
+            raise ValueError(f"The vertex {end_vertex} is "
+                             f"not in the graph {self}.")
 
         if (start_vertex == end_vertex
                 and not find_cycle):
             return []
 
+        # Loop variables for tracking search;
+        #   - `visited` is the set of vertices that have been visited,
+        #   - `frontier` is the queue of vertices left to expand,
+        #   - `path` is the dictionary of vertices to its adjacent vertex
+        #     currently known to the closest to the start vertex.
         visited: set[VT] = {start_vertex}
         frontier: deque[VT] = deque([start_vertex])
         path: dict[VT, VT | None] = {start_vertex: None}
 
+        # Whilst there are still vertices to expand;
         while frontier:
+            # Pop the first vertex from the frontier (FIFO),
+            # then get all the (adjacent) vertices connected to it,
+            # and remove those that have already been visited.
             vertex: VT = frontier.popleft()
             connected_to: set[VT] = self[vertex]
-            new_connections: set[VT] = (connected_to - visited)
+            new_connections: set[VT] = connected_to - visited
 
+            # Visit all new connections;
             for new_vertex in new_connections:
                 path[new_vertex] = vertex
 
+                # Path is found when end vertex is visited.
+                # Traverse the path back to the start vertex,
+                # then reverse it, giving the shortest path
+                # from start to end.
                 if new_vertex == end_vertex:
-                    final_path = [new_vertex]
-                    v = vertex
-                    while v is not None:
-                        final_path.append(v)
-                        v = path[v]
+                    final_path: list[VT] = [new_vertex]
+                    other_vertex: VT | None = vertex
+                    while other_vertex is not None:
+                        final_path.append(other_vertex)
+                        other_vertex = path[other_vertex]
                     final_path.reverse()
                     return final_path
 
+                # Otherwise, add the new vertex to the frontier,
+                # ready to be expanded.
                 frontier.append(new_vertex)
 
+            # All new connections have been visited.
             visited |= new_connections
 
         if raise_:
-            raise ValueError(f"No path between {start_vertex} and {end_vertex}.")
+            raise ValueError(f"No path from {start_vertex} to {end_vertex}.")
         return None
 
-    # def get_shortest_path(
+    # def get_minimal_path(
     #     self,
     #     start_vertex: VT,
     #     end_vertex: VT, /,
@@ -509,14 +635,8 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
     #     raise_: bool = True
     # ) -> list[VT] | None:
     #     """
-    #     Get the shortest path between the two given vertices.
-
-    #     If the start and end vertices are the same, then the path will be empty,
-    #     unless `find_cycle` is True, in which case the path will the shortest cycle
-    #     whose start and end vertices are the given vertices.
-
-    #     If `raise_` is True, then a ValueError will be raised if no path exists.
-    #     Otherwise, if `raise_` is False, then None will be returned if no path exists.
+    #     Get the minimal weighted path between the two given vertices using the A*
+    #     algorithm. For the shortest discrete path, use `Graph.get_path()`.
     #     """
     #     if start_vertex not in self:
     #         raise ValueError(f"The vertex {start_vertex} is not in the graph {self}.")
@@ -619,7 +739,7 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         if start_vertex is None:
             start_vertex = next(iter(self))
         elif start_vertex not in self:
-            raise ValueError(f"The vertex {start_vertex} is not in the graph {self}.")
+            raise ValueError(f"The vertex {start_vertex} is not in {self!s}.")
 
         frontier: set[VT] = {start_vertex}
         expanded: set[VT] = set()
@@ -631,13 +751,14 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
             connected_to: set[VT] = self[vertex]
             if connected_to & expanded:
                 return True
-            ## No need to take difference with expanded since
-            ## the intersection with connected_to must be empty.
+
+            # No need to take difference with expanded since
+            # the intersection with connected_to must be empty.
             frontier |= connected_to
 
         return False
 
-    def is_connected(self, start_node: Optional[VT] = None) -> bool:
+    def is_connected(self, start_node: VT | None = None) -> bool:
         """
         Determine if this undirected graph is connected.
 
@@ -657,37 +778,41 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         -------
         `bool` - A Boolean, True if the graph is connected, False otherwise.
         """
-        ## Variables for tracking progress of the search;
-        ##      - The set of vertices that have been found to be connected to the graph,
-        ##      - The frontier is the set of nodes that have been found to be connected
-        ##        to the graph, but have not yet been expanded, where expansion of a vertex
-        ##        is the process of marking the vertices it directly connects (via a single edge) as connected.
+        # Variables for tracking progress of the search;
+        #       - The set of vertices that have been found to be connected to
+        #         the graph,
+        #       - The frontier is the set of nodes that have been found to be
+        #         connected to the graph, but have not yet been expanded,
+        #         where expansion of a vertex is the process of marking the
+        #         vertices it directly connects (via a single edge) as
+        #         connected.
         connected_nodes: set[VT] = set()
         frontier: set[VT] = set()
-        
-        ## Start from the given vertex if it was given, otherwise start from any vertex.
+
+        # Start from the given vertex if it was given, otherwise start from
+        # any vertex.
         _start_node: VT = default_get(start_node, next(iter(self)))
         connected_nodes.add(_start_node)
-        
+
         new_nodes: set[VT] = self[_start_node].difference(connected_nodes)
         connected_nodes.update(new_nodes)
         frontier.update(new_nodes)
-        
-        ## Whilst there are nodes to search,
-        ## and we have not already found a connection to all nodes...
-        while (frontier and not len(self) == len(connected_nodes)):
-            
-            ## Get and remove a node from the frontier randomly
-            ## (order in which they are visited does not matter)
+
+        # Whilst there are nodes to search, and we have not already found a
+        # connection to all nodes;
+        while (frontier and len(self) != len(connected_nodes)):
+
+            # Get and remove a node from the frontier randomly
+            # (order in which they are visited does not matter)
             vertex: VT = frontier.pop()
-            
-            ## Get all the nodes adjacent to this node that are not already connected to the graph as a whole,
-            ## we are essentially looking to see if this node is adjacent to any node that is not connected yet.
+
+            # Get all the nodes adjacent to this node that are not already
+            # connected to the graph as a whole.
             new_nodes = self[vertex].difference(connected_nodes)
-            
-            ## Mark those nodes as connected, and add them to the frontier.
+
+            # Mark those nodes as connected, and add them to the frontier.
             connected_nodes.update(new_nodes)
             frontier.update(new_nodes)
-        
-        ## The graph is connected, if all vertices are in the connected set.
+
+        # The graph is connected, if all vertices are in the connected set.
         return len(self) == len(connected_nodes)
