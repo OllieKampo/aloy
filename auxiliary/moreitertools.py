@@ -22,24 +22,35 @@
 
 """Module defining additional functions for operating on iterables."""
 
-__all__ = ("getitem_zip",
-           "all_equal",
-           "first_n",
-           "iter_to_length",
-           "cycle_for",
-           "chunk",
-           "max_n",
-           "find_first",
-           "find_all",
-           "filter_replace",
-           "filter_not_none")
+__all__ = (
+    "getitem_zip",
+    "all_equal",
+    "iter_to_len",
+    "cycle_to",
+    "cycle_for",
+    "index_sequence",
+    "chunk",
+    "ichunk_iterable",
+    "ichunk_sequence",
+    "max_n",
+    "min_n",
+    "arg_max",
+    "arg_min",
+    "arg_max_n",
+    "arg_min_n",
+    "find_first",
+    "find_all",
+    "filter_not_none",
+    "alternate"
+)
 
 import collections.abc
 import itertools
 from fractions import Fraction
 import math
 from numbers import Real
-from typing import Callable, Generic, Iterable, Iterator, Optional, Sequence, Type, TypeVar, final, overload
+from typing import (Callable, Generic, Iterable, Iterator, Optional, Sequence,
+                    Type, TypeVar, final, overload)
 
 from auxiliary.typingutils import SupportsLenAndGetitem, SupportsRichComparison
 
@@ -50,9 +61,9 @@ VT_C = TypeVar("VT_C", bound=SupportsRichComparison)
 
 def __extract_args(*args_or_iterable: VT | Iterable[VT]) -> Iterator[VT]:
     if len(args_or_iterable) == 1:
-        yield from args_or_iterable[0]
+        return iter(args_or_iterable[0])  # type: ignore
     else:
-        yield from args_or_iterable
+        return iter(args_or_iterable)     # type: ignore
 
 
 @final
@@ -72,10 +83,11 @@ class getitem_zip(collections.abc.Sequence, Generic[VT]):
     }
 
     @overload
-    def __init__(self,
-                 *sequences: SupportsLenAndGetitem[VT],
-                 strict: bool = False
-                 ) -> None:
+    def __init__(
+        self,
+        *sequences: SupportsLenAndGetitem[VT],
+        strict: bool = False
+    ) -> None:
         """
         Create a getitem zip.
 
@@ -89,12 +101,13 @@ class getitem_zip(collections.abc.Sequence, Generic[VT]):
         ...
 
     @overload
-    def __init__(self,
-                 *sequences: SupportsLenAndGetitem[VT],
-                 shortest: bool,
-                 fill: VT | None = None,
-                 strict: bool = False
-                 ) -> None:
+    def __init__(
+        self,
+        *sequences: SupportsLenAndGetitem[VT],
+        shortest: bool,
+        fill: VT | None = None,
+        strict: bool = False
+    ) -> None:
         """
         Create a getitem zip.
 
@@ -110,12 +123,13 @@ class getitem_zip(collections.abc.Sequence, Generic[VT]):
         """
         ...
 
-    def __init__(self,
-                 *sequences: SupportsLenAndGetitem[VT],
-                 shortest: bool = True,
-                 fill: VT | None = None,
-                 strict: bool = False
-                 ) -> None:
+    def __init__(
+        self,
+        *sequences: SupportsLenAndGetitem[VT],
+        shortest: bool = True,
+        fill: VT | None = None,
+        strict: bool = False
+    ) -> None:
         """
         Create a getitem zip.
 
@@ -126,17 +140,21 @@ class getitem_zip(collections.abc.Sequence, Generic[VT]):
             raise TypeError("Sequences must support __len__ and __getitem__.")
         if strict and not all_equal(len(seq) for seq in sequences):
             raise ValueError("All sequences must have the same length.")
-        self.__sequences: tuple[SupportsLenAndGetitem[VT]] = sequences
+        self.__sequences: tuple[SupportsLenAndGetitem[VT], ...] = sequences
         self.__shortest: bool = bool(shortest)
+        self.__len: int
         if shortest:
-            self.__len: int = min(len(seq) for seq in sequences)
+            self.__len = min(len(seq) for seq in sequences)
         else:
-            self.__len: int = max(len(seq) for seq in sequences)
+            self.__len = max(len(seq) for seq in sequences)
         self.__fill: VT | None = fill
 
     @property
     def shortest(self) -> bool:
-        """Get whether zipping is up to the shortest or longest zipped iterable."""
+        """
+        Get whether zipping is up to the shortest or longest zipped
+        iterable.
+        """
         return self.__shortest
 
     @property
@@ -149,13 +167,26 @@ class getitem_zip(collections.abc.Sequence, Generic[VT]):
         if self.__shortest:
             yield from zip(*self.__sequences)
         else:
-            yield from itertools.zip_longest(*self.__sequences, fillvalue=self.__fill)
+            yield from itertools.zip_longest(
+                *self.__sequences,
+                fillvalue=self.__fill
+            )
 
-    def __getitem__(self, index: int) -> tuple[VT | None, ...]:
-        """Get a n-length tuple of items, one from each of the n zipped iterables, for the given index."""
+    def __getitem__(
+        self,
+        index_or_slice: int | slice
+    ) -> tuple[VT | None, ...]:
+        """
+        Get a n-length tuple of items, one from each of the n zipped
+        iterables, for the given index.
+        """
+        if isinstance(index_or_slice, slice):
+            raise TypeError("Cannot slice a getitem_zip.")
         if self.__shortest:
-            return tuple(sequence[index] for sequence in self.__sequences)
-        return tuple(sequence[index] if index < len(sequence) else self.__fill
+            return tuple(sequence[index_or_slice]
+                         for sequence in self.__sequences)
+        return tuple(sequence[index_or_slice]
+                     if index_or_slice < len(sequence) else self.__fill
                      for sequence in self.__sequences)
 
     def __len__(self) -> int:
@@ -185,7 +216,7 @@ def first_n(iterable: Iterable[VT], n: int) -> Iterator[VT]:
 
 
 def iter_to_len(
-    iterable: Iterable[VT | None],
+    iterable: Iterable[VT],
     len_: int, /,
     fill: VT | Sequence[VT] | None = None
 ) -> Iterator[VT]:
@@ -193,8 +224,9 @@ def iter_to_len(
     Yield items from the iterable up to the given length.
 
     If the iterable is exhausted before the given length, then; if `fill` is
-    not a sequence then instead repeatedly yield the fill value, otherwise
-    if `fill` is a sequence then cycle through it to the given length.
+    not a sequence and not None then repeatedly yield the fill value, otherwise
+    if `fill` is a sequence then cycle through it up to the given length.
+
     To yield a string repeatedly as a fill value, use a one-element tuple.
     """
     if isinstance(iterable, Sequence):
@@ -207,6 +239,7 @@ def iter_to_len(
             else:
                 yield from itertools.repeat(fill, len_ - len(iterable))
     else:
+        index = 0
         for index, element in enumerate(iterable):
             yield element
         if index < len_:
@@ -248,7 +281,7 @@ def cycle_for(
     """
     if cycles < 0:
         raise ValueError("Cycles must be a non-negative real number.")
-    cycles = Fraction(cycles)
+    cycles = Fraction(int(cycles))
     if cycles > 0:
         cycled = Fraction(0.0)
         cycles_per_item = Fraction(f"1/{len(sequence)}")
@@ -290,7 +323,7 @@ def chunk(
     else:
         quantity = len(sequence) // size
     if as_type is not None and type(sequence) is not as_type:
-        yield from (as_type(sequence[index:index + size])
+        yield from (as_type(sequence[index:index + size])  # type: ignore
                     for index in range(0, quantity * size, size))
     else:
         yield from (sequence[index:index + size]
@@ -402,7 +435,7 @@ def ichunk_sequence(
 
 @overload
 def max_n(
-    iterable: Iterable[VT_C], /,
+    iterable: Iterable[VT_C], /, *,
     n: int = 1
 ) -> list[VT_C]:
     """Return the n largest elements of an iterable."""
@@ -411,7 +444,7 @@ def max_n(
 
 @overload
 def max_n(
-    iterable: Iterable[VT_C], /,
+    iterable: Iterable[VT_C], /, *,
     n: int = 1,
     key: Callable[[VT_C], SupportsRichComparison] | None = None
 ) -> list[VT_C]:
@@ -456,7 +489,7 @@ def max_n(
 
 @overload
 def min_n(
-    iterable: Iterable[VT_C], /,
+    iterable: Iterable[VT_C], /, *,
     n: int = 1
 ) -> list[VT_C]:
     """Return the n smallest elements of an iterable."""
@@ -465,7 +498,7 @@ def min_n(
 
 @overload
 def min_n(
-    iterable: Iterable[VT_C], /,
+    iterable: Iterable[VT_C], /, *,
     n: int = 1,
     key: Callable[[VT_C], SupportsRichComparison] | None = None
 ) -> list[VT_C]:
@@ -515,8 +548,16 @@ def arg_max(
 ) -> int:
     """Return the index of the largest element of an iterable."""
     if key is None:
-        return max(enumerate(iterable), key=lambda i: i[1], default=(0, default))[0]
-    return max(enumerate(iterable), key=lambda i: key(i[1]), default=(0, default))[0]
+        return max(
+            enumerate(iterable),
+            key=lambda i: i[1],
+            default=(0, default)
+        )[0]
+    return max(
+        enumerate(iterable),
+        key=lambda i: key(i[1]),
+        default=(0, default)
+    )[0]
 
 
 def arg_min(
@@ -526,8 +567,16 @@ def arg_min(
 ) -> int:
     """Return the index of the smallest element of an iterable."""
     if key is None:
-        return min(enumerate(iterable), key=lambda i: i[1], default=(0, default))[0]
-    return min(enumerate(iterable), key=lambda i: key(i[1]), default=(0, default))[0]
+        return min(
+            enumerate(iterable),
+            key=lambda i: i[1],
+            default=(0, default)
+        )[0]
+    return min(
+        enumerate(iterable),
+        key=lambda i: key(i[1]),
+        default=(0, default)
+    )[0]
 
 
 def arg_max_n(
@@ -543,8 +592,14 @@ def arg_max_n(
     if n == 1:
         return [arg_max(iterable, key=key)]
     if key is None:
-        return [index for index, _ in sorted(enumerate(iterable), key=lambda i: i[1])[-n:]]
-    return [index for index, _ in sorted(enumerate(iterable), key=lambda i: key(i[1]))[-n:]]
+        return [
+            index for index, _ in
+            sorted(enumerate(iterable), key=lambda i: i[1])[-n:]
+        ]
+    return [
+        index for index, _ in
+        sorted(enumerate(iterable), key=lambda i: key(i[1]))[-n:]
+    ]
 
 
 def arg_min_n(
@@ -560,22 +615,37 @@ def arg_min_n(
     if n == 1:
         return [arg_min(iterable, key=key)]
     if key is None:
-        return [index for index, _ in sorted(enumerate(iterable), key=lambda i: i[1])[:n]]
-    return [index for index, _ in sorted(enumerate(iterable), key=lambda i: key(i[1]))[:n]]
+        return [
+            index for index, _ in
+            sorted(enumerate(iterable), key=lambda i: i[1])[:n]
+        ]
+    return [
+        index for index, _ in
+        sorted(enumerate(iterable), key=lambda i: key(i[1]))[:n]
+    ]
 
 
-def find_first(iterable: Iterable[VT], condition: Callable[[int, VT], bool]) -> tuple[int, VT]:
-    """Find the first element of the iterable where the condition holds true."""
+def find_first(
+    iterable: Iterable[VT],
+    condition: Callable[[int, VT], bool]
+) -> tuple[int, VT]:
+    """
+    Find the first element of the iterable where the condition holds true.
+    """
     for index, element in enumerate(iterable):
         if condition(index, element):
             return (index, element)
+    raise ValueError("No element found.")
 
 
 def find_all(iterable: Iterable[VT],
              condition: Callable[[int, VT], bool],
              limit: Optional[int] = None
              ) -> Iterator[tuple[int, VT]]:
-    """Return an iterator over all the elements of the iterable where the condition holds true."""
+    """
+    Return an iterator over all the elements of the iterable where the
+    condition holds true.
+    """
     for index, element in enumerate(iterable):
         if index == limit:
             break
@@ -589,5 +659,8 @@ def filter_not_none(iterable: Iterable[VT]) -> Iterator[VT]:
 
 
 def alternate(*iterables: Iterable[VT]) -> Iterator[VT]:
-    """Return an iterator which alternates between yielding items from the given iterables."""
+    """
+    Return an iterator which alternates between yielding items from the
+    given iterables.
+    """
     yield from itertools.chain.from_iterable(itertools.zip_longest(*iterables))
