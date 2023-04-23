@@ -137,6 +137,11 @@ class ResourceProgressBar:
             self.__progress_bar.set_postfix(self.__postfix)
             yield val
 
+    @property
+    def n(self) -> int:
+        """Get the current progress bar value."""
+        return self.__progress_bar.n
+
     def get_resource_usage(self) -> tuple[float, float]:
         """
         Get the current memory and CPU usage.
