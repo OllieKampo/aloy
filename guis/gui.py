@@ -24,8 +24,9 @@
 
 from typing import Any
 from PyQt6 import QtWidgets
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QTimer  # pylint: disable=E0611
 from concurrency.clocks import ClockThread
+from concurrency.synchronization import atomic_update
 
 import guis.observable as observable
 
@@ -57,15 +58,37 @@ class JinxGuiData(observable.Observable):
     def __init__(
         self,
         name: str | None = None,
-        data_dict: dict[str, Any] = {}, /,
+        data_dict: dict[str, Any] | None = None, /,
         clock: ClockThread | QTimer | None = None, *,
         debug: bool = False
     ) -> None:
-        """Create a new Jinx gui data."""
+        """
+        Create a new Jinx gui data.
+
+        Parameters
+        ----------
+        `name: str | None = None` - The name of the object.
+        If not given or None, a unique name will be generated.
+        See `jinx.guis.observable.Observable` for details.
+
+        `data_dict: dict[str, Any] | None = None` - A data dictionary
+        to be copied into the gui data object.
+
+        `clock: ClockThread | QTimer | None = None` - The clock
+        thread or timer to be used for the observable object.
+        If not given or None, a new clock thread will be created.
+        See `jinx.guis.observable.Observable` for details.
+
+        `debug: bool = False`  - Whether to log debug messages.
+        """
         super().__init__(name, clock, debug=debug)
         self.__desired_view_state: str | None = None
         self.__view_states: list[str] = []
-        self.__data: dict[str, Any] = data_dict.copy()
+        self.__data: dict[str, Any]
+        if data_dict is None:
+            self.__data = {}
+        else:
+            self.__data = data_dict.copy()
 
     def add_view_state(self, view_state: str) -> None:
         """Add a new view state name."""
@@ -86,11 +109,12 @@ class JinxGuiData(observable.Observable):
         """Set the current desired view state name."""
         self.__desired_view_state = desired_view_state
 
+    @atomic_update("data", method=True)
     def get_data(self, key: str, default: Any = None) -> Any:
         """Get the data associated with the given key."""
         return self.__data.get(key, default)
 
-    @observable.notifies_observers
+    @observable.notifies_observers()
     def set_data(self, key: str, value: Any) -> None:
         """Set the data associated with the given key."""
         self.__data[key] = value
@@ -119,7 +143,7 @@ class JinxObserverWidget(observable.Observer):
         """Get the widget."""
         return self.__widget
 
-    def update_observer(self, data: JinxGuiData) -> None:
+    def update_observer(self, observable: JinxGuiData) -> None:
         """
         Update the observer.
 
@@ -208,7 +232,7 @@ class JinxGuiWindow(observable.Observer):
             self.__data.remove_observers(self.__views[name])
             self.__data.desired_view_state = None
 
-    def update_observer(self, data: JinxGuiData) -> None:
+    def update_observer(self, observable: JinxGuiData) -> None:
         """Update the observer."""
         desired_view_state: str | None = self.__data.desired_view_state
         if self.__current_view_state != desired_view_state:
