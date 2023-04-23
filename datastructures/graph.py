@@ -1,31 +1,80 @@
 from collections import deque
 import itertools
-from typing import Any, Generic, Hashable, Iterable, Iterator, KeysView, Mapping, Optional, SupportsFloat, TypeVar, overload
+from typing import Any, Callable, Generic, Hashable, Iterable, Iterator, KeysView, Mapping, Optional, SupportsFloat, TypeVar, overload
 
 import collections.abc
 import numpy as np
 
 from auxiliary.getters import default_get
+from auxiliary.progressbars import ResourceProgressBar
 from datastructures.disjointset import DisjointSet
+from datastructures.queues import PriorityQueue
 
-# @enum.unique
-# class DistanceMeasure(enum.Enum):
-#     Euclidean = "Euclidean Distance"
-#     Manhatten = "Manhatten Distance"
-#     Chebyshev = "Chebyshev Distance"
 
-# def distance(self, other: "PosVertex[IT, CT]", measure: DistanceMeasure = DistanceMeasure.Euclidean) -> float:
-#     """Returns the distance between this vertex and another vertex."""
-#     if self.dimensions != other.dimensions:
-#         raise ValueError("Cannot measure distance between vertices in different dimensional vector spaces.")
-#     if measure == DistanceMeasure.Euclidean:
-#         return np.linalg.norm(self.at - other.at)
-#     elif measure == DistanceMeasure.Manhatten:
-#         return np.sum(np.abs(self.at - other.at))
-#     elif measure == DistanceMeasure.Chebyshev:
-#         return np.max(np.abs(self.at - other.at))
-#     else:
-#         raise ValueError(f"Unknown distance measure: {measure}")
+def euclidean_distance_heuristic(
+    start_vertex: tuple[float, ...],
+    end_vertex: tuple[float, ...],
+) -> float:
+    """
+    Euclidean distance heuristic for use with A* search.
+
+    Parameters
+    ----------
+    start_vertex : tuple[float, ...]
+        The starting vertex.
+    end_vertex : tuple[float, ...]
+        The ending vertex.
+
+    Returns
+    -------
+    float
+        The euclidean distance between the two vertices.
+    """
+    return sum((x - y) ** 2 for x, y in zip(start_vertex, end_vertex)) ** 0.5
+
+
+def manhattan_distance_heuristic(
+    start_vertex: tuple[float, ...],
+    end_vertex: tuple[float, ...],
+) -> float:
+    """
+    Manhattan distance heuristic for use with A* search.
+
+    Parameters
+    ----------
+    start_vertex : tuple[float, ...]
+        The starting vertex.
+    end_vertex : tuple[float, ...]
+        The ending vertex.
+
+    Returns
+    -------
+    float
+        The manhattan distance between the two vertices.
+    """
+    return sum(abs(x - y) for x, y in zip(start_vertex, end_vertex))
+
+
+def chebyshev_distance_heuristic(
+    start_vertex: tuple[float, ...],
+    end_vertex: tuple[float, ...],
+) -> float:
+    """
+    Chebyshev distance heuristic for use with A* search.
+
+    Parameters
+    ----------
+    start_vertex : tuple[float, ...]
+        The starting vertex.
+    end_vertex : tuple[float, ...]
+        The ending vertex.
+
+    Returns
+    -------
+    float
+        The chebyshev distance between the two vertices.
+    """
+    return max(abs(x - y) for x, y in zip(start_vertex, end_vertex))
 
 
 VT = TypeVar("VT", bound=Hashable)
@@ -311,6 +360,8 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         self[start] = end
         if weight is not None:
             self.__edge_weights[(start, end)] = weight
+            if not self.__directed:
+                self.__edge_weights[(end, start)] = weight
         self.update_edge_data(start, end, data)
 
     def set_vertex_data(
@@ -376,6 +427,8 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
     ) -> None:
         """Set the given data attribute of the given edge."""
         self.__edge_data.setdefault((vertex, adjacent), {})[name] = value
+        if not self.__directed:
+            self.__edge_data.setdefault((adjacent, vertex), {})[name] = value
 
     def update_edge_data(
         self,
@@ -487,6 +540,8 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
     ) -> None:
         """Set the weight of the given edge."""
         self.__edge_weights[(start, end)] = weight
+        if not self.__directed:
+            self.__edge_weights[(end, start)] = weight
 
     def get_edge_weight(
         self,
@@ -542,12 +597,14 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         start_vertex: VT,
         end_vertex: VT, /,
         find_cycle: bool = False,
+        dfs: bool = False,
         raise_: bool = True
     ) -> list[VT] | None:
         """
-        Get the shortest discrete path between the two given vertices
-        (ignoring edge weights). For the minimal weighted path, use
-        `Graph.get_minimal_path()`.
+        Get a discrete path between the two given vertices (ignoring edge
+        weights). By default, finds the shortest path by breadth-first search,
+        but if `dfs` is True, then finds the first path by depth-first search
+        (which may not be the shortest path).
 
         If the start and end vertices are the same, then the path will be
         empty, unless `find_cycle` is True, in which case the path will the
@@ -561,6 +618,9 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
 
         `find_cycle: bool = False` - Whether to find a cycle if the start and
         end vertices are the same. Otherwise, the path will be empty.
+
+        `dfs: bool = False` - Whether to use depth-first search instead of
+        breadth-first search.
 
         `raise_: bool` - Whether to raise a ValueError if no path exists.
         Otherwise, None will be returned if no path exists.
@@ -587,7 +647,13 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         #   - `path` is the dictionary of vertices to its adjacent vertex
         #     currently known to the closest to the start vertex.
         visited: set[VT] = {start_vertex}
-        frontier: deque[VT] = deque([start_vertex])
+        frontier: deque[VT] | list[VT]
+        if dfs:
+            frontier = [start_vertex]
+            pop = frontier.pop
+        else:
+            frontier = deque([start_vertex])
+            pop = frontier.popleft  # type: ignore
         path: dict[VT, VT | None] = {start_vertex: None}
 
         # Whilst there are still vertices to expand;
@@ -595,7 +661,7 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
             # Pop the first vertex from the frontier (FIFO),
             # then get all the (adjacent) vertices connected to it,
             # and remove those that have already been visited.
-            vertex: VT = frontier.popleft()
+            vertex: VT = pop()
             connected_to: set[VT] = self[vertex]
             new_connections: set[VT] = connected_to - visited
 
@@ -627,56 +693,183 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
             raise ValueError(f"No path from {start_vertex} to {end_vertex}.")
         return None
 
-    # def get_minimal_path(
-    #     self,
-    #     start_vertex: VT,
-    #     end_vertex: VT, /,
-    #     find_cycle: bool = False,
-    #     raise_: bool = True
-    # ) -> list[VT] | None:
-    #     """
-    #     Get the minimal weighted path between the two given vertices using the A*
-    #     algorithm. For the shortest discrete path, use `Graph.get_path()`.
-    #     """
-    #     if start_vertex not in self:
-    #         raise ValueError(f"The vertex {start_vertex} is not in the graph {self}.")
-    #     elif end_vertex not in self:
-    #         raise ValueError(f"The vertex {end_vertex} is not in the graph {self}.")
+    def get_minimal_path(
+        self,
+        start_vertex: VT,
+        end_vertex: VT, /,
+        heuristic: Callable[[VT, VT], WT] | None = None,
+        weight: Callable[[VT, VT], WT] | str = "weight",
+        find_cycle: bool = False,
+        greedy: bool = False,
+        enable_progress_bar: bool = False,
+        raise_: bool = True
+    ) -> list[VT] | None:
+        """
+        Get the minimal weighted path between the two given vertices using the
+        A* algorithm. For the shortest discrete path, use `Graph.get_path()`.
 
-    #     if (start_vertex == end_vertex
-    #             and not find_cycle):
-    #         return []
+        Parameters
+        ----------
+        `start_vertex: VT` - The vertex to start the path from.
 
-    #     visited: set[VT] = {start_vertex}
-    #     frontier: deque[VT] = deque([start_vertex])
-    #     path: dict[VT, VT | None] = {start_vertex: None}
-    #     distance: dict[VT, int] = {start_vertex: 0}
+        `end_vertex: VT` - The vertex to end the path at.
 
-    #     while frontier:
-    #         vertex: VT = frontier.popleft()
-    #         connected_to: set[VT] = self[vertex]
-    #         new_connections: set[VT] = (connected_to - visited)
+        `heuristic: Callable[[VT, VT], WT] | None = None` - The heuristic
+        function to use to estimate the distance between two vertices. The
+        heuristic function must take two vertices as arguments and return a
+        number. If not given or None, then the heuristic will always be 0.0.
+        This is equivalent to a uniform-cost search.
 
-    #         for new_vertex in new_connections:
-    #             path[new_vertex] = vertex
-    #             distance[new_vertex] = distance[vertex] + 1
+        `weight: Callable[[VT, VT], WT] | str = "weight"` - The weight
+        function to use to get the weight of an edge. If a string, then
+        the edge data for the given key will be used as the weight, unless
+        the key is "weight", in which case the edge weight will be used.
+        If not given or None, then the edge weight will be used.
 
-    #             if new_vertex == end_vertex:
-    #                 final_path = [new_vertex]
-    #                 v = vertex
-    #                 while v is not None:
-    #                     final_path.append(v)
-    #                     v = path[v]
-    #                 final_path.reverse()
-    #                 return final_path
+        `find_cycle: bool = False` - Whether to find a cycle if the start and
+        end vertices are the same. Otherwise, the path will be empty.
 
-    #             frontier.append(new_vertex)
+        `greedy: bool = False` - Whether to use a greedy search instead of
+        A*. This ignores the edge weights and only uses the heuristic during
+        search. The path returned is no longer guaranteed to be minimal weight.
 
-    #         visited |= new_connections
+        `enable_progress_bar: bool = False` - Whether to enable a progress
+        bar to show the progress of the search.
 
-    #     if raise_:
-    #         raise ValueError(f"No path between {start_vertex} and {end_vertex}.")
-    #     return None
+        `raise_: bool = True` - Whether to raise a ValueError if no path
+        exists. Otherwise, None will be returned if no path exists.
+
+        Returns
+        -------
+        `path: list[VT] | None` - The path between the two vertices, or None
+        if no path exists and `raise_` is False.
+
+        Example Usage
+        -------------
+        >>> graph = Graph[str, int]()
+        >>> graph.add_edge("A", "B", 1)
+        >>> graph.add_edge("B", "C", 2)
+        >>> graph.add_edge("A", "C", 5)
+        # Shortest path is Z -> C, with a cost of 5.
+        >>> graph.get_path("A", "C")
+        ["A", "C"]
+        # Minimal weighted path is A -> B -> C, with a cost of 3.
+        # (no heuristic used here, equivalent to uniform-cost search).
+        >>> graph.get_minimal_path("A", "C")
+        ["A", "B", "C"]
+
+        >>> graph = Graph.grid_graph(dim=(3, 3), connect_diagonally=True)  # TODO: set so can be initially disconnected
+        >>> graph.get_minimal_path((0, 0), (2, 2), heuristic=Graph.manhattan_distance)
+        [(0, 0), (1, 1), (2, 2)]
+
+        >>> graph = Graph.world_map_graph(
+        ...     names=("London", "Dublin", "Paris", "Berlin", "Rome", "Madrid"),
+        ...     coords=((51.5074, 0.1278), (53.3498, 6.2603), (48.8566, 2.3522),
+        ...             (52.5200, 13.4050), (41.9028, 12.4964), (40.4168, 3.7038),
+        ...     set_weights=Graph.euclidean_distance(data="coords")  # Calculate all edge weights using Euclidean distance.
+        ... )
+        >>> graph.get_minimal_path(
+        ...     "London", "Rome",
+        ...     heuristic=Graph.euclidean_distance(data="coords")  # Calculate heuristic between any two (possibly non-adjacent) vertices using Euclidean distance.
+        ... )
+        ['London', 'Paris', 'Rome']
+        """
+        if start_vertex not in self:
+            raise ValueError(f"Vertex {start_vertex} is not in {self}.")
+        elif end_vertex not in self:
+            raise ValueError(f"Vertex {end_vertex} is not in {self}.")
+
+        if (start_vertex == end_vertex
+                and not find_cycle):
+            return []
+
+        if heuristic is None:
+            def heuristic_(v1: VT, v2: VT) -> WT:
+                return 0.0
+        else:
+            heuristic_ = heuristic
+
+        if isinstance(weight, str):
+            if weight == "weight":
+                def weight_(v1: VT, v2: VT) -> WT:
+                    return self.get_edge_weight(v1, v2, 0.0)
+            else:
+                def weight_(v1: VT, v2: VT) -> WT:
+                    return self.get_edge_data(v1, v2, weight)
+
+        counter = itertools.count()
+        frontier = PriorityQueue(
+            ((start_vertex, None),       # (vertex, parent)
+             (0.0, 0.0, next(counter)))  # (heuristic value, backwards cost, n)
+        )
+        expanded: dict[VT, tuple[WT, WT]] = {}
+        path: dict[VT, VT | None] = {}
+        vertices_visited: int = 0
+        vertices_expanded: int = 0
+
+        if enable_progress_bar:
+            progress_bar = ResourceProgressBar(total=len(self))
+
+        while frontier:
+            item, prio = frontier.pop_prio()
+            _, cost, _ = prio
+            vertex, parent = item
+
+            vertices_visited += 1
+            if vertex == end_vertex:
+                final_path = [vertex]
+                other_vertex = parent
+                while other_vertex is not None:
+                    final_path.append(other_vertex)
+                    other_vertex = path[other_vertex]
+                final_path.reverse()
+                return final_path
+
+            if vertex in path:
+                if path[vertex] is None:
+                    continue
+
+            path[vertex] = parent
+
+            for adjacent in self[vertex]:
+                adjacent_cost = cost + weight_(vertex, adjacent)
+                if adjacent not in expanded:
+                    if greedy:
+                        adjacent_hvalue = heuristic_(adjacent, end_vertex)
+                    else:
+                        adjacent_hvalue = (
+                            adjacent_cost + heuristic_(adjacent, end_vertex)
+                        )
+                    expanded[adjacent] = (adjacent_hvalue, adjacent_cost)
+                    frontier.push(
+                        (adjacent, vertex),
+                        (adjacent_hvalue, adjacent_cost, next(counter))
+                    )
+                    vertices_expanded += 1
+                else:
+                    adjacent_hvalue, existing_cost = expanded[adjacent]
+                    if adjacent_cost < existing_cost:
+                        adjacent_hvalue = (
+                            (adjacent_hvalue - existing_cost) + adjacent_cost)
+                        frontier.push(
+                            (adjacent, vertex),
+                            (adjacent_hvalue, adjacent_cost, next(counter))
+                        )
+                        vertices_expanded += 1
+
+            if enable_progress_bar:
+                progress_bar.update(
+                    vertices_visited - progress_bar.n,
+                    data={
+                        "frontier": len(frontier),
+                        "visited": vertices_visited,
+                        "expanded": vertices_expanded
+                    }
+                )
+
+        if raise_:
+            raise ValueError(f"No path between {start_vertex} and {end_vertex}.")
+        return None
 
     # def minimum_spanning_tree(self) -> "Graph[VT]":
     #     """Get the minimum spanning tree of the graph."""
@@ -816,3 +1009,13 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
 
         # The graph is connected, if all vertices are in the connected set.
         return len(self) == len(connected_nodes)
+
+
+if __name__ == "__main__":
+    import random
+    graph = Graph[int, float](directed=False)
+    for i in range(1000):
+        for j in range(1000):
+            graph.add_edge(i, j, random.random())
+    path = graph.get_minimal_path(1, 999, enable_progress_bar=True)
+    print(path)
