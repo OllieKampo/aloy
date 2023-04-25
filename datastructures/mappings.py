@@ -38,7 +38,7 @@ __all__ = (
     "ReversableDict",
     "FrozenReversableDict",
     "TwoWayMap",
-    # "LayerMap"
+    "LayerMap"
 )
 
 
@@ -52,7 +52,10 @@ VT = TypeVar("VT", bound=Hashable, covariant=True)
 
 
 @final
-class frozendict(collections.abc.Mapping, Generic[KT, VT]):
+class frozendict(  # pylint: disable=C0103
+    collections.abc.Mapping,
+    Generic[KT, VT]
+):
     """
     A frozen dictionary type.
 
@@ -169,22 +172,22 @@ class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
     >>> rev_dict
     ReversableDict({"a" : 1, "b" : 2, "z" : 2})
 
-    ## Access the standard and reversed mappings directly.
+    # Access the standard and reversed mappings directly.
     >>> rev_dict.standard_mapping
     {"a" : 1, "b" : 2, "z" : 2}
     >>> rev_dict.reversed_mapping
     {1 : ["a"], 2 : ["b", "z"]}
 
-    ## Check what 'a' maps to (as in a standard dictionary).
+    # Check what 'a' maps to (as in a standard dictionary).
     >>> rev_dict["a"]
     1
 
-    ## Check what keys map to 2 (a reverse operation to a standard dictionary).
-    ## The keys are given as a list where order reflects insertion order.
+    # Check what keys map to 2 (a reverse operation to a standard dictionary).
+    # The keys are given as a list where order reflects insertion order.
     >>> rev_dict(2)
     ["b", "z"]
 
-    ## Objects are mutable and updates update standard and reverse mappings.
+    # Objects are mutable and updates update standard and reverse mappings.
     >>> del rev_dict["z"]
     >>> rev_dict(2)
     ["b"]
@@ -464,19 +467,19 @@ class FrozenReversableDict(collections.abc.Mapping, Generic[KT, VT]):
         standard_mapping = self.__reversable_dict.standard_mapping
         return f"{self.__class__.__name__}({standard_mapping!r})"
 
-    def __getitem__(self, key: KT, /) -> VT:  # noqa: D102
+    def __getitem__(self, key: KT, /) -> VT:
         return self.__reversable_dict[key]
     __getitem__.__doc__ = ReversableDict.__getitem__.__doc__
 
-    def __iter__(self) -> Iterator[VT]:  # noqa: D102
+    def __iter__(self) -> Iterator[VT]:
         return iter(self.__reversable_dict)  # type: ignore
     __iter__.__doc__ = ReversableDict.__iter__.__doc__
 
-    def __len__(self) -> int:  # noqa: D102
+    def __len__(self) -> int:
         return len(self.__reversable_dict)
     __len__.__doc__ = ReversableDict.__len__.__doc__
 
-    def __call__(  # noqa: D102
+    def __call__(
         self,
         value: VT, /, *,  # type: ignore
         max_: Optional[int] = None
@@ -494,18 +497,20 @@ class FrozenReversableDict(collections.abc.Mapping, Generic[KT, VT]):
         return self.__hash
 
     @property
-    def standard_mapping(self) -> types.MappingProxyType[KT, VT]:  # noqa: D102
+    def standard_mapping(  # pylint: disable=C0116
+        self
+    ) -> types.MappingProxyType[KT, VT]:
         return self.__reversable_dict.standard_mapping
     standard_mapping.__doc__ = ReversableDict.standard_mapping.__doc__
 
     @property
-    def reversed_mapping(  # noqa: D102
+    def reversed_mapping(  # pylint: disable=C0116
         self
     ) -> types.MappingProxyType[VT, ListView[KT]]:
         return self.__reversable_dict.reversed_mapping
     reversed_mapping.__doc__ = ReversableDict.reversed_mapping.__doc__
 
-    def reversed_get(  # noqa: D102
+    def reversed_get(  # pylint: disable=C0116
         self,
         value: VT,  # type: ignore
         default: Optional[list[KT]] = None, /, *,
@@ -756,98 +761,242 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[MT]):
             del self.__backwards[backwards_key]
 
 
-# @final
-# class LayerMap(collections.abc.Mapping, Generic[MT]):
-#     """
-#     Class defining a layered mapping type.
+class LayerMapValue(collections.abc.Sequence, Generic[MT]):
+    """Class defining a layered mapping value type."""
 
-#     A layered mapping is a mapping that contains multiple layers
-#     arranged in a 'horizontal' sequence. Each layer is a mapping
-#     that maps to layers to the 'left' and 'right' of it. The same
-#     key cannot exist in multiple different layers. This is similar
-#     to a graph-like structure, but keys in the same layer cannot
-#     map to themselves (they are not directly connected by an arc).
-#     """
-#     def __init__(self, *layers: Mapping[MT, MT]) -> None:
-#         self.__layers = layers
-#         self.__layer_count = len(layers)
-#         self.__keys = set()
-#         for layer in layers:
-#             self.__keys.update(layer.keys())
+    __slots__ = ("__list",)
 
-#     def __repr__(self) -> str:
-#         return f"{self.__class__.__name__}({self.__layers})"
+    def __init__(self, list_: list[MT | None]) -> None:
+        """Create a new layered mapping value."""
+        self.__list: list[MT | None] = list_
 
-#     def __str__(self) -> str:
-#         return f"{type(self).__name__}({self.__layers})"
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({self.__list!r})"
 
-#     def __getitem__(self, key: MT, /) -> tuple[MT | None, MT | None]:
-#         for layer in self.__layers:
-#             if key in layer:
-#                 return layer[key]
-#         raise KeyError(f"Key {key} does not exist in any layer.")
+    @overload
+    def __getitem__(self, index: int, /) -> MT | None:
+        ...
 
-#     def get_left(self, key: MT, /) -> MT:
-#         """Get the key to the left of the given key."""
-#         for layer in self.__layers:
-#             if key in layer:
-#                 break
-#             yield layer
+    @overload
+    def __getitem__(self, index: slice, /) -> list[MT | None]:
+        ...
 
-#     def get_right(self, key: MT, /) -> MT:
-#         """Get the key to the right of the given key."""
-#         for layer in reversed(self.__layers):
-#             if key in layer:
-#                 break
-#             yield layer
+    def __getitem__(
+        self,
+        index: int | slice, /
+    ) -> MT | None | list[MT | None]:
+        return self.__list[index]
 
-#     def __len__(self) -> int:
-#         return len(self.__keys)
+    def __len__(self) -> int:
+        return 2
 
-#     def __contains__(self, key: object, /) -> bool:
-#         return key in self.__keys
+    @property
+    def left(self) -> MT | None:
+        """Get the left value."""
+        return self.__list[0]
 
-#     def __iter__(self) -> Iterator[MT]:
-#         return iter(self.__keys)
+    @property
+    def right(self) -> MT | None:
+        """Get the right value."""
+        return self.__list[1]
 
-#     def __reversed__(self) -> Iterator[MT]:
-#         return reversed(self.__keys)
 
-#     def __eq__(self, other: object, /) -> bool:
-#         if isinstance(other, LayerMap):
-#             return self.__layers == other.__layers
-#         return NotImplemented
+@final
+class LayerMap(collections.abc.Mapping, Generic[MT]):
+    """
+    Class defining a layered mapping type.
 
-#     def __ne__(self, other: object, /) -> bool:
-#         if isinstance(other, LayerMap):
-#             return self.__layers != other.__layers
-#         return NotImplemented
+    A layered mapping is a mapping that contains multiple layers
+    arranged in a 'horizontal' sequence. Each layer is a mapping
+    that maps to layers to the 'left' and 'right' of it. The same
+    key cannot exist in multiple different layers. This is similar
+    to a graph-like structure, but keys in the same layer cannot
+    map to themselves (they are not directly connected by an arc).
+    """
 
-#     def __hash__(self) -> int:
-#         return hash(self.__layers)
+    __slots__ = {
+        "__layers": "The layers of the mapping.",
+        "__key_to_layer": "The mapping of keys to layers.",
+        "__limits": "The limits of the mapping, (min, max)."
+    }
 
-#     def __copy__(self) -> LayerMap[MT]:
-#         return type(self)(*self.__layers)
+    def __init__(self, base_layer: Iterable[MT]) -> None:
+        self.__layers: dict[int, dict[MT, list[MT | None]]] = {
+            0: {key: [None, None] for key in base_layer}
+        }
+        self.__key_to_layer: dict[MT, int] = {
+            key: 0 for key in base_layer
+        }
+        self.__limits: list[int] = [0, 0]
 
-#     def __deepcopy__(self, memo: dict[int, object]) -> LayerMap[MT]:
-#         return type(self)(*(copy.deepcopy(layer, memo) for layer in self.__layers))
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({self.__layers})"
 
-#     def __getstate__(self) -> tuple[collections.abc.Mapping[MT, MT], ...]:
-#         super().__getstate__()
-#         return self.__layers
+    def __str__(self) -> str:
+        return f"{type(self).__name__}({self.__layers})"
 
-#     def __setstate__(self, state: tuple[collections.abc.Mapping[MT, MT], ...], /) -> None:
-#         self.__layers = state
-#         self.__layer_count = len(state)
-#         self.__keys = set()
-#         for layer in state:
-#             self.__keys.update(layer.keys())
+    def __getitem__(self, key: MT, /) -> LayerMapValue[MT]:
+        """Get the value of the given key."""
+        layer = self.__key_to_layer[key]
+        return LayerMapValue(self.__layers[layer][key])
+
+    def __iter__(self) -> Iterator[MT]:
+        """Iterate over the keys of the mapping."""
+        return iter(self.__key_to_layer)
+
+    def __len__(self) -> int:
+        """Get the number of keys in the mapping."""
+        return len(self.__key_to_layer)
+
+    @property
+    def first_layer(self) -> int:
+        """Get the first layer."""
+        return self.__limits[0]
+
+    @property
+    def last_layer(self) -> int:
+        """Get the last layer."""
+        return self.__limits[1]
+
+    def layer_of(self, key: MT, /) -> int:
+        """Get the layer of the given key."""
+        return self.__key_to_layer[key]
+
+    def layer_size(self, layer: int, /) -> int:
+        """Get the size of the given layer."""
+        return len(self.__layers[layer])
+
+    def get_layer(self, layer: int, /) -> dict[MT, LayerMapValue[MT]]:
+        """Get the given layer."""
+        layer_ = self.__layers[layer]
+        return {key: LayerMapValue(layer_[key]) for key in layer_}
+
+    def get_first_layer(self) -> dict[MT, LayerMapValue[MT]]:
+        """Get the first layer."""
+        return self.get_layer(self.first_layer)
+
+    def get_last_layer(self) -> dict[MT, LayerMapValue[MT]]:
+        """Get the last layer."""
+        return self.get_layer(self.last_layer)
+
+    def get_left(self, key: MT, /) -> MT:
+        """Get the key to the left of the given key."""
+        layer = self.__key_to_layer[key]
+        left = self.__layers[layer][key][0]
+        if left is None:
+            raise KeyError(f"Key {key} does not have a key to the left.")
+        return left
+
+    def get_right(self, key: MT, /) -> MT:
+        """Get the key to the right of the given key."""
+        layer = self.__key_to_layer[key]
+        right = self.__layers[layer][key][1]
+        if right is None:
+            raise KeyError(f"Key {key} does not have a key to the right.")
+        return right
+
+    def set_left(self, key: MT, left_key: MT, /) -> None:
+        """Set the key to the left of the given key."""
+        layer = self.__key_to_layer[key]
+        if layer == self.__limits[0]:
+            if left_key in self.__key_to_layer:
+                raise KeyError(f"Key {left_key} already exists in "
+                               f"layer {self.__key_to_layer[left_key]}")
+            self.__limits[0] = layer - 1
+            self.__key_to_layer[key] = layer - 1
+            self.__layers[layer - 1] = {left_key: [None, key]}
+        elif left_key in self.__key_to_layer:
+            if self.__key_to_layer[left_key] != layer - 1:
+                raise KeyError(f"Key {left_key} already exists in "
+                               f"layer {self.__key_to_layer[left_key]}")
+            self.__layers[layer][key][0] = left_key
+            self.__layers[layer - 1][left_key][1] = key
+        else:
+            self.__key_to_layer[key] = layer - 1
+            self.__layers[layer - 1] = {left_key: [None, key]}
+        self.__layers[layer][key][0] = left_key
+
+    def set_right(self, key: MT, right_key: MT, /) -> None:
+        """Set the key to the right of the given key."""
+        layer = self.__key_to_layer[key]
+        if layer == self.__limits[1]:
+            if right_key in self.__key_to_layer:
+                raise KeyError(f"Key {right_key} already exists in "
+                               f"layer {self.__key_to_layer[right_key]}")
+            self.__limits[1] = layer + 1
+            self.__key_to_layer[key] = layer + 1
+            self.__layers[layer + 1] = {right_key: [key, None]}
+        elif right_key in self.__key_to_layer:
+            if self.__key_to_layer[right_key] != layer + 1:
+                raise KeyError(f"Key {right_key} already exists in "
+                               f"layer {self.__key_to_layer[right_key]}")
+            self.__layers[layer][key][1] = right_key
+            self.__layers[layer + 1][right_key][0] = key
+        else:
+            self.__key_to_layer[key] = layer + 1
+            self.__layers[layer + 1] = {right_key: [key, None]}
+        self.__layers[layer][key][1] = right_key
+
+    def add_key(self, key: MT, layer: int) -> None:
+        """Add a new key to the mapping."""
+        if key in self.__key_to_layer:
+            raise ValueError("Key already exists in the mapping.")
+        if layer < self.__limits[0] - 1 or layer > self.__limits[1] + 1:
+            raise ValueError("Layer is not in or adjacent to any other layer.")
+        self.__key_to_layer[key] = layer
+        self.__layers[layer] = {key: [None, None]}
+        if layer < self.__limits[0]:
+            self.__limits[0] = layer
+        elif layer > self.__limits[1]:
+            self.__limits[1] = layer
+
+    def remove_key(self, key: MT, /) -> None:
+        """Remove a key from the mapping."""
+        if key not in self.__key_to_layer:
+            raise KeyError(f"Key {key} does not exist in the mapping.")
+        layer = self.__key_to_layer[key]
+        if (len(self.__layers[layer]) == 1
+                and layer != self.__limits[0]
+                and layer != self.__limits[1]):
+            raise ValueError("Cannot remove key from layer with only one key "
+                             "unless it is the first or last layer.")
+        left = self.__layers[layer][key][0]
+        right = self.__layers[layer][key][1]
+        if left is not None:
+            self.__layers[layer][left][1] = None
+        if right is not None:
+            self.__layers[layer][right][0] = None
+        del self.__layers[layer][key]
+        del self.__key_to_layer[key]
+        if not self.__layers[layer]:
+            del self.__layers[layer]
+            if layer == self.__limits[0]:
+                self.__limits[0] = layer + 1
+            elif layer == self.__limits[1]:
+                self.__limits[1] = layer - 1
+
+    def connect(self, key_1: MT, key_2: MT, /) -> None:
+        """Connect two keys."""
+        if key_1 not in self.__key_to_layer:
+            raise KeyError(f"Key {key_1} does not exist in the mapping.")
+        if key_2 not in self.__key_to_layer:
+            raise KeyError(f"Key {key_2} does not exist in the mapping.")
+        layer_1 = self.__key_to_layer[key_1]
+        layer_2 = self.__key_to_layer[key_2]
+        if abs(layer_1 - layer_2) != 1:
+            raise ValueError("Keys are not adjacent to each other.")
+        if layer_1 < layer_2:
+            self.__layers[layer_1][key_1][1] = key_2
+            self.__layers[layer_2][key_2][0] = key_1
+        else:
+            self.__layers[layer_1][key_1][0] = key_2
+            self.__layers[layer_2][key_2][1] = key_1
 
 
 if __name__ == "__main__":
     twm = TwoWayMap({"parent_1": ["child_1", "child_2"],
-                        "parent_2": ["child_1"],
-                        "parent_3": ["child_2"]})
+                     "parent_2": ["child_1"],
+                     "parent_3": ["child_2"]})
     print(twm)
     print(twm["parent_1"])
     print(twm["child_1"])
