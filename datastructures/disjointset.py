@@ -53,7 +53,7 @@ FindMethodNames: TypeAlias = Literal[
 ]
 
 
-## Disjoint-set generic element type (must be hashable).
+# Disjoint-set generic element type (must be hashable).
 ST = TypeVar("ST", bound=Hashable)
 
 
@@ -104,7 +104,7 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
     time (in the size of the disjoint-set) since unioning two sets would
     involve reassigning the root of all elements of one of the two sets.
 
-    This implementation support tracking of sub-sets. This is useful if the
+    This implementation supports tracking of sub-sets. This is useful if the
     disjoint sub-sets need to be accessed many times and the disjoint-set will
     be updated very often. This is unlike caching the disjoint sub-sets when
     then are accessed, because the cache is usually invalidated when the

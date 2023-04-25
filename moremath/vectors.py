@@ -1,9 +1,9 @@
 import math
 from numbers import Number
-from typing import Iterable, Sequence, TypeVar
+from typing import Iterable, Sequence, SupportsFloat, TypeVar
 
 
-NT = TypeVar("NT", bound=Number)
+NT = TypeVar("NT", bound=SupportsFloat)
 
 
 def vector_add(
@@ -102,13 +102,13 @@ def vector_distance(
 def vector_distance_torus_wrapped(
     vector_a: Iterable[NT],
     vector_b: Iterable[NT],
-    size: Iterable[NT],
+    size: Sequence[NT],
     manhattan: bool = False
 ) -> NT:
     """Get the distance between two vectors on a torus."""
     delta = vector_abs(vector_subtract(vector_a, vector_b))
     for index, component in enumerate(delta):
-        if component > size[index] / 2:
+        if component > size[index] / 2.0:
             delta[index] = size[index] - component
     if manhattan:
         return sum(delta)

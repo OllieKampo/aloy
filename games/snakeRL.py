@@ -122,7 +122,7 @@ class DQN(nn.Module):
         super().__init__()
         self.n_observations = height * width
         self.conv1 = nn.Conv2d(
-            in_channels=1, out_channels=5,
+            in_channels=1, out_channels=16,
             kernel_size=3, stride=1,
             padding=1, padding_mode="circular"
         )
@@ -130,9 +130,9 @@ class DQN(nn.Module):
             (height, width),
             self.conv1
         )
-        self.conv1_flat_size = size_of_flat_layer(self.conv1_out_shape, 5)
+        self.conv1_flat_size = size_of_flat_layer(self.conv1_out_shape, 16)
         self.conv2 = nn.Conv2d(
-            in_channels=5, out_channels=20,
+            in_channels=16, out_channels=32,
             kernel_size=3, stride=1,
             padding=1, padding_mode="circular"
         )
@@ -140,7 +140,7 @@ class DQN(nn.Module):
             self.conv1_out_shape,
             self.conv2
         )
-        self.conv2_flat_size = size_of_flat_layer(self.conv2_out_shape, 20)
+        self.conv2_flat_size = size_of_flat_layer(self.conv2_out_shape, 32)
         self.lin1 = nn.Linear(self.conv2_flat_size, self.conv2_flat_size * 2)
         self.lin2 = nn.Linear(self.conv2_flat_size * 2, self.conv2_flat_size)
         self.lin3 = nn.Linear(self.conv2_flat_size, self.conv2_flat_size // 2)
@@ -151,8 +151,9 @@ class DQN(nn.Module):
         Called with either one element to determine next action, or a batch
         during optimization.
         """
-        x = x.unsqueeze(1)  # Add the "channel" dimension
-        x = F.relu(self.conv1(x))
+        # Add the "channel" dimension
+        x = x.unsqueeze(1)  # B, C, H, W
+        x = F.relu(self.conv1(x))  
         x = F.relu(self.conv2(x))
         x = x.view(-1, self.conv2_flat_size)
         x = F.relu(self.lin1(x))
@@ -383,7 +384,7 @@ def render(args: argparse.Namespace) -> None:
     def set_action() -> None:
         if snake_game_logic._game_over:
             snake_game_logic._restart()
-        
+
         state = get_state(snake_game_logic)
         state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
         action = select_action(state)

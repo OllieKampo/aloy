@@ -669,10 +669,10 @@ class ModulerController:  # TODO: Change to MultiVariateController? How do we de
         # Maps: input_name -> output_name
         # TODO: Change to Graph or LayerMap? We need to be able to calculate
         # control outputs in the correct order, starting from layer 1 inputs.
-        self.__input_output_mapping: TwoWayMap[str] = TwoWayMap()
+        self.__input_output_mapping = TwoWayMap[str]()
 
         # Maps: output_name -> input_name
-        self.__output_input_cascade_mapping: TwoWayMap[str] = TwoWayMap()
+        self.__output_input_cascade_mapping = TwoWayMap[str]()
 
         # Maps: output_name -> input_name -> weight of controller to output
         self.__weights: dict[str, dict[str, float]] = {}
