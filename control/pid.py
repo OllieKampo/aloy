@@ -46,16 +46,16 @@ class PIDControllerGains(NamedTuple):
 
     Items
     -----
-    `Kp: float` - Proportional gain.
+    `pg: float` - Proportional gain.
 
-    `Ki: float` - Integral gain.
+    `ig: float` - Integral gain.
 
-    `Kd: float` - Derivative gain.
+    `dg: float` - Derivative gain.
     """
 
-    Kp: float
-    Ki: float
-    Kd: float
+    pg: float
+    ig: float
+    dg: float
 
 
 class PIDControllerTerms(NamedTuple):
@@ -64,37 +64,37 @@ class PIDControllerTerms(NamedTuple):
 
     Items
     -----
-    `Tp: float` - Proportional output term.
+    `pt: float` - Proportional output term.
 
-    `Ti: float` - Integral output term.
+    `it: float` - Integral output term.
 
-    `Td: float` - Derivative output term.
+    `dt: float` - Derivative output term.
     """
 
-    Tp: float
-    Ti: float
-    Td: float
+    pt: float
+    it: float
+    dt: float
 
 
 class PIDController(Controller):
     """Class defining PID feedback controllers."""
 
     __slots__ = {
-        "__Kp": "Proportional gain.",
-        "__Ki": "Integral gain.",
-        "__Kd": "Derivative gain.",
-        "__Tp": "Proportional output term.",
-        "__Ti": "Integral output term.",
-        "__Td": "Derivative output term.",
+        "__pg": "Proportional gain.",
+        "__ig": "Integral gain.",
+        "__dg": "Derivative gain.",
+        "__pt": "Proportional output term.",
+        "__it": "Integral output term.",
+        "__dt": "Derivative output term.",
         "__integral": "Integral of the error.",
         "__derivatives": "Derivatives of the error."
     }
 
     def __init__(
         self,
-        Kp: float,
-        Ki: float,
-        Kd: float, /,
+        pg: float,
+        ig: float,
+        dg: float, /,
         average_derivative: int = 3,
         input_limits: tuple[float | None, float | None] = (None, None),
         output_limits: tuple[float | None, float | None] = (None, None),
@@ -121,9 +121,9 @@ class PIDController(Controller):
         ```
             error = control_input - setpoint
             output = (
-                Kp * error
-                + Ki * integral(error, dt)
-                + Kd * derivative(error, dt)
+                pg * error
+                + ig * integral(error, dt)
+                + dg * derivative(error, dt)
             )
         ```
 
@@ -142,11 +142,11 @@ class PIDController(Controller):
 
         Parameters
         ----------
-        `Kp: float` - The proportional gain, drives approach to setpoint.
+        `pg: float` - The proportional gain, drives approach to setpoint.
 
-        `Ki: float` - The integral gain, eliminates steady-state error.
+        `ig: float` - The integral gain, eliminates steady-state error.
 
-        `Kd: float` - The derivative gain, damps approach to setpoint.
+        `dg: float` - The derivative gain, damps approach to setpoint.
 
         `average_derivative: int = 3` - The number of samples to use for the
         moving average approximation of the derivative error. A value of `1`
@@ -183,14 +183,14 @@ class PIDController(Controller):
         )
 
         # PID controller gains.
-        self.__Kp: float = Kp
-        self.__Ki: float = Ki
-        self.__Kd: float = Kd
+        self.__pg: float = pg
+        self.__ig: float = ig
+        self.__dg: float = dg
 
         # PID controller output terms.
-        self.__Tp: float = 0.0
-        self.__Ti: float = 0.0
-        self.__Td: float = 0.0
+        self.__pt: float = 0.0
+        self.__it: float = 0.0
+        self.__dt: float = 0.0
 
         # PID controller state.
         self.__integral: float = 0.0
@@ -205,7 +205,7 @@ class PIDController(Controller):
 
     def __repr__(self) -> str:
         """Return a parseable string representation of the PID controller."""
-        return f"PIDcontroller({self.__Kp}, {self.__Ki}, {self.__Kd}, " \
+        return f"PIDcontroller({self.__pg}, {self.__ig}, {self.__dg}, " \
                f"average_derivative={self.average_derivative}, " \
                f"input_limits={self.input_limits}, " \
                f"output_limits={self.output_limits}, " \
@@ -219,18 +219,18 @@ class PIDController(Controller):
         """
         Get the individual terms of the latest control output.
 
-        `(Tp: float, Ti: float, Td: float)` - The PID control output terms.
+        `(pt: float, it: float, dt: float)` - The PID control output terms.
         """
-        return PIDControllerTerms(self.__Tp, self.__Ti, self.__Td)
+        return PIDControllerTerms(self.__pt, self.__it, self.__dt)
 
     @property
     def gains(self) -> PIDControllerGains:
         """
         Get or set the PID controller gains.
 
-        `(Kp: float, Ki: float, Kd: float)` - The PID controller gains.
+        `(pg: float, ig: float, dg: float)` - The PID controller gains.
         """
-        return PIDControllerGains(self.__Kp, self.__Ki, self.__Kd)
+        return PIDControllerGains(self.__pg, self.__ig, self.__dg)
 
     @gains.setter
     def gains(
@@ -244,9 +244,9 @@ class PIDController(Controller):
 
     def set_gains(
         self,
-        Kp: float | None,
-        Ki: float | None,
-        Kd: float | None, /
+        pg: float | None,
+        ig: float | None,
+        dg: float | None, /
     ) -> None:
         """
         Set the PID controller gains.
@@ -255,18 +255,18 @@ class PIDController(Controller):
 
         Parameters
         ----------
-        `Kp : {float | None}` - The proportional gain.
+        `pg : {float | None}` - The proportional gain.
 
-        `Ki : {float | None}` - The integral gain.
+        `ig : {float | None}` - The integral gain.
 
-        `Kd : {float | None}` - The derivative gain.
+        `dg : {float | None}` - The derivative gain.
         """
-        if Kp is not None:
-            self.__Kp = Kp
-        if Ki is not None:
-            self.__Ki = Ki
-        if Kd is not None:
-            self.__Kd = Kd
+        if pg is not None:
+            self.__pg = pg
+        if ig is not None:
+            self.__ig = ig
+        if dg is not None:
+            self.__dg = dg
 
     @property
     def average_derivative(self) -> int:
@@ -349,10 +349,10 @@ class PIDController(Controller):
                 derivative = sum(self.__derivatives) / len(self.__derivatives)
 
         # Calculate the PID controller terms.
-        self.__Tp = self.__Kp * control_error
-        self.__Ti = self.__Ki * self.__integral
-        self.__Td = self.__Kd * derivative
-        control_output: float = self.__Tp + self.__Ti + self.__Td
+        self.__pt = self.__pg * control_error
+        self.__it = self.__ig * self.__integral
+        self.__dt = self.__dg * derivative
+        control_output: float = self.__pt + self.__it + self.__dt
         control_output = clamp(self.transform_output(control_output),
                                *self.output_limits)
 
@@ -365,8 +365,8 @@ class PIDController(Controller):
     def reset(self) -> None:
         """Reset the controller state."""
         super().reset()
-        self.__Tp = 0.0
-        self.__Ti = 0.0
-        self.__Td = 0.0
+        self.__pt = 0.0
+        self.__it = 0.0
+        self.__dt = 0.0
         self.__integral = 0.0
         self.__derivatives.clear()
