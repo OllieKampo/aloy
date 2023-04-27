@@ -37,11 +37,12 @@ __all__ = (
 )
 
 
-def __dir__() -> tuple[str]:
+def __dir__() -> tuple[str, ...]:
     """Get the names of module attributes."""
     return __all__
 
 
+# TODO: Support flagged duplication.
 @final
 class StringBuilder(collections.abc.Sequence):
     """
@@ -57,6 +58,12 @@ class StringBuilder(collections.abc.Sequence):
     addition (with the `+` or `+=` operators) results in a new object.
     This means that building a string by repeated concatenation will
     always have a quadratic runtime cost in the total string length.
+
+    The alternative to a string builder is to use a list of strings
+    and `str.join()` them at the end, with the same linear runtime
+    cost as a string builder. However, the string builder provides
+    many convenience methods, and keeps track of both the compiled
+    string and the strings queued to be concatenated.
     """
 
     __slots__ = {
@@ -137,7 +144,7 @@ class StringBuilder(collections.abc.Sequence):
         builder.extend(self.__strings)
         return builder
 
-    def append(self, string: str, *, end: str | None = None) -> None:
+    def append(self, string: str, /, *, end: str | None = None) -> None:
         """Append a string to the string builder in-place."""
         self.__strings.append(string)
         if end is not None:
@@ -158,9 +165,26 @@ class StringBuilder(collections.abc.Sequence):
         """
         self.extend(strings, sep=sep, end=end)
 
+    def append_many(
+        self,
+        string: str,
+        times: int, /, *,
+        sep: str | None = None,
+        end: str | None = None
+    ) -> None:
+        """
+        Append a string to the string builder in-place `times` times.
+
+        If `times` is negative, it is treated as zero. If `sep` is given and
+        not None, it is inserted between each string in the sequence. If `end`
+        is given and not None, it is appended to the end of the sequence.
+        """
+        if times > 0:
+            self.extend(itertools.repeat(string, times), sep=sep, end=end)
+
     def extend(
         self,
-        strings: Iterable[str], *,
+        strings: Iterable[str], /, *,
         sep: str | None = None,
         end: str | None = None
     ) -> None:
