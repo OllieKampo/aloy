@@ -24,7 +24,7 @@
 import inspect
 import threading
 import time
-from typing import Callable, Protocol, final, runtime_checkable
+from typing import Callable, Final, Protocol, final, runtime_checkable
 import warnings
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
@@ -38,7 +38,7 @@ __all__ = (
 
 def __dir__() -> tuple[str, ...]:
     """Get the names of module attributes."""
-    return tuple(sorted(__all__))
+    return __all__
 
 
 @runtime_checkable
@@ -56,6 +56,9 @@ class ClockThread:
     Class defining threads used to run a clock for
     regularly calling functions at a given tick rate.
     """
+
+    __DELAYED_TICKS_WARNING: Final[int] = 100
+    __DELAYED_TICKS_RESET: Final[int] = 10
 
     __slots__ = {
         "__items": "The items to tick.",
@@ -103,6 +106,11 @@ class ClockThread:
         self.__running = threading.Event()
         self.__stopped = threading.Event()
         self.__thread.start()
+
+    def __str__(self) -> str:
+        """Return a string representation of the clock thread."""
+        return (f"ClockThread: with {len(self.__items)} items "
+                f"at tick rate {self.tick_rate} ticks/second.")
 
     @property
     def items(self) -> list[Callable[[], None]]:
@@ -164,15 +172,19 @@ class ClockThread:
 
             while not self.__stopped.wait(sleep_time):
                 actual_sleep_time = time.perf_counter() - start_sleep_time
-                if actual_sleep_time > sleep_time * 1.05:
+                if actual_sleep_time > (sleep_time * 1.05):
                     delayed_ticks += 1
-                    if (delayed_ticks % 100) == 0:
-                        warnings.warn("Unable to reach tick rate of "
-                                      f"{self.tick_rate} for {delayed_ticks} "
-                                      "ticks.")
-                elif delayed_ticks > 0 and ticks_since_last_delayed_tick < 5:
+                    if (delayed_ticks % self.__DELAYED_TICKS_WARNING) == 0:
+                        warnings.warn(
+                            f"[{self!s}] Unable to reach tick rate "
+                            f"for {delayed_ticks} ticks."
+                        )
+                elif (delayed_ticks > 0
+                        and (ticks_since_last_delayed_tick
+                             < self.__DELAYED_TICKS_RESET)):
                     ticks_since_last_delayed_tick += 1
-                elif ticks_since_last_delayed_tick == 5:
+                elif (ticks_since_last_delayed_tick
+                      == self.__DELAYED_TICKS_RESET):
                     delayed_ticks = 0
                     ticks_since_last_delayed_tick = 0
 
@@ -185,12 +197,14 @@ class ClockThread:
                 if update_time > actual_sleep_time:
                     sleep_time = 0.0
                     warnings.warn(
-                        f"Tick rate of {self.tick_rate} too high for "
-                        f"scheduled items. Actual interval time = "
-                        f"{actual_sleep_time:.3f} seconds, items tick "
-                        f"time = {update_time:.3f} seconds."
+                        f"[{self!s}] Tick rate too high for scheduled items. "
+                        "Sleep time longer than update time. Actual sleep "
+                        f"time = {actual_sleep_time:.3f} seconds, items tick "
+                        f"time = {update_time:.3f} seconds. Setting sleep "
+                        "time to 0.0 seconds."
                     )
                 else:
+                    # Adjust sleep time to account for update time.
                     sleep_time = ((sleep_time + self.__sleep_time)
                                   - (actual_sleep_time + update_time))
 

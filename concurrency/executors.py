@@ -25,7 +25,7 @@ class Job:
     args: tuple[Any, ...]
     kwargs: dict[str, Any] = field(hash=False)
     start_time: float | None
-    
+
     def __iter__(self) -> Iterable:
         return iter(getattr(self, field.name) for field in fields(self))
 
@@ -36,14 +36,6 @@ class FinishedJob(Job):
     elapsed_time: float
 
 
-__pools: AtomicNumber[int] = AtomicNumber(0)
-def __get_pool_name() -> str:
-    """Returns a unique name for a thread pool."""
-    global __pools
-    with __pools:
-        __pools += 1
-        return f"JinxThreadPool [{__pools.value}]"
-
 @final
 class JinxThreadPool:
     """
@@ -51,6 +43,15 @@ class JinxThreadPool:
 
     The thread pool is a wrapper around the ThreadPoolExecutor class.
     """
+
+    __POOLS: AtomicNumber[int] = AtomicNumber(0)
+
+    @classmethod
+    def __get_pool_name(cls) -> str:
+        """Returns a unique name for a thread pool."""
+        with cls.__POOLS:
+            cls.__POOLS += 1
+            return f"{cls.__name__} [{cls.__POOLS.value}]"
 
     def __init__(
         self,
@@ -69,7 +70,7 @@ class JinxThreadPool:
         initializer: A callable used to initialize worker threads.
         initargs: A tuple of arguments to pass to the initializer.
         """
-        self.__name: str = pool_name or __get_pool_name()
+        self.__name: str = pool_name or self.__get_pool_name()
         self.__logger = logging.getLogger("JinxThreadPool")
         self.__logger.setLevel(logging.DEBUG)
         self.__log: bool = log
@@ -86,10 +87,10 @@ class JinxThreadPool:
             max_workers, thread_name_prefix,
             initializer, initargs
         )
-    
+
     def __enter__(self) -> ThreadPoolExecutor:
         return self
-    
+
     def __exit__(
         self,
         exc_type: type | None,
@@ -97,23 +98,26 @@ class JinxThreadPool:
         exc_tb: types.TracebackType | None
     ) -> None:
         self.__thread_pool.shutdown(wait=True)
-    
+
     @property
     def active_workers(self) -> int:
+        """Return the number of active workers in the thread pool."""
         return self.__active_threads.value
-    
+
     @property
     def max_workers(self) -> int:
+        """Return the maximum number of workers allowed in the thread pool."""
         return self.__max_workers
-    
+
     @property
     def is_running(self) -> bool:
+        """Return True if the thread pool is running, False otherwise."""
         return self.__active_threads.value > 0
-    
+
     @property
     def is_busy(self) -> bool:
         return self.__active_threads.value == self.__max_workers
-    
+
     @functools.wraps(ThreadPoolExecutor.submit,
                      assigned=("__doc__",))
     def submit(
@@ -126,17 +130,17 @@ class JinxThreadPool:
         """Submits a job to the thread pool and returns a Future object."""
         with self.__active_threads:
             self.__active_threads += 1
-        
+
         start_time: float | None = None
         if self.__profile:
             start_time = time.perf_counter()
-        
+
         if self.__log:
             self.__logger.debug(
                 "%s: Submitting job %s -> %s(*%s, **%s)",
                 self.__name, name, fn.__name__, args, kwargs
             )
-        
+
         future = self.__thread_pool.submit(fn, *args, **kwargs)
         self.__submitted_jobs[future] = Job(
             name, fn,
@@ -146,7 +150,7 @@ class JinxThreadPool:
         future.add_done_callback(self.__callback)
 
         return future
-    
+
     def __callback(self, future: Future) -> None:
         """Callback function for when a job finishes execution."""
         job: Job = self.__submitted_jobs.pop(future)
@@ -154,12 +158,12 @@ class JinxThreadPool:
         elapsed_time: float | None = None
         if self.__profile:
             elapsed_time = time.perf_counter() - job.start_time
-        
+
         self.__finished_jobs[future] = FinishedJob(*job, elapsed_time)
-        
+
         with self.__active_threads:
             self.__active_threads -= 1
-    
+
     def get_job(self, future: Future) -> Job:
         """Returns the job associated with the given future."""
         if future in self.__finished_jobs:
@@ -187,6 +191,7 @@ class JinxThreadPool:
     def shutdown(self, wait: bool = True) -> None:
         self.__thread_pool.shutdown(wait=wait)
 
+
 class WebScraper:
     """
     https://realpython.com/beautiful-soup-web-scraper-python/
@@ -194,7 +199,7 @@ class WebScraper:
 
     def __init__(self, max_workers: int | None = None) -> None:
         self.__thread_pool = JinxThreadPool("WebScraper", max_workers, profile=True, log=True)
-    
+
     def scrape(self, urls: Iterable[str]) -> None:
         with self.__thread_pool as executor:
             futures: dict[Future, str] = {executor.submit(url, self.load_url, url, 60): url for url in urls}
@@ -207,7 +212,7 @@ class WebScraper:
                 else:
                     print('%r page is %d bytes' % (url, len(data)))
                 print(executor.get_job(future))
-    
+
     @staticmethod
     def load_url(url: str, timeout: float) -> bytes:
         with urllib.request.urlopen(url, timeout=timeout) as connection:
