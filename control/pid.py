@@ -87,7 +87,7 @@ class PIDController(Controller):
         "__it": "Integral output term.",
         "__dt": "Derivative output term.",
         "__integral": "Integral of the error.",
-        "__derivatives": "Derivatives of the error."
+        "__derivatives": "Previous derivatives of the error."
     }
 
     def __init__(
@@ -197,11 +197,11 @@ class PIDController(Controller):
         if average_derivative < 1:
             raise ValueError("Average derivative window size must be "
                              f"at least 1. Got; {average_derivative}.")
-        self.__derivatives: deque[float] = deque(maxlen=average_derivative)
+        self.__derivatives = deque[float](maxlen=average_derivative)
 
     def __str__(self) -> str:
         """Return a human-readable string representation of the controller."""
-        return f"PID controller: gains={tuple(self.gains)}"
+        return f"PID controller: gains={tuple(self.gains)!s}"
 
     def __repr__(self) -> str:
         """Return a parseable string representation of the PID controller."""

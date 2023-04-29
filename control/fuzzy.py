@@ -20,7 +20,16 @@
 ###########################################################################
 ###########################################################################
 
-"""Module defining fuzzy controllers."""
+"""
+Module defining Takagi-Seguno style fuzzy controllers.
+
+Contains inbuilt functionality for the following:
+    Proportional, integral and differential input variables
+    Triangular, trapezoidal, rectangular, piecewise linear, singleton and gaussian membership functions
+    Trapezoidal resolution hedges
+    Rule modules
+    Dynamic importance degrees
+"""
 
 from abc import ABCMeta, abstractmethod
 from collections import defaultdict, deque
@@ -29,7 +38,7 @@ from numbers import Real
 import time
 import numpy as np
 import numpy.typing as npt
-from typing import Iterable, NamedTuple, final
+from typing import Callable, Iterable, NamedTuple, final
 from control.controllers import Controller, calc_error, clamp
 
 
@@ -106,11 +115,12 @@ class FuzzyVariable:
         delta_time: float,
         abs_tol: float
     ) -> float:
-        """
-        Calculate the estimated weighted normalised proportional value of the
-        variable.
-        """
+        """Calculate the weighted normalised proportional value of the variable."""
         return ((self.__gain * error) - self.__min_val) / self.__range
+
+    def reset(self) -> None:
+        """Reset the variable."""
+        pass
 
 
 class IntegralFuzzyVariable(FuzzyVariable):
@@ -138,10 +148,21 @@ class IntegralFuzzyVariable(FuzzyVariable):
         self.__center: Real = (max_val + min_val) / 2.0
         self.__integral_sum: Real = 0.0
 
-    def get_value(self, error: Real, delta_time: float, abs_tol: float) -> Real:
+    def get_value(
+        self,
+        error: Real,
+        delta_time: float,
+        abs_tol: float
+    ) -> float:
         """Calculate the estimated weighted normalised integral value of the variable."""
-        self.__integral_sum += (error - self.__center) * delta_time
+        if delta_time > 0.0 and (abs_tol is None or delta_time > abs_tol):
+            self.__integral_sum += (error - self.__center) * delta_time
+            print(f"Integral sum: {self.__integral_sum}")
         return (((self.gain * self.__integral_sum) + self.__center) - self.min_val) / self.value_range
+
+    def reset(self) -> None:
+        """Reset the variable."""
+        self.__integral_sum = 0.0
 
 
 class DerivativeFuzzyVariable(FuzzyVariable):
@@ -152,11 +173,11 @@ class DerivativeFuzzyVariable(FuzzyVariable):
     derivative (rate of change) of the error of the system.
     """
 
-    __slots__ = (
-        "__last_error",
-        "__previous_derivatives",
-        "__time_point"
-    )
+    __slots__ = {
+        "__initial_error": "Initial error of the variable.",
+        "__latest_error": "Latest error of the variable.",
+        "__derivatives": "Previous derivatives of the variable."
+    }
 
     def __init__(
         self,
@@ -164,33 +185,57 @@ class DerivativeFuzzyVariable(FuzzyVariable):
         min_val: Real,
         max_val: Real,
         gain: float = 1.0,
-        average_derivatives: int = 3
+        average_derivatives: int = 3,
+        initial_error: float | None = None
     ) -> None:
         """Create a derivative fuzzy variable."""
         super().__init__(name, min_val, max_val, gain)
-        self.__previous_error: float | None = None
-        self.__previous_derivatives: deque[float] = deque(maxlen=average_derivatives)
+        self.__latest_error: float | None = None
+        self.__derivatives = deque[float](maxlen=average_derivatives)
+        self.__initial_error: float | None = initial_error
 
-    def get_value(self, input: Real) -> Real:
+    def get_value(
+        self,
+        error: Real,
+        delta_time: float,
+        abs_tol: float
+    ) -> float:
         """Calculate the estimated weighted normalised derivative value of the variable."""
-        time_now: float = time.perf_counter()
-        if self.__previous_error is not None:
-            self.__previous_derivatives.append((input - self.__previous_error) / (time_now - self.__time_point))
-        self.__previous_error = input
-        self.__time_point = time_now
-        return ((self.gain * (sum(self.__previous_derivatives) / len(self.__previous_derivatives))) - self.__min_val) / self.value_range
+        derivative: float = 0.0
+        if delta_time > 0.0 and (abs_tol is None or delta_time > abs_tol):
+            if self.__latest_error is not None:
+                derivative = (error - self.__latest_error) / delta_time
+                self.__derivatives.append(derivative)
+                derivative = sum(self.__derivatives) / len(self.__derivatives)
+        self.__latest_error = error
+        return ((self.gain * derivative) - self.min_val) / self.value_range
+
+    def reset(self) -> None:
+        """Reset the variable."""
+        self.__latest_error = self.__initial_error
+        self.__derivatives.clear()
 
 
 class MembershipFunction(metaclass=ABCMeta):
     """Base class for fuzzy set membership functions."""
 
-    __slots__ = ("__name")
+    __slots__ = {
+        "__name": "The name of the membership function."
+    }
 
     def __init__(self, name: str, *params: Real) -> None:
         """Create a membership function."""
         if any((not 0.0 <= param <= 1.0) for param in params):
-            raise ValueError("Membership function parameters must be between 0.0 and 1.0.")
+            raise ValueError(
+                "Membership function parameters must be between 0.0 and 1.0."
+                f"Got; {params!r}."
+            )
         self.__name: str = name
+
+    @property
+    def name(self) -> str:
+        """Get the name of the variable."""
+        return self.__name
 
     @final
     def __hash__(self) -> int:
@@ -274,7 +319,7 @@ class TrapezoidalFunction(MembershipFunction):
 
     def fuzzify(self, value: float) -> float:
         """Calculate the degree of membership of the given value in the membership function."""
-        if not (self.__start <= value <= self.__end):
+        if not (self.__start < value < self.__end):
             return 0.0
         if value < self.__first_peak:
             return (value - self.__start) / (self.__first_peak - self.__start)
@@ -438,7 +483,7 @@ class RuleActivation(NamedTuple):
 
 
 @dataclass
-class FuzzyRule(NamedTuple):
+class FuzzyRule:
     """Class defining fuzzy rules."""
 
     mem_func: MembershipFunction
@@ -463,17 +508,56 @@ class FuzzyController(Controller):
         "__variables",
         "__mem_funcs",
         "__rules",
+        "__gain"
     )
 
     def __init__(
         self,
         variables: Iterable[FuzzyVariable],
-        mem_funcs: Iterable[MembershipFunction]
+        mem_funcs: Iterable[MembershipFunction],
+        input_limits: tuple[float | None, float | None] = (None, None),
+        output_limits: tuple[float | None, float | None] = (None, None),
+        input_trans: Callable[[float], float] | None = None,
+        error_trans: Callable[[float], float] | None = None,
+        output_trans: Callable[[float], float] | None = None,
+        initial_error: float | None = None
     ) -> None:
         """Create a fuzzy controller."""
-        self.__variables = set[FuzzyVariable](variables)
-        self.__mem_funcs = set[MembershipFunction](mem_funcs)
-        self.__rules: dict[FuzzyVariable, FuzzyRule] = {}
+        super().__init__(
+            input_limits,
+            output_limits,
+            input_trans,
+            error_trans,
+            output_trans,
+            initial_error
+        )
+
+        self.__variables: dict[str, FuzzyVariable] = {
+            var.name: var for var in variables
+        }
+        self.__mem_funcs: dict[str, MembershipFunction] = {
+            mem_func.name: mem_func for mem_func in mem_funcs
+        }
+        self.__rules: dict[FuzzyVariable, list[FuzzyRule]] = {}
+
+    def add_rule(self, var: str, mem_func: str, output: float) -> None:
+        """
+        Add a rule to the controller.
+
+        Parameters
+        ----------
+        `var : str` - The name of the variable to which the rule applies.
+
+        `mem_func : str` - The name of the membership function to which the
+        rule applies.
+
+        `output : float` - The output of the rule.
+        """
+        fuzzy_var: FuzzyVariable = self.__variables[var]
+        fuzzy_mem_func: MembershipFunction = self.__mem_funcs[mem_func]
+        self.__rules.setdefault(fuzzy_var, []).append(
+            FuzzyRule(fuzzy_mem_func, output)
+        )
 
     def control_output(
         self,
@@ -495,26 +579,33 @@ class FuzzyController(Controller):
         # Calculate the value of each variable.
         var_inputs: dict[str, float] = {
             var.name: var.get_value(control_error, delta_time, abs_tol)
-            for var in self.__variables
+            for var in self.__rules
         }
 
-        truth_sum = defaultdict(float)
-        activation_sum = defaultdict(float)
+        truth_sum: dict[str, float] = {
+            var.name: 0.0 for var in self.__rules
+        }
+        activation_sum: dict[str, float] = truth_sum.copy()
 
-        # Calculate the degree of truth and activation of each rule.
-        for var, rule in self.__rules.items():
-            activation: RuleActivation = rule.get_activation(
-                var_inputs[var.name]
-            )
-            truth_sum[var.name] = truth_sum[var.name] + activation.truth
-            activation_sum[var.name] = (
-                activation_sum[var.name] + activation.activation
-            )
+        # Calculate the degree of truth and activation of each rule;
+        # the weighted average of the activation of each rule.
+        for var, rules in self.__rules.items():
+            for rule in rules:
+                activation: RuleActivation = rule.get_activation(
+                    var_inputs[var.name]
+                )
+                truth_sum[var.name] = truth_sum[var.name] + activation.truth
+                activation_sum[var.name] = (
+                    activation_sum[var.name] + activation.activation
+                )
 
-        # Calculate control output.
+        # Calculate control output (defuzzification);
+        # the sum over all variables of the sum of the activation of each rule
+        # divided by the sum of the degree of truth of each rule.
         control_output: float = sum(
-            activation_sum[var.name] / truth_sum[var.name]
-            for var in self.__variables
+            (activation_sum[var.name] / truth_sum[var.name])
+            if truth_sum[var.name] != 0.0 else 0.0
+            for var in self.__rules
         )
         control_output = clamp(self.transform_output(control_output),
                                *self.output_limits)
@@ -524,3 +615,46 @@ class FuzzyController(Controller):
         self._latest_output = control_output  # type: ignore
 
         return control_output
+
+    def reset(self) -> None:
+        """Reset the controller."""
+        super().reset()
+        for var in self.__variables.values():
+            var.reset()
+
+
+if __name__ == "__main__":
+    proportional = FuzzyVariable("proportional", -1.0, 1.0, gain=0.0)
+    derivative = DerivativeFuzzyVariable("derivative", -1.0, 1.0, gain=0.0)
+    integral = IntegralFuzzyVariable("integral", -1.0, 1.0, gain=1.0)
+    
+    large = TrapezoidalFunction("large", 0.0, 0.0, 0.20, 0.30)
+    big = TrapezoidalFunction("big", 0.20, 0.30, 0.40, 0.50)
+    medium = TriangularFunction("medium", 0.40, 0.50, 0.60)
+    small = TrapezoidalFunction("small", 0.50, 0.60, 0.70, 0.80)
+    tiny = TrapezoidalFunction("tiny", 0.70, 0.80, 1.0, 1.0)
+    
+    controller = FuzzyController(
+        [proportional, derivative, integral],
+        [large, big, medium, small, tiny]
+    )
+    controller.add_rule("proportional", "large", 1.0)
+    controller.add_rule("proportional", "big", 0.8)
+    controller.add_rule("proportional", "medium", 0.6)
+    controller.add_rule("proportional", "small", 0.4)
+    controller.add_rule("proportional", "tiny", 0.2)
+    controller.add_rule("derivative", "large", 1.0)
+    controller.add_rule("derivative", "big", 0.8)
+    controller.add_rule("derivative", "medium", 0.6)
+    controller.add_rule("derivative", "small", 0.4)
+    controller.add_rule("derivative", "tiny", 0.2)
+    controller.add_rule("integral", "large", 1.0)
+    controller.add_rule("integral", "big", 0.8)
+    controller.add_rule("integral", "medium", 0.6)
+    controller.add_rule("integral", "small", 0.4)
+    controller.add_rule("integral", "tiny", 0.2)
+
+    for i in range(100):
+        print(controller.control_output(1.0, 0.0, 0.25))
+        # print(controller.control_output(((2.0 / 100.0) * i) - 1.0, 0.0, 0.25))
+    controller.reset()
