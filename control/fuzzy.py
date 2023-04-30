@@ -291,7 +291,9 @@ class MembershipFunction(metaclass=ABCMeta):
         ...
 
     @abstractmethod
-    def to_array(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    def to_array(
+        self
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         """
         Convert the membership function to an array.
 
@@ -312,22 +314,29 @@ class TriangularFunction(MembershipFunction):
         """Create a triangular membership function."""
         super().__init__(name, start, peak, end)
         if start > peak or peak > end:
-            raise ValueError("Invalid triangular membership function parameters."
-                             "Start must be less than peak and peak less than end."
-                             f"Got; {start=}, {peak=}, {end=}.")
+            raise ValueError(
+                "Invalid triangular membership function parameters."
+                "Start must be less than peak and peak less than end."
+                f"Got; {start=}, {peak=}, {end=}."
+            )
         self.__start: Real = start
         self.__peak: Real = peak
         self.__end: Real = end
 
     def fuzzify(self, value: float) -> float:
-        """Calculate the degree of membership of the given value in the membership function."""
+        """
+        Calculate the degree of membership of the given value in the
+        membership function.
+        """
         if not (self.__start <= value <= self.__end):
             return 0.0
         if value < self.__peak:
             return (value - self.__start) / (self.__peak - self.__start)
         return (self.__end - value) / (self.__end - self.__peak)
 
-    def to_array(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    def to_array(
+        self
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         """Convert the membership function to an array."""
         x_points = np.array([0.0, self.__start, self.__peak, self.__end, 1.0])
         y_points = np.array([0.0, 0.0, 1.0, 0.0, 0.0])
@@ -338,26 +347,40 @@ class TriangularFunction(MembershipFunction):
 class TrapezoidalFunction(MembershipFunction):
     """Class defining trapezoidal membership functions."""
 
-    __slots__ = ("__start",
-                 "__first_peak",
-                 "__second_peak",
-                 "__end")
+    __slots__ = (
+        "__start",
+        "__first_peak",
+        "__second_peak",
+        "__end"
+    )
 
-    def __init__(self, name: str, start: Real, first_peak: Real, second_peak: Real, end: Real) -> None:
+    def __init__(
+        self,
+        name: str,
+        start: Real,
+        first_peak: Real,
+        second_peak: Real,
+        end: Real
+    ) -> None:
         """Create a trapezoidal membership function."""
         super().__init__(name, start, first_peak, second_peak, end)
         if start > first_peak or first_peak > second_peak or second_peak > end:
-            raise ValueError("Invalid trapezoidal membership function parameters."
-                             "Start must be less than first peak, first peak less "
-                             "than second peak and second peak less than end."
-                             f"Got; {start=}, {first_peak=}, {second_peak=}, {end=}.")
+            raise ValueError(
+                "Invalid trapezoidal membership function parameters."
+                "Start must be less than first peak, first peak less "
+                "than second peak and second peak less than end."
+                f"Got; {start=}, {first_peak=}, {second_peak=}, {end=}."
+            )
         self.__start: Real = start
         self.__first_peak: Real = first_peak
         self.__second_peak: Real = second_peak
         self.__end: Real = end
 
     def fuzzify(self, value: float) -> float:
-        """Calculate the degree of membership of the given value in the membership function."""
+        """
+        Calculate the degree of membership of the given value in the
+        membership function.
+        """
         if not (self.__start < value < self.__end):
             return 0.0
         if value < self.__first_peak:
@@ -366,9 +389,18 @@ class TrapezoidalFunction(MembershipFunction):
             return 1.0
         return (self.__end - value) / (self.__end - self.__second_peak)
 
-    def to_array(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    def to_array(
+        self
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         """Convert the membership function to an array."""
-        x_points = np.array([0.0, self.__start, self.__first_peak, self.__second_peak, self.__end, 1.0])
+        x_points = np.array(
+            [
+                0.0,
+                self.__start, self.__first_peak,
+                self.__second_peak, self.__end,
+                1.0
+            ]
+        )
         y_points = np.array([0.0, 0.0, 1.0, 1.0, 0.0, 0.0])
         return (x_points, y_points)
 
@@ -377,27 +409,43 @@ class TrapezoidalFunction(MembershipFunction):
 class RectangularFunction(MembershipFunction):
     """Class defining rectangular membership functions."""
 
-    __slots__ = ("__start",
-                 "__end")
+    __slots__ = (
+        "__start",
+        "__end"
+    )
 
     def __init__(self, name: str, start: Real, end: Real) -> None:
         """Create a rectangular membership function."""
         super().__init__(name, start, end)
         if start > end:
-            raise ValueError("Invalid rectangular membership function parameters."
-                             f"Start must be less than end. Got; {start=}, {end=}.")
+            raise ValueError(
+                "Invalid rectangular membership function parameters."
+                f"Start must be less than end. Got; {start=}, {end=}."
+            )
         self.__start: Real = start
         self.__end: Real = end
 
     def fuzzify(self, value: float) -> float:
-        """Calculate the degree of membership of the given value in the membership function."""
+        """
+        Calculate the degree of membership of the given value in the
+        membership function.
+        """
         if self.__start <= value <= self.__end:
             return 1.0
         return 0.0
 
-    def to_array(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    def to_array(
+        self
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         """Convert the membership function to an array."""
-        x_points = np.array([0.0, self.__start, self.__start, self.__end, self.__end, 1.0])
+        x_points = np.array(
+            [
+                0.0,
+                self.__start, self.__start,
+                self.__end, self.__end,
+                1.0
+            ]
+        )
         y_points = np.array([0.0, 0.0, 1.0, 1.0, 0.0, 0.0])
         return (x_points, y_points)
 
@@ -406,25 +454,38 @@ class RectangularFunction(MembershipFunction):
 class SinusoidalFunction(MembershipFunction):
     """Class defining sinusoidal membership functions."""
 
-    __slots__ = ("__start",
-                 "__end")
+    __slots__ = (
+        "__start",
+        "__end"
+    )
 
     def __init__(self, name: str, start: Real, end: Real) -> None:
         """Create a sinusoidal membership function."""
         super().__init__(name, start, end)
         if start > end:
-            raise ValueError("Invalid sinusoidal membership function parameters."
-                             f"Start must be less than end. Got; {start=}, {end=}.")
+            raise ValueError(
+                "Invalid sinusoidal membership function parameters."
+                f"Start must be less than end. Got; {start=}, {end=}."
+            )
         self.__start: Real = start
         self.__end: Real = end
 
     def fuzzify(self, value: float) -> float:
-        """Calculate the degree of membership of the given value in the membership function."""
+        """
+        Calculate the degree of membership of the given value in the
+        membership function.
+        """
         if not (self.__start <= value <= self.__end):
             return 0.0
-        return np.sin((value - self.__start) / (self.__end - self.__start) * np.pi / 2)
+        return np.sin(
+            ((value - self.__start)
+             / (self.__end - self.__start))
+            * (np.pi / 2.0)
+        )
 
-    def to_array(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    def to_array(
+        self
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         """Convert the membership function to an array."""
         x_points = np.linspace(0.0, 1.0, 100)
         y_points = np.sin(x_points * np.pi / 2)
@@ -434,7 +495,7 @@ class SinusoidalFunction(MembershipFunction):
 class _SaturatedFunction(MembershipFunction):
     """Base class for max- and min-saturated membership functions."""
 
-    __slots__ = ("__scale")
+    __slots__ = ("__scale",)
 
     def __init__(self, name: str, scale: bool = False) -> None:
         super().__init__(name)
@@ -442,7 +503,10 @@ class _SaturatedFunction(MembershipFunction):
 
     @property
     def scale(self) -> bool:
-        """Whether the degree of membership of the input value is scaled by its magnitude."""
+        """
+        Whether the degree of membership of the input value is scaled by
+        its magnitude.
+        """
         return self.__scale
 
 
@@ -458,17 +522,23 @@ class MaxSaturatedFunction(_SaturatedFunction):
 
         Parameters
         ----------
-        `scale : bool = False` - Whether the degree of membership of the input value is scaled by its magnitude.
-        If true, a max-saturated input value will return the absolute value as output.
-        Otherwise, a max-saturated input value will always return 1.0.
+        `scale: bool = False` - Whether the degree of membership of the input
+        value is scaled by its magnitude. If True, a max-saturated input value
+        will return the absolute value as output. Otherwise, a max-saturated
+        input value will always return 1.0.
         """
         super().__init__(name, scale)
 
     def fuzzify(self, value: float) -> float:
-        """Calculate the degree of membership of the given value in the membership function."""
+        """
+        Calculate the degree of membership of the given value in the
+        membership function.
+        """
         return (abs(value) if self.scale else 1.0) if value >= 1.0 else 0.0
 
-    def to_array(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    def to_array(
+        self
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         """Convert the membership function to an array."""
         x_points = np.array([0.0, 1.0, 1.0, 1.1])
         y_points = np.array([0.0, 0.0, 1.0, 1.0])
@@ -487,7 +557,7 @@ class MinSaturatedFunction(_SaturatedFunction):
 
         Parameters
         ----------
-        `scale : bool = False` - Whether the degree of membership of the input
+        `scale: bool = False` - Whether the degree of membership of the input
         value is scaled by its magnitude. If True, a min-saturated input value
         will return the absolute value as output. Otherwise, a min-saturated
         input value will always return 1.0.
@@ -495,10 +565,15 @@ class MinSaturatedFunction(_SaturatedFunction):
         super().__init__(name, scale)
 
     def fuzzify(self, value: float) -> float:
-        """Calculate the degree of membership of the given value in the membership function."""
+        """
+        Calculate the degree of membership of the given value in the
+        membership function.
+        """
         return (abs(value) if self.scale else 1.0) if value <= 1.0 else 0.0
 
-    def to_array(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    def to_array(
+        self
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         """Convert the membership function to an array."""
         x_points = np.array([-0.1, 0.0, 0.0, 1.0])
         y_points = np.array([1.0, 1.0, 0.0, 0.0])
@@ -506,12 +581,13 @@ class MinSaturatedFunction(_SaturatedFunction):
 
 
 class FuzzyController(Controller):
+    """Class defining a fuzzy controller."""
 
-    __slots__ = (
-        "__variables",
-        "__mem_funcs",
-        "__rules"
-    )
+    __slots__ = {
+        "__variables": "Fuzzy variables in the controller.",
+        "__mem_funcs": "Membership functions in the controller.",
+        "__rules": "Rules in the controller."
+    }
 
     def __init__(
         self,
@@ -765,8 +841,6 @@ class FuzzyController(Controller):
             if truth_sum[var.name] != 0.0 else 0.0
             for var in self.__rules
         )
-        print(activation_sum)
-        print(truth_sum)
         control_output = clamp(self.transform_output(control_output),
                                *self.output_limits)
 
