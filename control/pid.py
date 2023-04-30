@@ -201,18 +201,18 @@ class PIDController(Controller):
 
     def __str__(self) -> str:
         """Return a human-readable string representation of the controller."""
-        return f"PID controller: gains={tuple(self.gains)!s}"
+        return f"PID controller: gains = {tuple(self.gains)!s}"
 
     def __repr__(self) -> str:
         """Return a parseable string representation of the PID controller."""
-        return f"PIDcontroller({self.__pg}, {self.__ig}, {self.__dg}, " \
-               f"average_derivative={self.average_derivative}, " \
-               f"input_limits={self.input_limits}, " \
-               f"output_limits={self.output_limits}, " \
-               f"input_transform={self.input_transform}, " \
-               f"error_transform={self.input_transform}, " \
-               f"output_transform={self.output_transform}, " \
-               f"initial_error={self.initial_error})"
+        return (f"PIDcontroller({self.__pg}, {self.__ig}, {self.__dg}, "
+                f"average_derivative={self.average_derivative}, "
+                f"input_limits={self.input_limits}, "
+                f"output_limits={self.output_limits}, "
+                f"input_transform={self.input_transform}, "
+                f"error_transform={self.input_transform}, "
+                f"output_transform={self.output_transform}, "
+                f"initial_error={self.initial_error})")
 
     @property
     def terms(self) -> PIDControllerTerms:
