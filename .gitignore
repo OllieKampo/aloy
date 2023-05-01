@@ -131,3 +131,5 @@ dmypy.json
 .vscode/settings.json
 
 /models
+
+/planning
