@@ -31,10 +31,7 @@ from auxiliary.typingutils import HashableSupportsRichComparison
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
 
-__all__ = (
-    "SortedQueue",
-    "PriorityQueue"
-)
+__all__ = ()
 
 
 def __dir__() -> tuple[str]:

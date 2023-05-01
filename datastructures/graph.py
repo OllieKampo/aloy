@@ -120,7 +120,8 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         "__vertex_data": "Dictionary containing vertex data attributes.",
         "__edge_data": "Dictionary containing edge data attributes.",
         "__directed": "Whether the graph is directed or not.",
-        "__allow_loops": "Whether the graph allows loops or not."
+        "__allow_loops": "Whether the graph allows loops or not.",
+        # "__subgraphs": "Dictionary containing subgraphs."
     }
 
     def __init__(

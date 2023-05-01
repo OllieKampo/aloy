@@ -22,18 +22,19 @@
 
 """General implementation of a particle swarm optimisation algorithm."""
 
-__all__ = ("Dimension",
-           "ParticleSwarmSolution",
-           "ParticleSwarmSystem")
+__all__ = (
+    "Dimension",
+    "ParticleSwarmSolution",
+    "ParticleSwarmSystem"
+)
 
 import dataclasses
 import math
 import os
 from fractions import Fraction
 from numbers import Real
-from typing import Any, Callable, Literal, Sequence
+from typing import Any, Callable, Literal, Sequence, TypeAlias
 
-from dask.distributed import Client, LocalCluster
 import dask.array as daskarray
 
 import numpy as np
@@ -54,14 +55,15 @@ from optimization.decayfunctions import DecayFunctionType, get_decay_function
 class Dimension:
     """
     A dimension of the search space.
-    
+
     Fields
     ------
     `lower_bound: float` - The lower bound of the domain of the dimension.
 
     `upper_bound: float` - The upper bound of the domain of the dimension.
 
-    `max_velocity: float` - The maximum velocity of a particle moving along the dimension.
+    `max_velocity: float` - The maximum velocity of a particle moving along
+    the dimension.
     """
 
     lower_bound: Real
@@ -147,6 +149,9 @@ class ParticleSwarmSolution:
                f"stop condition = {stop_condition}"
 
 
+FitnessFunction: TypeAlias = Callable[[npt.NDArray[np.float64]], np.float64]
+
+
 class ParticleSwarmSystem:
     """
     Particle swarm optimisation algorithm.
@@ -166,7 +171,7 @@ class ParticleSwarmSystem:
     def __init__(
         self,
         dimensions: Sequence[Dimension],
-        fitness_function: Callable[[npt.NDArray[np.float64]], np.float64],
+        fitness_function: FitnessFunction,
         maximise: bool = True
     ) -> None:
         """
@@ -177,7 +182,7 @@ class ParticleSwarmSystem:
         (i.e. the search space).
         """
         self.__dimensions: list[Dimension] = list(dimensions)
-        self.__fitness_function: Callable[[npt.NDArray[np.float64]], np.float64] = fitness_function
+        self.__fitness_function: FitnessFunction = fitness_function
         self.__maximise: bool = maximise
 
     def yield_run(self):
@@ -296,49 +301,69 @@ class ParticleSwarmSystem:
     ) -> ParticleSwarmSolution | None:
         """
         Run the particle swarm optimisation algorithm.
-        
+
         Parameters
         ----------
-        `total_particles : int` - The total number of particles in the swarm.
-        
-        `init_strategy : Literal["random", "linspace"]` - The strategy to use for initialising the particles.
-        If "random", the particles are initialised randomly.
-        If "linspace", the particles are initialised evenly spaced over the search space,
-        the number of points over each dimension is equal to the N-th root of the total number of particles rounded down,
-        where N is the number of dimensions (this means that the actual number of particles).
-        
-        `iterations_limit : int | None = 1000` - The maximum number of iterations to run the algorithm.
-        If None, no limit is imposed.
-        
-        `stagnation_limit : int | float | Fraction | None = 0.1` - The maximum number of iterations without improvement in the fitness of the best solution.
-        If a float or Fraction is given, it is interpreted as a percentage of the iterations limit.
-        If None, not limit is imposed.
-        
-        `fitness_limit : float | None = None` - The maximum fitness of the best solution.
-        
-        `inertia : float = 1.0` - The inertia of the particles.
-        The inertia defines the contribution of the previous velocity of the particle towards its current velocity.
-        
-        `inertia_decay : float | None = None` - The decay constant of the inertia parameter.
-        
-        `inertia_decay_type : DecayFunctionType | None = "lin"` - The type of decay function to use for the inertia parameter.
-        
-        `inertia_decay_start : int = 0` - The iteration at which the decay of the inertia parameter starts.
-        
-        `inertia_decay_end : int | None = None` - The iteration at which the decay of the inertia parameter ends.
-        
-        `personal_coef : float = 1.0` - The coefficient of the contribution of the personal best position of each particle towards its current velocity.
-        A high personal coefficient will promote a explorative search by allowing each particle to explore their own personal best position in the search space.
-        Whereas a high global coefficient will promote an exploitative search by forcing each particle to explore closer towards the global best position in the search space.
-        
-        `coef_decay: float | None = None` - The decay constant of the personal coefficient.
-        A low decay constant will cause rapid decay of the local coefficient and gain in the global coefficient, and vice versa for a high decay constant.
-        
-        `coef_decay_type: DecayFunctionType | None = "lin"` - The decay rate type of the coefficient decay.
-        
-        `coef_decay_start : int = 0` - The iteration at which the decay of the local coefficient starts.
-        
-        `coef_decay_end : int | None = None` - The iteration at which the decay of the local coefficient ends.
+        `total_particles: int` - The total number of particles in the swarm.
+
+        `init_strategy: Literal["random", "linspace"]` - The strategy to use
+        for initialising the particles. If "random", the particles are
+        initialised randomly. If "linspace", the particles are initialised
+        evenly spaced over the search space, the number of points over each
+        dimension is equal to the N-th root of the total number of particles
+        rounded down, where N is the number of dimensions. If the number of
+        particles is not a perfect square, then any remaining particles are
+        initialised randomly.
+
+        `iterations_limit: int | None = 1000` - The maximum number of
+        iterations to run the algorithm. If None, no limit is imposed.
+        The algorithm terminates when the iteration limit is reached.
+
+        `stagnation_limit: int | float | Fraction | None = 0.1` - The maximum
+        number of iterations without improvement in the fitness of the best
+        solution. If a float or Fraction is given, it is interpreted as a
+        percentage of the iterations limit. If None, not limit is imposed.
+
+        `fitness_limit: float | None = None` - The maximum fitness of the
+        best solution.
+
+        `inertia: float = 1.0` - The inertia of the particles.
+        The inertia defines the contribution of the previous velocity of the
+        particle towards its current velocity.
+
+        `inertia_decay: float | None = None` - The decay constant of the
+        inertia parameter.
+
+        `inertia_decay_type: DecayFunctionType | None = "lin"` - The type of
+        decay function to use for the inertia parameter.
+
+        `inertia_decay_start: int = 0` - The iteration at which the decay of
+        the inertia parameter starts.
+
+        `inertia_decay_end: int | None = None` - The iteration at which the
+        decay of the inertia parameter ends.
+
+        `personal_coef: float = 1.0` - The coefficient of the contribution of
+        the personal best position of each particle towards its current
+        velocity. A high personal coefficient will promote a explorative
+        search by allowing each particle to explore their own personal best
+        position in the search space. Whereas a high global coefficient will
+        promote an exploitative search by forcing each particle to explore
+        closer towards the global best position in the search space.
+
+        `coef_decay: float | None = None` - The decay constant of the personal
+        coefficient. A low decay constant will cause rapid decay of the local
+        coefficient and gain in the global coefficient, and vice versa for a
+        high decay constant.
+
+        `coef_decay_type: DecayFunctionType | None = "lin"` - The decay rate
+        type of the coefficient decay.
+
+        `coef_decay_start: int = 0` - The iteration at which the decay of the
+        local coefficient starts.
+
+        `coef_decay_end: int | None = None` - The iteration at which the decay
+        of the local coefficient ends.
         """
         if total_particles < 1:
             raise ValueError(f"Total particles must be at least 1. Got; {total_particles}")
@@ -1133,13 +1158,17 @@ class ParticleSwarmSystem:
             particles_fitness = np.apply_along_axis(self.__fitness_function, 1, position_vectors)
         return particles_fitness
 
+
 import math
 import numpy as np
 import matplotlib.pyplot as plt
 
+from dask.distributed import Client, LocalCluster
+
 from control.pid import PIDController
 from control.systems import InvertedPendulumSystem
 from control.controlutils import simulate_control
+
 
 if __name__ == "__main__":
     

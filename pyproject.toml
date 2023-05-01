@@ -80,7 +80,6 @@ dev = [
 # homepage = ""
 # documentation = ""
 repository = "https://github.com/OllieKampo/jinx"
-# changelog = ""
 
 [project.scripts]
 jinx = "jinx.__main__:main"

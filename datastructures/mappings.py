@@ -155,11 +155,12 @@ class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
     """
     Class defining a mutable reversable dictionary type.
 
-    Supports all methods of standard dictionaries with the
-    added ability to find all keys that map to a specific
-    value, this is called a reversed many-to-one mapping.
+    Supports all methods of standard dictionaries with the added ability to
+    find all keys that map to a specific value, this is a one-to-many mapping
+    called the reversed mapping (unlike the standard dictionary which is
+    either one-to-one or many-to-one).
 
-    The reversable dict keeps a reversed version of itself in memory.
+    The reversable dict keeps the reversed version of itself in memory.
     Therefore, insertions are slower and memory usage is higher
     than a standard dictionary, but reversed lookups are fast.
     This also requires that dictionary values be hashable.
@@ -520,6 +521,9 @@ class FrozenReversableDict(collections.abc.Mapping, Generic[KT, VT]):
     reversed_get.__doc__ = ReversableDict.reversed_get.__doc__
 
 
+# TODO: InvertableUniqueKeysDict, MultiKeyDict, MultiValueDict, MultiItemDict.
+
+
 MT = TypeVar("MT")
 TwoWayMapInit: TypeAlias = Mapping[MT, Iterable[MT]] | Iterable[tuple[MT, MT]]
 
@@ -821,6 +825,7 @@ class LayerMap(collections.abc.Mapping, Generic[MT]):
     }
 
     def __init__(self, base_layer: Iterable[MT]) -> None:
+        """Create a new layered mapping."""
         self.__layers: dict[int, dict[MT, list[MT | None]]] = {
             0: {key: [None, None] for key in base_layer}
         }
