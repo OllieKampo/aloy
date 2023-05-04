@@ -25,7 +25,8 @@ Module defining Takagi-Seguno style fuzzy controllers.
 
 Contains inbuilt functionality for the following:
     Proportional, integral and differential input variables
-    Triangular, trapezoidal, rectangular, piecewise linear, singleton and gaussian membership functions
+    Triangular, trapezoidal, rectangular, piecewise linear, singleton and
+    gaussian membership functions
     Trapezoidal resolution hedges
     Rule modules
     Dynamic importance degrees
@@ -33,7 +34,6 @@ Contains inbuilt functionality for the following:
 
 from abc import ABCMeta, abstractmethod
 from collections import deque
-from numbers import Real
 import numpy as np
 import numpy.typing as npt
 from typing import Callable, Iterable, NamedTuple, final
@@ -54,8 +54,8 @@ class FuzzyVariable:
     def __init__(
         self,
         name: str,
-        min_val: Real,
-        max_val: Real,
+        min_val: float,
+        max_val: float,
         gain: float = 1.0
     ) -> None:
         """
@@ -65,16 +65,16 @@ class FuzzyVariable:
         ----------
         `name: str` - The name of the variable.
 
-        `min_val: Real` - The minimum value of the variable.
+        `min_val: float` - The minimum value of the variable.
 
-        `max_val: Real` - The maximum value of the variable.
+        `max_val: float` - The maximum value of the variable.
 
         `gain: float` - The gain of the variable.
         """
         self.__name: str = name
-        self.__min_val: Real = min_val
-        self.__max_val: Real = max_val
-        self.__range: Real = max_val - min_val
+        self.__min_val: float = min_val
+        self.__max_val: float = max_val
+        self.__range: float = max_val - min_val
         self.__gain: float = gain
 
     @property
@@ -83,17 +83,17 @@ class FuzzyVariable:
         return self.__name
 
     @property
-    def max_val(self) -> Real:
+    def max_val(self) -> float:
         """Get the maximum value of the variable."""
         return self.__max_val
 
     @property
-    def min_val(self) -> Real:
+    def min_val(self) -> float:
         """Get the minimum value of the variable."""
         return self.__min_val
 
     @property
-    def value_range(self) -> Real:
+    def value_range(self) -> float:
         """Get the value range of the variable."""
         return self.__range
 
@@ -109,9 +109,9 @@ class FuzzyVariable:
 
     def get_value(
         self,
-        error: Real,
+        error: float,
         delta_time: float,
-        abs_tol: float
+        abs_tol: float | None
     ) -> float:
         """
         Calculate the weighted normalised proportional value of the variable.
@@ -139,20 +139,20 @@ class IntegralFuzzyVariable(FuzzyVariable):
     def __init__(
         self,
         name: str,
-        min_val: Real,
-        max_val: Real,
+        min_val: float,
+        max_val: float,
         gain: float = 1.0
     ) -> None:
         """Create an integral fuzzy variable."""
         super().__init__(name, min_val, max_val, gain)
-        self.__center: Real = (max_val + min_val) / 2.0
-        self.__integral_sum: Real = 0.0
+        self.__center: float = (max_val + min_val) / 2.0
+        self.__integral_sum: float = 0.0
 
     def get_value(
         self,
-        error: Real,
+        error: float,
         delta_time: float,
-        abs_tol: float
+        abs_tol: float | None
     ) -> float:
         """
         Calculate the estimated weighted normalised integral value of the
@@ -160,7 +160,6 @@ class IntegralFuzzyVariable(FuzzyVariable):
         """
         if delta_time > 0.0 and (abs_tol is None or delta_time > abs_tol):
             self.__integral_sum += (error - self.__center) * delta_time
-            print(f"Integral sum: {self.__integral_sum}")
         return (((self.gain * self.__integral_sum) + self.__center)
                 - self.min_val) / self.value_range
 
@@ -186,8 +185,8 @@ class DerivativeFuzzyVariable(FuzzyVariable):
     def __init__(
         self,
         name: str,
-        min_val: Real,
-        max_val: Real,
+        min_val: float,
+        max_val: float,
         gain: float = 1.0,
         average_derivatives: int = 3,
         initial_error: float | None = None
@@ -200,9 +199,9 @@ class DerivativeFuzzyVariable(FuzzyVariable):
 
     def get_value(
         self,
-        error: Real,
+        error: float,
         delta_time: float,
-        abs_tol: float
+        abs_tol: float | None
     ) -> float:
         """
         Calculate the estimated weighted normalised derivative value of the
@@ -246,7 +245,7 @@ class MembershipFunction(metaclass=ABCMeta):
         "__name": "The name of the membership function."
     }
 
-    def __init__(self, name: str, *params: Real) -> None:
+    def __init__(self, name: str, *params: float) -> None:
         """Create a membership function."""
         if any((not 0.0 <= param <= 1.0) for param in params):
             raise ValueError(
@@ -282,7 +281,7 @@ class MembershipFunction(metaclass=ABCMeta):
         return RuleActivation(truth, truth * output)
 
     @abstractmethod
-    def fuzzify(self, value: Real) -> Real:
+    def fuzzify(self, value: float) -> float:
         """
         Fuzzify a value.
 
@@ -306,11 +305,19 @@ class MembershipFunction(metaclass=ABCMeta):
 class TriangularFunction(MembershipFunction):
     """Class defining triangular membership functions."""
 
-    __slots__ = ("__start",
-                 "__peak",
-                 "__end")
+    __slots__ = (
+        "__start",
+        "__peak",
+        "__end"
+    )
 
-    def __init__(self, name: str, start: Real, peak: Real, end: Real) -> None:
+    def __init__(
+        self,
+        name: str,
+        start: float,
+        peak: float,
+        end: float
+    ) -> None:
         """Create a triangular membership function."""
         super().__init__(name, start, peak, end)
         if start > peak or peak > end:
@@ -319,9 +326,9 @@ class TriangularFunction(MembershipFunction):
                 "Start must be less than peak and peak less than end."
                 f"Got; {start=}, {peak=}, {end=}."
             )
-        self.__start: Real = start
-        self.__peak: Real = peak
-        self.__end: Real = end
+        self.__start: float = start
+        self.__peak: float = peak
+        self.__end: float = end
 
     def fuzzify(self, value: float) -> float:
         """
@@ -357,10 +364,10 @@ class TrapezoidalFunction(MembershipFunction):
     def __init__(
         self,
         name: str,
-        start: Real,
-        first_peak: Real,
-        second_peak: Real,
-        end: Real
+        start: float,
+        first_peak: float,
+        second_peak: float,
+        end: float
     ) -> None:
         """Create a trapezoidal membership function."""
         super().__init__(name, start, first_peak, second_peak, end)
@@ -371,10 +378,10 @@ class TrapezoidalFunction(MembershipFunction):
                 "than second peak and second peak less than end."
                 f"Got; {start=}, {first_peak=}, {second_peak=}, {end=}."
             )
-        self.__start: Real = start
-        self.__first_peak: Real = first_peak
-        self.__second_peak: Real = second_peak
-        self.__end: Real = end
+        self.__start: float = start
+        self.__first_peak: float = first_peak
+        self.__second_peak: float = second_peak
+        self.__end: float = end
 
     def fuzzify(self, value: float) -> float:
         """
@@ -414,7 +421,7 @@ class RectangularFunction(MembershipFunction):
         "__end"
     )
 
-    def __init__(self, name: str, start: Real, end: Real) -> None:
+    def __init__(self, name: str, start: float, end: float) -> None:
         """Create a rectangular membership function."""
         super().__init__(name, start, end)
         if start > end:
@@ -422,8 +429,8 @@ class RectangularFunction(MembershipFunction):
                 "Invalid rectangular membership function parameters."
                 f"Start must be less than end. Got; {start=}, {end=}."
             )
-        self.__start: Real = start
-        self.__end: Real = end
+        self.__start: float = start
+        self.__end: float = end
 
     def fuzzify(self, value: float) -> float:
         """
@@ -459,7 +466,7 @@ class SinusoidalFunction(MembershipFunction):
         "__end"
     )
 
-    def __init__(self, name: str, start: Real, end: Real) -> None:
+    def __init__(self, name: str, start: float, end: float) -> None:
         """Create a sinusoidal membership function."""
         super().__init__(name, start, end)
         if start > end:
@@ -467,8 +474,8 @@ class SinusoidalFunction(MembershipFunction):
                 "Invalid sinusoidal membership function parameters."
                 f"Start must be less than end. Got; {start=}, {end=}."
             )
-        self.__start: Real = start
-        self.__end: Real = end
+        self.__start: float = start
+        self.__end: float = end
 
     def fuzzify(self, value: float) -> float:
         """
@@ -492,6 +499,7 @@ class SinusoidalFunction(MembershipFunction):
         return (x_points, y_points)
 
 
+# pylint: disable=abstract-method
 class _SaturatedFunction(MembershipFunction):
     """Base class for max- and min-saturated membership functions."""
 
@@ -516,6 +524,7 @@ class MaxSaturatedFunction(_SaturatedFunction):
 
     __slots__ = ()
 
+    # pylint: disable=useless-parent-delegation
     def __init__(self, name: str, scale: bool = False) -> None:
         """
         Create a max-saturated membership function.
@@ -551,6 +560,7 @@ class MinSaturatedFunction(_SaturatedFunction):
 
     __slots__ = ()
 
+    # pylint: disable=useless-parent-delegation
     def __init__(self, name: str, scale: bool = False) -> None:
         """
         Create a min-saturated membership function.
