@@ -8,7 +8,9 @@ import numpy as np
 from auxiliary.getters import default_get
 from auxiliary.progressbars import ResourceProgressBar
 from datastructures.disjointset import DisjointSet
+from datastructures.mappings import TwoWayMap
 from datastructures.queues import PriorityQueue
+from datastructures.views import SetView
 
 
 def euclidean_distance_heuristic(
@@ -116,7 +118,10 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
 
     __slots__ = {
         "__adjacency_mapping": "Dictionary containing the adjacency mapping.",
+        "__vertex_values": "Dictionary containing vertex values.",
+        "__vertex_tags": "Two-Way Mapping containing vertex tags.",
         "__edge_weights": "Dictionary containing edge weights.",
+        "__edge_tags": "Two-Way Mapping containing edge tags.",
         "__vertex_data": "Dictionary containing vertex data attributes.",
         "__edge_data": "Dictionary containing edge data attributes.",
         "__directed": "Whether the graph is directed or not.",
@@ -127,9 +132,12 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
     def __init__(
         self,
         graph: Mapping[VT, VT | set[VT] | None] = {}, *,
-        vertices: Iterable[VT] = [],
-        edges: Iterable[tuple[VT, VT | set[VT] | None]] = [],
+        vertices: Iterable[VT] | Mapping[Any, Iterable[VT]] = [],
+        edges:
+            Iterable[tuple[VT, VT | set[VT] | None]]
+            | Mapping[Any, Iterable[tuple[VT, VT | set[VT] | None]]] = [],
         vertex_data: Mapping[VT, dict[str, Any]] = {},
+        vertex_values: Mapping[VT, WT] = {},
         edge_data: Mapping[tuple[VT, VT], dict[str, Any]] = {},
         edge_weights: Mapping[tuple[VT, VT], WT] = {},
         directed: bool = False,
@@ -177,22 +185,36 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         self.__allow_loops: bool = allow_loops
 
         self.__adjacency_mapping: dict[VT, set[VT]] = {}
-        self.__edge_weights: dict[tuple[VT, VT], WT | None] = {}
-        for node, connections in itertools.chain(
-            graph.items(),
-            zip(vertices, itertools.repeat(None)),
-            edges
-        ):
-            self[node] = connections
+        self.__vertex_tags: TwoWayMap[VT] = TwoWayMap()
+        self.__edge_tags: TwoWayMap[tuple[VT, VT]] = TwoWayMap()
 
+        for node, connections in graph.items():
+            self[node] = connections
+        if isinstance(vertices, collections.abc.Mapping):
+            for tag, vertices in vertices.items():
+                self.add_vertices(vertex, tag=tag)
+        else:
+            for vertex in vertices:
+                self.add_vertex(vertex)
+        if isinstance(edges, collections.abc.Mapping):
+            for tag, edges in edges.items():
+                for start, ends in edges:
+                    self.add_edges(start, ends, tag=tag)
+        else:
+            for start, ends in edges:
+                self[start] = ends
+
+        self.__vertex_values: dict[VT, WT] = {}
+        self.__edge_weights: dict[tuple[VT, VT], WT] = {}
+        for vertex, value in vertex_values.items():
+            self.set_vertex_value(vertex, value)
         for edge, weight in edge_weights.items():
             self.set_edge_weight(*edge, weight)
 
         self.__vertex_data: dict[VT, dict[str, Any]] = {}
+        self.__edge_data: dict[tuple[VT, VT], dict[str, Any]] = {}
         for vertex, data in vertex_data.items():
             self.update_vertex_data(vertex, data)
-        
-        self.__edge_data: dict[tuple[VT, VT], dict[str, Any]] = {}
         for edge, data in edge_data.items():
             self.update_edge_data(*edge, data)
 
@@ -205,9 +227,10 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
                f"edge_data={self.__edge_data!r}, " \
                f"directed={self.__directed}, allow_loops={self.__allow_loops})"
 
-    def __getitem__(self,
-                    vertex: VT
-                    ) -> set[VT]:
+    def __getitem__(
+        self,
+        vertex: VT
+    ) -> set[VT]:
         """Get the adjacent vertices to the given vertex."""
         return self.__adjacency_mapping[vertex]
 
@@ -318,7 +341,8 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
     def add_vertex(
         self,
         vertex: VT, /,
-        connections: VT | set[VT] | frozenset[VT] | None = None,
+        tag: Any | None = None,
+        value: WT | None = None,
         **data: Any
     ) -> None:
         """
@@ -328,19 +352,59 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         ----------
         `vertex: VT` - The vertex identifier.
 
-        `connections: VT | set[VT] | frozenset[VT] | None = None` - The vertex
-        identifier(s) of the vertices to connect to. If `None` (the default),
-        the vertex is disconnected from the graph.
+        `tag: Any | None` - Any additional tag to associate with the vertex.
+
+        `value: WT | None` - Any additional value to associate with the vertex.
 
         `**data: Any` - Any additional data to associate with the vertex.
         """
-        self[vertex] = connections
-        self.update_vertex_data(vertex, data)
+        adj_map = self.__adjacency_mapping
+        if vertex not in adj_map:
+            adj_map[vertex] = set()
+        if tag is not None:
+            self.__vertex_tags[vertex] = tag
+        if value is not None:
+            self.__vertex_values[vertex] = value
+        if data:
+            self.update_vertex_data(vertex, data)
+
+    def add_vertices(
+        self,
+        vertices: Iterable[VT], /,
+        tags: Iterable[Any | None] | None = None,
+        values: Iterable[WT | None] | None = None,
+        data: Iterable[Mapping[str, Any]] | None = None
+    ) -> None:
+        """
+        Add multiple vertices to the graph.
+
+        Parameters
+        ----------
+        `vertices: Iterable[VT]` - The vertex identifiers.
+
+        `tags: Iterable[Any | None] | None` - Any additional tags to associate
+        with the vertices.
+
+        `values: Iterable[WT | None] | None` - Any additional values to
+        associate with the vertices.
+
+        `data: Iterable[Mapping[str, Any]] | None` - Any additional data to
+        associate with the vertices.
+        """
+        if tags is None:
+            tags = itertools.repeat(None)
+        if values is None:
+            values = itertools.repeat(None)
+        if data is None:
+            data = itertools.repeat({})
+        for vertex, tag, value, data_dict in zip(vertices, tags, values, data):
+            self.add_vertex(vertex, tag=tag, value=value, **data_dict)
 
     def add_edge(
         self,
         start: VT,
         end: VT, /,
+        tag: Any | None = None,
         weight: WT | None = None,
         **data: Any
     ) -> None:
@@ -359,17 +423,130 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         `**data: Any` - Any additional data to associate with the edge.
         """
         self[start] = end
+        if tag is not None:
+            self.__edge_tags[(start, end)] = tag
+            if not self.__directed:
+                self.__edge_tags[(end, start)] = tag
         if weight is not None:
             self.__edge_weights[(start, end)] = weight
             if not self.__directed:
                 self.__edge_weights[(end, start)] = weight
-        self.update_edge_data(start, end, data)
+        if data:
+            self.update_edge_data(start, end, data)
+
+    def add_edges(
+        self,
+        edges: Iterable[tuple[VT, VT]],
+        tags: Iterable[Any | None] | None = None,
+        weights: Iterable[WT | None] | None = None,
+        data: Iterable[dict[str, Any]] | None = None
+    ) -> None:
+        """
+        Add multiple edges to the graph.
+
+        Parameters
+        ----------
+        `edges: Iterable[tuple[VT, VT]]` - The edges to add.
+
+        `tags: Iterable[Any | None] | None` - Any additional tags to associate
+        with the edges.
+
+        `weights: Iterable[WT | None] | None` - Any additional weights to
+        associate with the edges.
+
+        `data: Iterable[dict[str, Any]] | None` - Any additional data to
+        associate with the edges.
+        """
+        if tags is None:
+            tags = itertools.repeat(None)
+        if weights is None:
+            weights = itertools.repeat(None)
+        if data is None:
+            data = itertools.repeat({})
+        zip_ = zip(edges, tags, weights, data)
+        for edge, tag, weight, _data in zip_:
+            self.add_edge(*edge, tag, weight, **_data)
+
+    def tag_vertex(
+        self,
+        vertex: VT, /,
+        *tags: str
+    ) -> None:
+        """Tag the given vertex."""
+        if vertex not in self:
+            raise ValueError(f"Vertex {vertex} not in graph {self}.")
+        self.__vertex_tags.add_many(vertex, tags)
+
+    def untag_vertex(  # pylint: disable=keyword-arg-before-vararg
+        self,
+        vertex: VT,
+        tag: str | None = None, /,
+        *tags: str,
+    ) -> None:
+        """Remove the given tag from the given vertex."""
+        if vertex not in self:
+            raise ValueError(f"Vertex {vertex} not in graph {self}.")
+        if tag is None:
+            self.__vertex_tags.forwards_remove(vertex)
+        else:
+            self.__vertex_tags.remove_many(vertex, tags)
+
+    def get_vertex_tags(
+        self,
+        vertex: VT, /
+    ) -> SetView[str] | None:
+        """Get the set of tags for the given vertex."""
+        return self.__vertex_tags.fowards_get(vertex)
+
+    def get_tagged_vertices(
+        self,
+        tag: str, /
+    ) -> SetView[VT] | None:
+        """Get the set of vertices with the given tag."""
+        return self.__vertex_tags.backwards_get(tag)
+
+    def tag_edge(
+        self,
+        start: VT,
+        end: VT, /,
+        *tags: str
+    ) -> None:
+        """Tag the given edge."""
+        self.__edge_tags.add_many((start, end), tags) 
+
+    def untag_edge(  # pylint: disable=keyword-arg-before-vararg
+        self,
+        start: VT,
+        end: VT,
+        tag: str | None = None, /,
+        *tags: str,
+    ) -> None:
+        """Remove the given tag from the given edge."""
+        if tag is None:
+            self.__edge_tags.forwards_remove((start, end))
+        else:
+            self.__edge_tags.remove_many((start, end), tags)
+
+    def get_edge_tags(
+        self,
+        start: VT,
+        end: VT, /
+    ) -> SetView[str] | None:
+        """Get the set of tags for the given edge."""
+        return self.__edge_tags.forwards_get((start, end))
+
+    def get_tagged_edges(
+        self,
+        tag: str, /
+    ) -> SetView[tuple[VT, VT]] | None:
+        """Get the set of edges with the given tag."""
+        return self.__edge_tags.backwards_get(tag)
 
     def set_vertex_data(
         self,
         vertex: VT,
         name: str,
-        value: Any
+        value: Any, /
     ) -> None:
         """Set the given data attribute of the given vertex."""
         self.__vertex_data.setdefault(vertex, {})[name] = value
@@ -527,6 +704,22 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         else:
             for vertex in vertices:
                 yield vertex, {name: self.__vertex_data[vertex][name] for name in names}
+
+    def set_vertex_value(
+        self,
+        vertex: VT,
+        value: WT
+    ) -> None:
+        """Set the value of the given vertex."""
+        self.__vertex_values[vertex] = value
+
+    def get_vertex_value(
+        self,
+        vertex: VT,
+        default: WT = 0.0
+    ) -> WT:
+        """Get the value of the given vertex."""
+        return self.__vertex_values.get(vertex, default)
 
     @property
     def edges(self) -> KeysView[tuple[VT, VT]]:
