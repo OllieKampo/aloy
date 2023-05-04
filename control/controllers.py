@@ -27,12 +27,16 @@ import inspect
 from numbers import Real
 import threading
 import types
-from typing import (Callable, Final, Iterable, Iterator, KeysView, Literal, Mapping,
-                    NamedTuple, Optional, TypeAlias, TypeVar, final)
+from typing import (
+    Callable, Final, Iterable, Iterator, KeysView, Literal, Mapping,
+    NamedTuple, Optional, SupportsFloat, TypeAlias, TypeVar, final
+)
 import statistics
 
 from control.controlutils import ControllerTimer
+from datastructures.graph import Graph
 from datastructures.mappings import TwoWayMap
+from datastructures.views import SetView
 
 __copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
@@ -46,12 +50,12 @@ __all__ = (
 )
 
 
-def __dir__() -> tuple[str]:
+def __dir__() -> tuple[str, ...]:
     """Get the names of the module attributes."""
     return __all__
 
 
-ET = TypeVar("ET", bound=Real)
+ET = TypeVar("ET", bound=SupportsFloat)
 
 
 def clamp(
@@ -64,9 +68,9 @@ def clamp(
 
     If the maximum or minimum values are `None` then they are ignored.
     """
-    if max_ is not None and value > max_:
+    if max_ is not None and value > max_:  # type: ignore
         return max_
-    if min_ is not None and value < min_:
+    if min_ is not None and value < min_:  # type: ignore
         return min_
     return value
 
@@ -84,7 +88,7 @@ def calc_error(
     the control input to the specified range before calculating the error.
     """
     control_input = clamp(control_input, max_, min_)
-    return control_input - setpoint
+    return control_input - setpoint  # type: ignore
 
 
 class Controller(metaclass=ABCMeta):
@@ -185,7 +189,7 @@ class Controller(metaclass=ABCMeta):
         """
         if transform is None:
             return None
-        if (not isinstance(transform, Callable) or
+        if (not callable(transform) or
                 len(inspect.signature(transform).parameters) != 1):
             raise ValueError(f"{name} transform must be a function "
                              f"with one argument. Got; {transform}.")
@@ -322,7 +326,7 @@ class Controller(metaclass=ABCMeta):
         return self._latest_input
 
     @property
-    def latest_error(self) -> float:
+    def latest_error(self) -> float | None:
         """
         Get the latest control error.
 
@@ -438,21 +442,24 @@ class ControllerCombiner(Controller):
 
         Parameters
         ----------
-        `controllers : Mapping[str, Controller]` - The inner controllers.
+        `controllers: Mapping[str, Controller]` - The inner controllers.
         Given as a mapping of controller names to controller instances.
 
-        `mode : "sum" | "mean" | "median" = "mean"` - The output combination
+        `mode: "sum" | "mean" | "median" = "mean"` - The output combination
         mode of the inner controller outputs.
 
-        `weights : Mapping[str, float] | None = None` - The output combination
+        `weights: Mapping[str, float] | None = None` - The output combination
         weights of the inner controllers. Given as a mapping of controller
         names to weights. If None, then all inner controllers get equal weight.
 
-        `weight_updater : Callable[[float, float, Mapping[str, float]], Mapping[str, float]]` - The callback to update the weights.
-        The signature is: `callback(error, latest_output, weights) -> updated_weights`.
-        The callback is called every time the control output is calculated, with the error to the
-        setpoint, latest output, and the current weights as arguments, and must return updated weights.
-        If a weight is not present in the returned mapping, then its old value is preserved.
+        `weight_updater:
+        Callable[[float, float, Mapping[str, float]], Mapping[str, float]]` -
+        The callback to update the weights. The signature is:
+        `callback(error, latest_output, weights) -> updated_weights`.
+        The callback is called every time the control output is calculated,
+        with the error to the setpoint, latest output, and the current weights
+        as arguments, and must return updated weights. If a weight is not
+        present in the returned mapping, then its old value is preserved.
         """
         super().__init__(
             input_limits, output_limits,
@@ -468,13 +475,13 @@ class ControllerCombiner(Controller):
         self.mode = mode
 
         self.__weights: dict[str, float]
-        self.weights = weights
+        self.weights = weights  # type: ignore
 
         self.__weights_updater: Callable[[str, float], None] | None
-        self.weights_updater = weight_updater
+        self.weights_updater = weight_updater  # type: ignore
 
     @property
-    def inner_controllers(self) -> dict[str, Controller]:
+    def inner_controllers(self) -> types.MappingProxyType[str, Controller]:
         """Get the inner controllers."""
         return types.MappingProxyType(self.__inner_controllers)
 
@@ -489,7 +496,7 @@ class ControllerCombiner(Controller):
         self.__mode = __get_combiner_func(mode)
 
     @property
-    def weights(self) -> dict[str, float]:
+    def weights(self) -> types.MappingProxyType[str, float]:
         """Get the output combination weights of the inner controllers."""
         return types.MappingProxyType(self.__weights)
 
@@ -585,7 +592,7 @@ class ControllerCombiner(Controller):
         callback: Callable[[float, float, Mapping[str, float]], Mapping[str, float]] | None
     ) -> None:
         """Set a callback to update the output combination weights of the inner controllers."""
-        self.__weights_update_callback = callback
+        self.__weights_updater = callback
 
     def control_output(
         self,
@@ -638,7 +645,254 @@ class ControllerCombiner(Controller):
             controller.reset()
 
 
-class ModulerController:  # TODO: Change to MultiVariateController? How do we deal with integrating with system and auto system controller?
+class MultiVariateController:
+    """
+    Class defining a multi-variate controller.
+
+    Multi-variate controllers are composed of many controllers and can
+    handle multiple inputs and outputs with complex mappings.
+    """
+
+    __slots__ = {
+        "__modules": "The modules of the controller, one for each output.",
+        "__input_output_mapping": "The mapping of inputs to outputs.",
+        "__weights": "The weights of the inputs for each output.",
+        "__modes": "The modes of the outputs."
+    }
+
+    def __init__(self) -> None:
+        """Create a moduler controller from a mapping of controllers."""
+        # Maps: output_name -> input_name -> controller
+        self.__modules: dict[str, dict[str, Controller]] = {}
+
+        # Maps: input_name -> output_name
+        self.__input_output_mapping = TwoWayMap[str]()
+
+        # Maps: output_name -> input_name -> weight of controller to output
+        self.__weights: dict[str, dict[str, float]] = {}
+
+        # Maps: output_name -> mode of output
+        self.__modes: dict[str, Callable[[Iterable[float]], float]] = {}
+
+    @property
+    def inputs(self) -> KeysView[str]:
+        """Get the input names."""
+        return self.__input_output_mapping.forwards.keys()
+
+    @property
+    def outputs(self) -> KeysView[str]:
+        """Get the output names."""
+        return self.__input_output_mapping.backwards.keys()
+
+    def control_inputs_for(self, output_name: str) -> SetView[str]:
+        """Get the input names for a given output module name."""
+        return self.__input_output_mapping.backwards[output_name]
+
+    def control_outputs_for(self, input_name: str) -> SetView[str]:
+        """Get the control output names for the moduler controller."""
+        return self.__input_output_mapping.forwards[input_name]
+
+    def declare_output(
+        self,
+        output_name: str,
+        mode: Literal["sum", "mean", "median"] = "mean"
+    ) -> None:
+        """
+        Declare a module.
+
+        Parameters
+        ----------
+        `output_name: str` - The name of the output.
+
+        `mode: Literal["sum", "mean", "median"] = "mean"` - The mode of the
+        output. If "sum", then the sum of the outputs is returned. If "mean",
+        then the mean of the outputs is returned. If "median", then the median
+        of the outputs is returned.
+        """
+        if output_name in self.__modules:
+            raise ValueError(
+                f"Module for Output {output_name!r} already exists."
+            )
+        self.__modules[output_name] = {}
+        self.__weights[output_name] = {}
+        self.__modes[output_name] = __get_combiner_func(mode)
+
+    def add_module(
+        self,
+        output_name: str,
+        controllers: Mapping[str, Controller],
+        weights: Mapping[str, float] | None = None,
+        mode: Literal["sum", "mean", "median"] = "mean"
+    ) -> None:
+        """
+        Add a module to the moduler controller.
+        """
+        if output_name in self.__modules:
+            raise ValueError(
+                f"Module for output {output_name!r} already exists. "
+                "Use `update_module` instead."
+            )
+
+        for input_name, controller in controllers.items():
+            self.__input_output_mapping.add(input_name, output_name)
+
+            if not isinstance(controller, Controller):
+                raise TypeError(
+                    f"Controllers must be of type {Controller!r}. "
+                    f"Got; {controller!r} of {type(controller)!r}."
+                )
+            self.__modules[output_name][input_name] = controller
+
+        if weights is None:
+            self.__weights[output_name] = {name: 1.0 for name in controllers}
+        else:
+            self.__weights[output_name] = dict(weights)
+        self.__modes[output_name] = __get_combiner_func(mode)
+
+    def update_module(
+        self,
+        output_name: str,
+        controllers: Mapping[str, Controller],
+        weights: Mapping[str, float] | None = None,
+        mode: Literal["sum", "mean", "median"] | None = None
+    ) -> None:
+        """
+        Update a module in the moduler controller.
+        """
+        if output_name not in self.__modules:
+            raise ValueError(
+                f"Module for output {output_name!r} does not exist. "
+                "Use `add_module` instead."
+            )
+
+        for input_name, controller in controllers.items():
+            if output_name not in self.__input_output_mapping[input_name]:
+                self.__input_output_mapping.add(input_name, output_name)
+
+            if not isinstance(controller, Controller):
+                raise TypeError(
+                    f"Controllers must be of type {Controller!r}. "
+                    f"Got; {controller!r} of {type(controller)!r}."
+                )
+            self.__modules[output_name][input_name] = controller
+
+        if weights is None:
+            for name in controllers:
+                if name not in self.__weights[output_name]:
+                    self.__weights[output_name][name] = 1.0
+        else:
+            self.__weights[output_name] = dict(weights)
+        if mode is not None:
+            self.__modes[output_name] = __get_combiner_func(mode)
+
+    def remove_module(self, output_name: str, /) -> None:
+        """Remove a module and all of its controllers."""
+        if output_name not in self.__modules:
+            raise ValueError(
+                f"Module for output {output_name!r} does not exist."
+            )
+        del self.__modules[output_name]
+        del self.__input_output_mapping[output_name]
+        del self.__weights[output_name]
+        del self.__modes[output_name]
+
+    def get_controller(
+        self,
+        input_name: str,
+        output_name: str, /
+    ) -> Controller:
+        """Get a controller for a given input and output mapping."""
+        return self.__modules[output_name][input_name]
+
+    def add_controller(
+        self,
+        input_name: str,
+        output_name: str,
+        controller: Controller,
+        weight: float = 1.0
+    ) -> None:
+        """
+        Add a controller to the moduler controller.
+        """
+        if output_name not in self.__modules:
+            raise ValueError(
+                f"Module for output {output_name!r} does not exist."
+                "Use `declare_module` to declare a module."
+            )
+        if input_name in self.__input_output_mapping.forwards:
+            raise ValueError(
+                f"Input {input_name!r} already exists as an output."
+            )
+        if self.__input_output_mapping.maps_to(input_name, output_name):
+            raise ValueError(
+                f"Input {input_name!r} already maps to output {output_name!r}."
+            )
+        if not isinstance(controller, Controller):
+            raise TypeError(
+                f"Controller must be of type {Controller!r}. "
+                f"Got; {controller!r} of {type(controller)!r}."
+            )
+        self.__modules[output_name][input_name] = controller
+        self.__input_output_mapping.add(input_name, output_name)
+        self.__weights[output_name][input_name] = weight
+
+    def remove_controller(self, input_name: str, output_name: str, /) -> None:
+        """
+        Remove a controller from the moduler controller.
+
+        If the module for the given output is empty after the removal, the
+        module is also removed.
+        """
+        del self.__modules[output_name][input_name]
+        del self.__input_output_mapping[(input_name, output_name)]
+        del self.__weights[output_name][input_name]
+        if not self.__modules[output_name]:
+            self.remove_module(output_name)
+
+    def update_weights(
+        self,
+        output_name: str,
+        weights: Mapping[str, float]
+    ) -> None:
+        """
+        Update the output combination weights of the inner controllers.
+        """
+        self.__weights[output_name].update(weights)
+
+    def control_output(
+        self,
+        control_inputs: Mapping[str, float],
+        setpoints: Mapping[str, float], /,
+        delta_time: float,
+        abs_tol: float | None = None
+    ) -> dict[str, float]:
+        """
+        Get the combined control output of the inner controllers.
+
+        All control input values must be provided, but only non-cascaded input
+        set-points should be provided. The set-points for cascaded inputs are
+        the outputs of the controllers they are cascaded from.
+        """
+        outputs: dict[str, float] = dict.fromkeys(self.__modules.keys(), 0.0)
+        for output_name, module in self.__modules.items():
+            output: list[float] = []
+            for input_name, controller in module.items():
+                if input_name not in control_inputs:
+                    raise KeyError(f"Control input variable {input_name!r}"
+                                   f"not found. Got; {control_inputs!r}.")
+                output.append(
+                    controller.control_output(
+                        control_inputs[input_name],
+                        setpoints[input_name],
+                        delta_time,
+                        abs_tol
+                    ) * self.__weights[output_name][input_name]
+                )
+            outputs[output_name] = self.__modes[output_name](output)
+        return outputs
+
+
+class CascadingController:
     """
     Class defining moduler controllers.
 
@@ -669,10 +923,7 @@ class ModulerController:  # TODO: Change to MultiVariateController? How do we de
         # Maps: input_name -> output_name
         # TODO: Change to Graph or LayerMap? We need to be able to calculate
         # control outputs in the correct order, starting from layer 1 inputs.
-        self.__input_output_mapping = TwoWayMap[str]()
-
-        # Maps: output_name -> input_name
-        self.__output_input_cascade_mapping = TwoWayMap[str]()
+        self.__input_output_mapping = Graph[str]()
 
         # Maps: output_name -> input_name -> weight of controller to output
         self.__weights: dict[str, dict[str, float]] = {}
@@ -734,11 +985,11 @@ class ModulerController:  # TODO: Change to MultiVariateController? How do we de
 
         Parameters
         ----------
-        `output_name : str` - The name of the output.
+        `output_name: str` - The name of the output.
 
-        `inputs : Iterable[str]` - The names of the inputs.
+        `inputs: Iterable[str]` - The names of the inputs.
 
-        `mode : Literal["sum", "mean", "median"] = "mean"` - The mode of the
+        `mode: Literal["sum", "mean", "median"] = "mean"` - The mode of the
         output. If "sum", then the sum of the outputs is returned. If "mean",
         then the mean of the outputs is returned. If "median", then the median
         of the outputs is returned.
@@ -753,7 +1004,9 @@ class ModulerController:  # TODO: Change to MultiVariateController? How do we de
 
         self.__modules[output_name] = {}
         for input_name in inputs:
-            self.__input_output_mapping.add(input_name, output_name)
+            self.__input_output_mapping.add_edge(input_name, output_name)
+            self.__input_output_mapping.tag_vertex(input_name, 0)
+            self.__input_output_mapping.tag_vertex(output_name, -1)
         self.__weights[output_name] = {}
         self.__modes[output_name] = __get_combiner_func(mode)
 
@@ -772,7 +1025,7 @@ class ModulerController:  # TODO: Change to MultiVariateController? How do we de
                              "exists. Use `update_module` instead.")
 
         for input_name, controller in controllers.items():
-            self.__input_output_mapping.add(input_name, output_name)
+            self.__input_output_mapping.add_edge(input_name, output_name)
 
             if not isinstance(controller, Controller):
                 raise TypeError(f"Controllers must be of type {Controller!r}. "
@@ -800,8 +1053,8 @@ class ModulerController:  # TODO: Change to MultiVariateController? How do we de
                              "exist. Use `add_module` instead.")
 
         for input_name, controller in controllers.items():
-            if not self.__input_output_mapping.maps_to(input_name, output_name):
-                self.__input_output_mapping.add(input_name, output_name)
+            if output_name not in self.__input_output_mapping[input_name]:
+                self.__input_output_mapping.add_edge(input_name, output_name)
 
             if not isinstance(controller, Controller):
                 raise TypeError(f"Controllers must be of type {Controller!r}. "
@@ -892,10 +1145,16 @@ class ModulerController:  # TODO: Change to MultiVariateController? How do we de
         Cascade the output of one controller to the input set-point of another.
 
         Note that this does not cascade the output of one controller to the
-        input of another. It only cascades the set-point of the input of one
-
+        input of another. It only cascades the output of one controller to the
+        set-point of the input of another controller.
         """
-        self.__input_output_mapping.add(output_name, input_name)
+        if "cascaded_to" in self.__input_output_mapping.get_vertex_tags(input_name):
+            pass  # TODO
+        self.__input_output_mapping.untag_vertex(output_name)
+        self.__input_output_mapping.untag_vertex(input_name)
+        self.__input_output_mapping.tag_vertex(output_name, "cascaded_to", input_name)  # Will not be given as control output, instead cascaded to input set-point
+        self.__input_output_mapping.tag_vertex(input_name, "cascaded_from", output_name, 1)  # No input-setpoint need to be given, instead cascaded from output
+        self.__input_output_mapping.add_edge(output_name, input_name)
 
     def control_output(
         self,
@@ -1249,7 +1508,10 @@ class SystemController:
         system.set_control_output(output, delta_time, output_var_name)
 
         return ControlTick(
-            self.__ticks, controller.latest_error, output, delta_time
+            self.__ticks,
+            controller.latest_error,  # type: ignore
+            output,
+            delta_time
         )
 
     def reset(self) -> None:
@@ -1260,7 +1522,7 @@ class SystemController:
 
 
 # Signature: (iterations, error, output, delta_time, total_time) -> bool
-Condition: TypeAlias = Callable[[int, float, float, float, float], bool]
+Condition: TypeAlias = Callable[[int, float | None, float, float, float], bool]
 # Signature: (iterations, error, output, delta_time, total_time) -> None
 DataCallback: TypeAlias = Callable[[int, float, float, float, float], None]
 
@@ -1375,8 +1637,10 @@ class AutoSystemController:
                        and (self.__run_forever
                             or cond(  # type: ignore
                                 iterations,
-                                error, output,
-                                delta_time, total_time
+                                error,
+                                output,
+                                delta_time,
+                                total_time
                             )
                             )
                        ):
@@ -1394,9 +1658,10 @@ class AutoSystemController:
                     # Preempt stop calls.
                     stop = self.__stopped.wait(self.__sleep_time)
 
-                    ## TODO: Add something to handle time errors and catch up.
-                    ## Keep track of actual tick rate and variance in tick rate, and number of skipped ticks.
-                    ## If the tick rate is too high, emit warnings and slow down the tick rate.
+                    # TODO: Add something to handle time errors and catch up.
+                    # Keep track of actual tick rate and variance in tick
+                    # rate, and number of skipped ticks. If the tick rate is
+                    # too high, emit warnings and slow down the tick rate.
 
             if not stop:
                 self.__stop()
