@@ -62,32 +62,31 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
     A disjoint-set data structure, also called union-find.
 
     A disjoint-set, is a set of disjoint sub-sets (sets with empty
-    intersections).
-
-    In simple terms, a disjoint-set is a set of elements (elements are
-    unordered and unique), split/partitioned into multiple sub-sets, each of
-    which is disjoint with all other sub-sets, such that any given element of
-    the whole disjoint-set is part of one, and only one, of its sub-sets.
+    intersections). In other words, a disjoint-set is a set of elements
+    (elements are unordered and unique), split/partitioned into multiple
+    sub-sets, each of which is disjoint with all other sub-sets, such that any
+    given element of the whole disjoint-set is part of one, and only one, of
+    its sub-sets.
 
     It provides two main operators;
     - unioning (merging) disjoint sub-sets,
     - and finding the root of a disjoint sub-set,
-        where the root is a unique representative member
-        of sub-set that identifies it from other sub-sets.
+      where the root is a unique representative member
+      of sub-set that identifies it from other sub-sets,
 
-    Hence the alternative name; union-find.
+    hence the alternative name; union-find.
 
     Each disjoint sub-set is represented by its root, and all other elements
     in the same sub-set are stored in a tree structure that connects them to
     their root. This makes it easy to determine if any two elements are in the
-    same or different sub-sets. This is because sub-set membership of any
-    given element, reduces simply to finding its root, and the tree structure
-    contains a trivially traceable path from each element to its sub-set's
-    root. This path is (usually) compressed as the disjoint-set is modified,
-    making it easier to find an element's root on future look-ups.
+    same or different sub-sets. This is because finding which sub-set an
+    element is a member of reduces to simply finding its root, and since the
+    tree structure contains a trivially traceable path from each element to
+    its sub-set's root. This path is (usually) compressed as the disjoint-set
+    is modified, making it easier to find an element's root on future look-ups.
 
-    The benefit of the tree-based internal representation of a disjoint-set,
-    is that union operations are trivial. This is because performing the union
+    The second benefit of the tree-based representation of a disjoint-set is,
+    that union operations are trivial. This is because performing the union
     of two sub-sets requires only setting the parent of the root of one
     sub-set to be the root of the other sub-set. This is a single operation
     (which is constant time), which relies on two root find operations (one to
@@ -104,9 +103,9 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
     time (in the size of the disjoint-set) since unioning two sets would
     involve reassigning the root of all elements of one of the two sets.
 
-    This implementation supports tracking of sub-sets. This is useful if the
-    disjoint sub-sets need to be accessed many times and the disjoint-set will
-    be updated very often. This is unlike caching the disjoint sub-sets when
+    This implementation also supports tracking of sub-sets. This is useful if
+    the disjoint sub-sets need to be accessed many times and the disjoint-set
+    will be updated often. This is unlike caching the disjoint sub-sets when
     then are accessed, because the cache is usually invalidated when the
     disjoint-set is updated (with an add or a union). Accessing the disjoint
     sub-sets when they are not tracked is computationally expensive, but it
@@ -395,7 +394,7 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         Parameters
         ----------
         `parent: ST@DisjointSet` - The parent of the element or set of
-        elements to to add to the disjoint-set. If the parent is not already
+        elements to add to the disjoint-set. If the parent is not already
         in the disjoint-set, then it is added as a new root element, and the
         element or set of elements to add become its children. If the parent
         is already in the disjoint-set, then the element or set of elements to
@@ -655,16 +654,15 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         All other elements with the same root as the given element will be
         returned in the sub-set.
 
-        `compress: bool = True` - Whether to compress all paths,
-        from all elements, of all sets, to their respective roots.
-        This will achieve the maximum possible compression of the disjoint-set.
-        If the default find method is; path splitting or path halving, this
-        parameter is ignored.
+        `compress: bool = True` - Whether to compress all paths, from all
+        elements, of all sets, to their respective roots. This will achieve
+        the maximum possible compression of the disjoint-set. If the default
+        find method is; path splitting or path halving, this parameter is
+        ignored.
 
-        `cache: bool = True` - Whether to cache the result.
-        Future calls to this function will return the cached result,
-        if and only if the disjoint-set has not been modified since the
-        previous call.
+        `cache: bool = True` - Whether to cache the result. Future calls to
+        this function will return the cached result, if and only if the
+        disjoint-set has not been modified since the previous call.
 
         `default: {None | set[ST@DisjointSet]}` - If given and not None,
         acts as a default sub-set to return if the given element is not in
@@ -703,17 +701,17 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
 
         Parameters
         ----------
-        `compress: bool = True` - Whether to compress all paths,
-        from all elements, of all sets, to their respective roots.
-        This will achieve the maximum possible compression of the disjoint-set.
-        If the default find method is; path splitting or path halving, this
-        parameter is ignored.
+        `compress: bool = True` - Whether to compress all paths, from all
+        elements, of all sets, to their respective roots. This will achieve
+        the maximum possible compression of the disjoint-set. If the default
+        find method is; path splitting or path halving, this parameter is
+        ignored.
 
-        `cache: bool = True` - Whether to cache the result.
-        Future calls to this function will return the cached result,
-        if and only if the disjoint-set has not been modified since the
-        previous call. Methods `add`, `union`, `union_many` modify the
-        disjoint-set, and as such will invalidate the cache.
+        `cache: bool = True` - Whether to cache the result. Future calls to
+        this function will return the cached result, if and only if the
+        disjoint-set has not been modified since the previous call. Methods
+        `add`, `union`, `union_many` modify the disjoint-set, and as such will
+        invalidate the cache.
 
         Returns
         -------
@@ -861,11 +859,11 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         the larger original sub-set. This is such that the root of the
         new combined set, is the root of the larger original sub-set.
 
-        This is beneficial, since it reduces the average path length
-        from any given descendent element of the combined set, to it's root.
-        If the larger set were unioned onto the smaller, there would be a
-        greater number of set elements, that were one element further from the
-        root node after the union operation. Performing such an operation many
+        This is beneficial, since it reduces the average path length from any
+        given descendent element of the combined set, to it's root. If the
+        larger set were unioned onto the smaller, there would be a greater
+        number of set elements, that were one element further from the root
+        node after the union operation. Performing such an operation many
         times without path compression, can massively increase the complexity
         of the find operation on the disjoint set (i.e. searching the
         sub-set's trees).
