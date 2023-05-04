@@ -423,7 +423,7 @@ class SnakeGameJinxWidget(JinxObserverWidget):
         self.__restart_button.clicked.connect(self._logic.restart)
         self.__layout.addWidget(self.__restart_button, 0, 1)
 
-        ## Add are scene to draw the snake and food on
+        ## Add a scene to draw the snake and food on
         self.__display_widget = QtWidgets.QWidget()
         self.__display_widget.setStyleSheet("background-color: black;")
         self.__display_widget.setFixedSize(width, height)
@@ -439,7 +439,7 @@ class SnakeGameJinxWidget(JinxObserverWidget):
             QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.__view.setVerticalScrollBarPolicy(
             QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.__display_layout.addWidget(self.__view, 0, 0, 1, 2)
+        self.__display_layout.addWidget(self.__view, 0, 0, 1, 1)
         self.__layout.addWidget(self.__display_widget, 1, 0, 1, 2)
 
         ## Set up the key press event
@@ -676,7 +676,9 @@ class SnakeGameOptionsJinxWidget(JinxObserverWidget):
     def __init__(
         self,
         parent: QtWidgets.QWidget,
-        data: JinxGuiData, /, *,
+        data: JinxGuiData, /,
+        width: int,
+        height: int, *,
         debug: bool = False
     ) -> None:
         """Create a new snake game options widget."""
@@ -685,8 +687,8 @@ class SnakeGameOptionsJinxWidget(JinxObserverWidget):
         self.__layout = QtWidgets.QGridLayout()
         self.__layout.setContentsMargins(0, 0, 0, 0)
         self.__layout.setSpacing(10)
-        self.__layout.setColumnMinimumWidth(0, 600)
-        self.__layout.setColumnMinimumWidth(1, 600)
+        self.__layout.setColumnMinimumWidth(0, int((width // 2) * 0.95))
+        self.__layout.setColumnMinimumWidth(1, int((width // 2) * 0.95))
         self.widget.setLayout(self.__layout)
         self.__create_options()
 
@@ -834,10 +836,12 @@ def play_snake_game(
 
     snake_qwidget = QtWidgets.QWidget()
     snake_game_jwidget = SnakeGameJinxWidget(
-        snake_qwidget, width, height, debug=debug)
+        snake_qwidget, width, height, debug=debug
+    )
     snake_options_widget = QtWidgets.QWidget()
     snake_game_options_jwidget = SnakeGameOptionsJinxWidget(
-        snake_options_widget, jdata, debug=debug)
+        snake_options_widget, jdata, width, height, debug=debug
+    )
 
     jgui.add_view("Snake Game", snake_game_jwidget)
     jgui.add_view("Snake Game Options", snake_game_options_jwidget)
