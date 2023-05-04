@@ -521,10 +521,10 @@ class FrozenReversableDict(collections.abc.Mapping, Generic[KT, VT]):
     reversed_get.__doc__ = ReversableDict.reversed_get.__doc__
 
 
-# TODO: InvertableUniqueKeysDict, MultiKeyDict, MultiValueDict, MultiItemDict.
+# TODO: InvertableUniqueKeysDict/BijectiveMap, MultiKeyDict, MultiValueDict, MultiItemDict.
 
 
-MT = TypeVar("MT")
+MT = TypeVar("MT", bound=Hashable)
 TwoWayMapInit: TypeAlias = Mapping[MT, Iterable[MT]] | Iterable[tuple[MT, MT]]
 
 
@@ -690,6 +690,34 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[MT]):
         """
         return types.MappingProxyType(SetValuedMappingView(self.__backwards))
 
+    def fowards_get(
+        self,
+        key: MT,
+        default: Iterable[MT] | None = None, /
+    ) -> SetView[MT] | None:
+        """
+        Get the forwards values for the given key, or the default value if
+        the key is not present.
+        """
+        backwards = self.__forwards.get(key)
+        if backwards is not None:
+            return SetView(backwards)
+        return SetView(set(default)) if default is not None else None
+
+    def backwards_get(
+        self,
+        key: MT,
+        default: Iterable[MT] | None = None, /
+    ) -> SetView[MT] | None:
+        """
+        Get the backwards values for the given key, or the default value if
+        the key is not present.
+        """
+        forwards = self.__backwards.get(key)
+        if forwards is not None:
+            return SetView(forwards)
+        return SetView(set(default)) if default is not None else None
+
     def maps_to(self, forwards_key: MT, backwards_key: MT, /) -> bool:
         """Check if the forwards key maps to the backwards key."""
         return (((backwards := self.__forwards.get(forwards_key)) is not None)
@@ -709,6 +737,16 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[MT]):
     def add(self, forwards_key: MT, backwards_key: MT, /) -> None:
         """Add a new key pair to the mapping."""
         self[forwards_key] = backwards_key
+
+    def add_many(
+        self,
+        forwards_key: MT,
+        backwards_keys: Iterable[MT], /
+    ) -> None:
+        """Add new key pairs to the mapping."""
+        self.__forwards.setdefault(forwards_key, set()).update(backwards_keys)
+        for backwards_key in backwards_keys:
+            self.__backwards.setdefault(backwards_key, set()).add(forwards_key)
 
     def __delitem__(self, key_or_keys: MT | tuple[MT, MT], /) -> None:
         """Remove a key or key pair from the two-way mapping."""
@@ -749,6 +787,28 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[MT]):
             raise KeyError(f"Key or keys {key_or_keys} do not exist in the "
                            "two-way mapping.")
 
+    def forwards_remove(self, key: MT, /) -> None:
+        """Remove a key from the forwards mapping."""
+        if key not in self.__forwards:
+            raise KeyError(f"Key {key} does not exist in the forwards "
+                           "mapping.")
+        for other_key in self.__forwards[key]:
+            self.__backwards[other_key].remove(key)
+            if not self.__backwards[other_key]:
+                del self.__backwards[other_key]
+        del self.__forwards[key]
+
+    def backwards_remove(self, key: MT, /) -> None:
+        """Remove a key from the backwards mapping."""
+        if key not in self.__backwards:
+            raise KeyError(f"Key {key} does not exist in the backwards "
+                           "mapping.")
+        for other_key in self.__backwards[key]:
+            self.__forwards[other_key].remove(key)
+            if not self.__forwards[other_key]:
+                del self.__forwards[other_key]
+        del self.__backwards[key]
+
     def remove(self, forwards_key: MT, backwards_key: MT, /) -> None:
         """Remove a key pair from the mapping."""
         if forwards_key not in self.__forwards:
@@ -763,6 +823,23 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[MT]):
             del self.__forwards[forwards_key]
         if not self.__backwards[backwards_key]:
             del self.__backwards[backwards_key]
+
+    def remove_many(
+        self,
+        forwards_key: MT,
+        backwards_keys: Iterable[MT], /
+    ) -> None:
+        """Remove a key pair from the mapping."""
+        if forwards_key not in self.__forwards:
+            raise KeyError(f"Key {forwards_key} does not exist in the "
+                           "forwards mapping.")
+        self.__forwards[forwards_key].difference_update(backwards_keys)
+        for backwards_key in backwards_keys:
+            self.__backwards[backwards_key].remove(forwards_key)
+            if not self.__backwards[backwards_key]:
+                del self.__backwards[backwards_key]
+        if not self.__forwards[forwards_key]:
+            del self.__forwards[forwards_key]
 
 
 class LayerMapValue(collections.abc.Sequence, Generic[MT]):
