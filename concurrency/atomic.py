@@ -35,23 +35,31 @@ be called outside of a context manager, but will be blocking if
 the object is currently being updated by another thread.
 """
 
+from abc import ABCMeta, abstractmethod
 import collections.abc
+import sys
 import types
-from typing import Generic, Hashable, Iterable, Iterator, Mapping, Sequence, TypeVar, final
+from typing import (
+    Any, Callable, Concatenate, Generic, Hashable, Iterable, Iterator,
+    Mapping, ParamSpec, TypeVar, final, overload
+)
 from concurrency.synchronization import OwnedRLock
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
 
 __all__ = (
+    "JinxAtomicObjectError",
+    "AtomicObject",
     "AtomicNumber",
+    "AtomicBool",
     "AtomicList",
     "AtomicDict",
     "AtomicSet"
 )
 
 
-def __dir__() -> tuple[str]:
+def __dir__() -> tuple[str, ...]:
     """Get the names of module attributes."""
     return __all__
 
@@ -60,34 +68,70 @@ class JinxAtomicObjectError(RuntimeError):
     """An exception raised when an error occurs in an atomic object."""
 
 
-OT = TypeVar("OT")
+SP = ParamSpec("SP")
+ST = TypeVar("ST")
 
 
-@final
-class AtomicObject(Generic[OT]):
+def _atomic_require_lock(
+    func: Callable[Concatenate[Any, SP], ST]
+) -> Callable[Concatenate[Any, SP], ST]:
     """
-    A thread-safe object wrapper.
-
-    Getting the wrapped object is only allowed within a context manager.
+    Decorator that ensures the object is locked by current thread, and
+    therefore is not being updated by another thread before calling the
+    method.
     """
+    def wrapper(self: Any, *args: SP.args, **kwargs: SP.kwargs) -> ST:
+        with self:
+            return func(self, *args, **kwargs)
+    return wrapper
+
+
+def _atomic_require_context(
+    func: Callable[Concatenate[Any, SP], ST]
+) -> Callable[Concatenate[Any, SP], ST]:
+    """
+    Decorator that ensures the object is locked and being updated within
+    a context manager before calling the method.
+    """
+    def wrapper(self: Any, *args: SP.args, **kwargs: SP.kwargs) -> ST:
+        self._check_context()  # pylint: disable=protected-access
+        return func(self, *args, **kwargs)
+    return wrapper
+
+
+AT = TypeVar("AT")
+
+
+class _Atomic(Generic[AT], metaclass=ABCMeta):
+    """Base class for atomic objects."""
 
     __slots__ = {
-        "__object": "The object being wrapped.",
         "__lock": "The lock used to ensure atomic updates."
     }
 
-    def __init__(self, object_: OT, /) -> None:
+    def __init__(self) -> None:
         """Create a new atomic object."""
-        self.__object: NT = object_
         self.__lock = OwnedRLock()
 
     def __str__(self) -> str:
-        return f"AtomicObject: {self.__object!s}"
+        return f"{self.__class__.__name__}: {self.get_obj()!s}"
 
     def __repr__(self) -> str:
-        return f"AtomicObject({self.__object!r})"
+        return f"{self.__class__.__name__}({self.get_obj()!r})"
 
-    def __enter__(self) -> "AtomicObject[OT]":
+    @_atomic_require_lock
+    @abstractmethod
+    def get_obj(self) -> AT:
+        """Returns the wrapped object."""
+        ...
+
+    @_atomic_require_context
+    @abstractmethod
+    def set_obj(self, value: AT, /) -> None:
+        """Sets the wrapped object."""
+        ...
+
+    def __enter__(self) -> "_Atomic":
         self.__lock.acquire()
         return self
 
@@ -99,47 +143,76 @@ class AtomicObject(Generic[OT]):
     ) -> None:
         self.__lock.release()
 
-    def get_object(self) -> OT:
-        """Returns the current value of the object."""
+    def _check_context(self) -> None:  # pylint: disable=unused-private-member
+        """Check that the object is currently being updated."""
         if not self.__lock.is_locked:
-            raise JinxAtomicObjectError("Cannot get AtomicObject outside of a context manager.")
+            raise JinxAtomicObjectError(
+                "Cannot update atomic object outside of a context manager."
+            )
         if not self.__lock.is_owner:
-            raise JinxAtomicObjectError("Attempted to get AtomicObject from a non-owner thread.")
+            raise JinxAtomicObjectError(
+                "Attempted to update atomic object from a non-owner thread."
+            )
+
+
+OT = TypeVar("OT")
+
+
+@final
+class AtomicObject(_Atomic[OT]):
+    """
+    A thread-safe atomic object wrapper.
+
+    Getting the wrapped object is only allowed whilst another thread does not
+    have the object locked. The object is locked whilst a thread has entered
+    the object's context manager, and is unlocked when the thread exits the
+    context manager. Setting the wrapped object is only allowed within a
+    context manager. This allows one to ensure that the object is not got
+    by another thread whilst it is being updated by multiple operations
+    in another thread, therefore making those operations atomic.
+
+    Note that this does not make accesses/updates to the wrapped object itself
+    thread-safe, it only ensures that access to the object through the wrapper
+    is thread-safe. Therefore, if the wrapped object is a mutable object, and
+    another thread keeps a reference to the object, then it is possible for
+    that thread to change the object even whilst it does not have the atomic
+    lock.
+    """
+
+    __slots__ = {
+        "__object": "The object being wrapped."
+    }
+
+    def __init__(self, object_: OT, /) -> None:
+        """Create a new atomic object."""
+        super().__init__()
+        self.__object: OT = object_
+
+    @_atomic_require_lock
+    def get_obj(self) -> OT:
+        """Returns the wrapped object."""
         return self.__object
 
-    def set_object(self, object_: OT) -> None:
-        """Sets the object to the given value."""
-        if not self.__lock.is_locked:
-            raise JinxAtomicObjectError("Cannot set AtomicObject outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise JinxAtomicObjectError("Attempted to set AtomicObject from a non-owner thread.")
+    @_atomic_require_context
+    def set_obj(self, object_: OT, /) -> None:
+        """Sets the wrapped object."""
         self.__object = object_
-
-
-if __name__ == "__main__":
-    a = AtomicObject((1, 2))
-    with a:
-        print(a.get_object())
-        a.set_object((3, 4))
-    try:
-        print(a.get_object())
-    except JinxAtomicObjectError:
-        print("Cannot get object outside of a context manager.")
 
 
 NT = TypeVar("NT", int, float, complex)
 
 
-## TODO: Add async support.
 @final
-class AtomicNumber(Generic[NT]):
+class AtomicNumber(_Atomic[NT]):
     """
     A thread-safe number whose updates are atomic.
 
     Updates to the number are only allowed within a context manager.
     """
 
-    __slots__ = ("__value", "__lock")
+    __slots__ = {
+        "__value": "The current value of the number."
+    }
 
     def __init__(self, value: NT = 0) -> None:
         """
@@ -147,220 +220,335 @@ class AtomicNumber(Generic[NT]):
 
         The number type can be int, float, or complex.
         """
+        super().__init__()
         self.__value: NT = value
-        self.__lock = OwnedRLock()
-    
-    def __str__(self) -> str:
-        return str(self.__value)
-    
-    def __repr__(self) -> str:
-        return f"AtomicNumber({self.__value})"
-    
-    def __enter__(self) -> None:
-        self.__lock.acquire()
-    
-    def __exit__(
-        self,
-        exc_type: type | None,
-        exc_val: BaseException | None,
-        exc_tb: types.TracebackType | None
-    ) -> None:
-        self.__lock.release()
-    
-    def __int__(self) -> int:
-        return int(self.__value)
-    
-    def __float__(self) -> float:
-        return float(self.__value)
-    
-    def __complex__(self) -> complex:
-        return complex(self.__value)
-    
-    @property
-    def value(self) -> NT:
+
+    @_atomic_require_lock
+    def get_obj(self) -> NT:
         """Returns the current value of the number."""
         return self.__value
-    
-    @value.setter
-    def value(self, value: NT) -> None:
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicNumber outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicNumber from a non-owner thread.")
+
+    @_atomic_require_context
+    def set_obj(self, value: NT, /) -> None:
+        """Sets the number to the given value."""
         self.__value = value
-    
-    def __iadd__(self, value: NT) -> "AtomicNumber[NT]":
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicNumber outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicNumber from a non-owner thread.")
-        self.__value += value
+
+    @_atomic_require_lock
+    def __int__(self) -> int:
+        return int(self.__value)  # type: ignore
+
+    @_atomic_require_lock
+    def __float__(self) -> float:
+        return float(self.__value)  # type: ignore
+
+    @_atomic_require_lock
+    def __complex__(self) -> complex:
+        return complex(self.__value)  # type: ignore
+
+    @_atomic_require_context
+    def __iadd__(self, value: int | float | complex) -> "AtomicNumber[NT]":
+        self.__value = type(self.__value)(self.__value + value)  # type: ignore
         return self
-    
-    def __add__(self, value: NT) -> NT:
+
+    @_atomic_require_lock
+    def __add__(self, value: int | float | complex) -> int | float | complex:
         return self.__value + value
-    
+
+    @_atomic_require_context
     def __isub__(self, value: NT) -> "AtomicNumber[NT]":
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicNumber outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicNumber from a non-owner thread.")
-        self.__value -= value
+        self.__value = type(self.__value)(self.__value - value)
         return self
-    
-    def __sub__(self, value: NT) -> NT:
+
+    @_atomic_require_lock
+    def __sub__(self, value: int | float | complex) -> int | float | complex:
         return self.__value - value
-    
-    def __imul__(self, value: NT) -> "AtomicNumber[NT]":
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicNumber outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicNumber from a non-owner thread.")
-        self.__value *= value
+
+    @_atomic_require_context
+    def __ipow__(self, value: int | float | complex) -> "AtomicNumber[NT]":
+        self.__value = type(self.__value)(
+            self.__value ** value  # type: ignore
+        )  # type: ignore
         return self
-    
-    def __mul__(self, value: NT) -> NT:
+
+    @_atomic_require_lock
+    def __pow__(self, value: int | float | complex) -> int | float | complex:
+        return self.__value ** value
+
+    @_atomic_require_context
+    def __imul__(self, value: int | float | complex) -> "AtomicNumber[NT]":
+        self.__value = type(self.__value)(self.__value * value)  # type: ignore
+        return self
+
+    @_atomic_require_lock
+    def __mul__(self, value: int | float | complex) -> int | float | complex:
         return self.__value * value
-    
-    def __itruediv__(self, value: NT) -> "AtomicNumber[NT]":
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicNumber outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicNumber from a non-owner thread.")
-        self.__value /= value
+
+    @_atomic_require_context
+    def __itruediv__(self, value: int | float | complex) -> "AtomicNumber[NT]":
+        self.__value = type(self.__value)(self.__value / value)  # type: ignore
         return self
-    
-    def __truediv__(self, value: NT) -> NT:
+
+    @_atomic_require_lock
+    def __truediv__(
+        self,
+        value: int | float | complex
+    ) -> int | float | complex:
         return self.__value / value
-    
-    def __ifloordiv__(self, value: NT) -> "AtomicNumber[NT]":
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicNumber outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicNumber from a non-owner thread.")
-        self.__value //= value
+
+    @_atomic_require_context
+    def __ifloordiv__(self, value: int | float) -> "AtomicNumber[NT]":
+        self.__value = type(self.__value)(
+            self.__value // value  # type: ignore
+        )  # type: ignore
         return self
-    
-    def __floordiv__(self, value: NT) -> NT:
-        return self.__value // value
+
+    @_atomic_require_lock
+    def __floordiv__(self, value: int | float) -> int | float:
+        return self.__value // value  # type: ignore
+
+
+@final
+class AtomicBool(_Atomic[bool]):
+    """A thread-safe boolean whose updates are atomic."""
+
+    __slots__ = {
+        "__value": "The current value of the boolean."
+    }
+
+    def __init__(self, value: bool = False) -> None:
+        """Create a new atomic boolean with given initial value."""
+        super().__init__()
+        self.__value = bool(value)
+
+    @_atomic_require_lock
+    def get_obj(self) -> bool:
+        """Returns the current value of the boolean."""
+        return self.__value
+
+    @_atomic_require_context
+    def set_obj(self, value: bool, /) -> None:
+        """Sets the boolean to the given value."""
+        self.__value = bool(value)
+
+    @_atomic_require_context
+    def get_and_set_value(self, value: bool) -> bool:
+        """Sets the boolean to the given value and returns the old value."""
+        old_value = self.__value
+        self.__value = bool(value)
+        return old_value
+
+    @_atomic_require_context
+    def compare_and_set_value(self, expected: bool, value: bool) -> bool:
+        """
+        Sets the boolean to the given value if the current value is equal to
+        the expected value. Returns whether the value was set.
+        """
+        if self.__value == expected:
+            self.__value = bool(value)
+            return True
+        return False
+
+    @_atomic_require_lock
+    def __bool__(self) -> bool:
+        return self.__value
+
+    @_atomic_require_context
+    def __iand__(self, value: bool) -> "AtomicBool":
+        self.__value &= bool(value)
+        return self
+
+    @_atomic_require_lock
+    def __and__(self, value: bool) -> bool:
+        return self.__value & value
+
+    @_atomic_require_context
+    def __ior__(self, value: bool) -> "AtomicBool":
+        self.__value |= value
+        return self
+
+    @_atomic_require_lock
+    def __or__(self, value: bool) -> bool:
+        return self.__value | value
+
+    @_atomic_require_context
+    def __ixor__(self, value: bool) -> "AtomicBool":
+        self.__value ^= value
+        return self
+
+    @_atomic_require_lock
+    def __xor__(self, value: bool) -> bool:
+        return self.__value ^ value
 
 
 LT = TypeVar("LT")
 
 
-class AtomicList(collections.abc.MutableSequence, Generic[LT]):
+class AtomicList(_Atomic[list[LT]], collections.abc.MutableSequence):
     """
     A thread-safe list whose updates are atomic.
 
     Updates to the list are only allowed within a context manager.
     """
 
-    __slots__ = ("__list", "__lock")
+    __slots__ = {
+        "__list": "The wrapped list."
+    }
 
-    def __init__(self, sequence: Sequence[LT]) -> None:
-        self.__list: list[LT] = list(sequence)
-        self.__lock = OwnedRLock()
-    
-    def __enter__(self) -> None:
-        self.__lock.acquire()
-    
-    def __exit__(
+    @overload
+    def __init__(self) -> None:
+        """Create a new empty atomic list."""
+        ...
+
+    @overload
+    def __init__(self, __iterable: Iterable[LT], /) -> None:
+        """Create a new atomic list with given initial value."""
+        ...
+
+    def __init__(  # type: ignore
         self,
-        exc_type: type | None,
-        exc_val: BaseException | None,
-        exc_tb: types.TracebackType | None
+        __iterable: Iterable[LT] | None = None, /
     ) -> None:
-        self.__lock.release()
-    
-    def __iadd__(self, value: list[LT]) -> "AtomicList[LT]":
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicList outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicList from a non-owner thread.")
-        self.__list += value
-        return self
-    
-    def __add__(self, value: list[LT]) -> list[LT]:
-        return self.__list + value
-    
-    def __imul__(self, value: int) -> "AtomicList[LT]":
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicList outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicList from a non-owner thread.")
-        self.__list *= value
-        return self
-    
-    def __mul__(self, value: int) -> list[LT]:
-        return self.__list * value
-    
+        super().__init__()
+        self.__list: list[LT]
+        if __iterable is not None:
+            self.__list = list(__iterable)
+        else:
+            self.__list = []
+
+    @_atomic_require_lock
+    def get_obj(self) -> list[LT]:
+        """Returns the current list."""
+        return self.__list
+
+    @_atomic_require_context
+    def set_obj(self, value: Iterable[LT], /) -> None:
+        """Sets the list to the given value."""
+        self.__list = list(value)
+
+    @_atomic_require_lock
     def __len__(self) -> int:
         return len(self.__list)
-    
-    def __getitem__(self, key: int) -> LT:
-        return self.__list[key]
-    
-    def __setitem__(self, key: int, value: object) -> None:
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicList outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicList from a non-owner thread.")
-        self.__list[key] = value
-    
-    def __delitem__(self, key: int) -> None:
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicList outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicList from a non-owner thread.")
+
+    @overload
+    def __getitem__(self, key: int, /) -> LT:
+        ...
+
+    @overload
+    def __getitem__(self, key: slice, /) -> "list[LT]":
+        ...
+
+    @_atomic_require_lock
+    def __getitem__(  # type: ignore
+        self,
+        key: int | slice, /
+    ) -> LT | "list[LT]":
+        if isinstance(key, slice):
+            return self.__list[key]
+        else:
+            return self.__list[key]
+
+    @_atomic_require_lock
+    def __contains__(self, value: object) -> bool:
+        return value in self.__list
+
+    @_atomic_require_lock
+    def __iter__(self) -> Iterator[LT]:
+        return iter(self.__list)
+
+    @overload
+    def __setitem__(self, key: int, value: LT, /) -> None:
+        ...
+
+    @overload
+    def __setitem__(self, key: slice, value: Iterable[LT], /) -> None:
+        ...
+
+    @_atomic_require_context
+    def __setitem__(  # type: ignore
+        self,
+        key: int | slice, value: LT | Iterable[LT], /
+    ) -> None:
+        self.__list[key] = value  # type: ignore
+
+    @overload
+    def __delitem__(self, key: int, /) -> None:
+        ...
+
+    @overload
+    def __delitem__(self, key: slice, /) -> None:
+        ...
+
+    @_atomic_require_context
+    def __delitem__(self, key: int | slice, /) -> None:
         del self.__list[key]
-    
-    def append(self, value: object) -> None:
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicList outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicList from a non-owner thread.")
+
+    @_atomic_require_context
+    def __iadd__(self, value: Iterable[LT]) -> "AtomicList[LT]":
+        self.__list += value
+        return self
+
+    @_atomic_require_lock
+    def __add__(self, value: list[LT]) -> list[LT]:
+        return self.__list + value
+
+    @_atomic_require_context
+    def __imul__(self, value: int) -> "AtomicList[LT]":
+        self.__list *= value
+        return self
+
+    @_atomic_require_lock
+    def __mul__(self, value: int) -> list[LT]:
+        return self.__list * value
+
+    @_atomic_require_lock
+    def index(  # pylint: disable=arguments-differ
+        self,
+        value: LT,
+        start: int = 0,
+        stop: int = sys.maxsize, /
+    ) -> int:
+        super().index(value, start, stop)
+        return self.__list.index(value, start, stop)
+    index.__doc__ = list.index.__doc__
+
+    @_atomic_require_lock
+    def count(self, value: LT) -> int:
+        return self.__list.count(value)
+    count.__doc__ = list.count.__doc__
+
+    @_atomic_require_context
+    def append(self, value: LT) -> None:
+        """Append an element to the end of the list."""
         self.__list.append(value)
-    
-    def extend(self, value: list[LT]) -> None:
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicList outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicList from a non-owner thread.")
-        self.__list.extend(value)
-    
-    def insert(self, index: int, value: object) -> None:
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicList outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicList from a non-owner thread.")
+
+    @_atomic_require_context
+    def extend(self, values: Iterable[LT]) -> None:
+        """Extend the list by appending elements from the iterable."""
+        self.__list.extend(values)
+
+    @_atomic_require_context
+    def insert(self, index: int, value: LT) -> None:
+        """Insert an element before the given index."""
         self.__list.insert(index, value)
-    
+
+    @_atomic_require_context
     def pop(self, index: int = -1) -> LT:
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicList outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicList from a non-owner thread.")
         return self.__list.pop(index)
-    
-    def remove(self, value: object) -> None:
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicList outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicList from a non-owner thread.")
+    pop.__doc__ = list.pop.__doc__
+
+    @_atomic_require_context
+    def remove(self, value: LT) -> None:
         self.__list.remove(value)
-    
+    remove.__doc__ = list.remove.__doc__
+
+    @_atomic_require_context
     def clear(self) -> None:
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicList outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicList from a non-owner thread.")
+        """Remove all elements from the list."""
         self.__list.clear()
-    
+
+    @_atomic_require_context
     def reverse(self) -> None:
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicList outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicList from a non-owner thread.")
+        """Reverse the elements of the list in-place."""
         self.__list.reverse()
 
 
@@ -368,154 +556,117 @@ KT = TypeVar("KT", bound=Hashable)
 VT = TypeVar("VT")
 
 
-class AtomicDict(collections.abc.MutableMapping, Generic[KT, VT]):
+class AtomicDict(_Atomic[dict[KT, VT]], collections.abc.MutableMapping):
     """
     A thread-safe dictionary whose updates are atomic.
 
     Updates to the dictionary are only allowed within a context manager.
     """
 
-    __slots__ = ("__dict", "__lock")
+    __slots__ = {
+        "__dict": "The wrapped dictionary."
+    }
 
     def __init__(self, mapping: Mapping[KT, VT]) -> None:
+        super().__init__()
         self.__dict: dict[KT, VT] = dict(mapping)
-        self.__lock = OwnedRLock()
-    
-    def __enter__(self) -> None:
-        self.__lock.acquire()
-    
-    def __exit__(
-        self,
-        exc_type: type | None,
-        exc_val: BaseException | None,
-        exc_tb: types.TracebackType | None
-    ) -> None:
-        self.__lock.release()
-    
-    def __len__(self) -> int:
-        return len(self.__dict)
-    
+
+    @_atomic_require_lock
+    def get_obj(self) -> dict[KT, VT]:
+        """Returns the current dictionary."""
+        return self.__dict
+
+    @_atomic_require_context
+    def set_obj(self, value: Mapping[KT, VT], /) -> None:
+        """Sets the dictionary to the given value."""
+        self.__dict = dict(value)
+
+    @_atomic_require_lock
     def __getitem__(self, key: KT) -> VT:
         return self.__dict[key]
-    
+
+    @_atomic_require_context
     def __setitem__(self, key: KT, value: VT) -> None:
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicDict outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicDict from a non-owner thread.")
         self.__dict[key] = value
-    
+
+    @_atomic_require_context
     def __delitem__(self, key: KT) -> None:
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicDict outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicDict from a non-owner thread.")
         del self.__dict[key]
-    
+
+    @_atomic_require_lock
     def __iter__(self) -> Iterator[KT]:
         return iter(self.__dict)
-    
-    def __contains__(self, key: KT) -> bool:
-        return key in self.__dict
-    
-    def __iadd__(self, value: dict[KT, VT]) -> "AtomicDict[KT, VT]":
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicDict outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicDict from a non-owner thread.")
-        self.__dict += value
-        return self
-    
-    def __add__(self, value: dict[KT, VT]) -> dict[KT, VT]:
-        return self.__dict + value
-    
-    def __imul__(self, value: int) -> "AtomicDict[KT, VT]":
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicDict outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicDict from a non-owner thread.")
-        self.__dict *= value
-        return self
-    
-    def __mul__(self, value: int) -> dict[KT, VT]:
-        return self.__dict * value
-    
-    def clear(self) -> None:
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicDict outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicDict from a non-owner thread.")
-        self.__dict.clear()
+
+    @_atomic_require_lock
+    def __len__(self) -> int:
+        return len(self.__dict)
 
 
 ET = TypeVar("ET", bound=Hashable)
 
 
-class AtomicSet(collections.abc.MutableSet, Generic[ET]):
+class AtomicSet(_Atomic, collections.abc.MutableSet, Generic[ET]):
     """
     A thread-safe set whose updates are atomic.
 
     Updates to the set are only allowed within a context manager.
     """
 
-    __slots__ = ("__set", "__lock")
+    __slots__ = {
+        "__set": "The wrapped set."
+    }
 
     def __init__(self, iterable: Iterable[ET]) -> None:
+        super().__init__()
         self.__set: set[ET] = set(iterable)
-        self.__lock = OwnedRLock()
-    
-    def __enter__(self) -> None:
-        self.__lock.acquire()
-    
-    def __exit__(
-        self,
-        exc_type: type | None,
-        exc_val: BaseException | None,
-        exc_tb: types.TracebackType | None
-    ) -> None:
-        self.__lock.release()
-    
-    def __len__(self) -> int:
-        return len(self.__set)
-    
-    def __iter__(self) -> Iterator[ET]:
-        return iter(self.__set)
-    
+
+    def __str__(self) -> str:
+        return f"AtomicSet: {self.__set!s}"
+
+    def __repr__(self) -> str:
+        return f"AtomicSet({self.__set!r})"
+
+    @_atomic_require_lock
+    def get_obj(self) -> set[ET]:
+        """Returns the current set."""
+        return self.__set
+
+    @_atomic_require_context
+    def set_obj(self, value: Iterable[ET], /) -> None:
+        """Sets the set to the given value."""
+        self.__set = set(value)
+
+    @_atomic_require_lock
     def __contains__(self, item: object) -> bool:
         return item in self.__set
-    
-    def __iadd__(self, value: set[ET]) -> "AtomicSet[ET]":
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicSet outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicSet from a non-owner thread.")
-        self.__set += value
-        return self
-    
-    def __add__(self, value: set[ET]) -> set[ET]:
-        return self.__set + value
-    
-    def __imul__(self, value: int) -> "AtomicSet[ET]":
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicSet outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicSet from a non-owner thread.")
-        self.__set *= value
-        return self
-    
-    def __mul__(self, value: int) -> set[ET]:
-        return self.__set * value
-    
+
+    @_atomic_require_lock
+    def __iter__(self) -> Iterator[ET]:
+        return iter(self.__set)
+
+    @_atomic_require_lock
+    def __len__(self) -> int:
+        return len(self.__set)
+
+    @_atomic_require_context
     def add(self, value: ET) -> None:
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicSet outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicSet from a non-owner thread.")
         self.__set.add(value)
-    
+
+    @_atomic_require_context
     def discard(self, value: ET) -> None:
-        if not self.__lock.is_locked:
-            raise RuntimeError("Cannot update AtomicSet outside of a context manager.")
-        if not self.__lock.is_owner:
-            raise RuntimeError("Attempted to update AtomicSet from a non-owner thread.")
         self.__set.discard(value)
+
+
+if __name__ == "__main__":
+    atomic_object = AtomicList[int]([1, 2, 3])
+    print(atomic_object)
+    try:
+        with atomic_object:
+            atomic_object.append(4)
+            atomic_object.append(5)
+            atomic_object.append(6)
+        print(atomic_object.get_obj())
+        atomic_object.append(7)
+        print(atomic_object.get_obj())
+    except JinxAtomicObjectError:
+        print("Error")
