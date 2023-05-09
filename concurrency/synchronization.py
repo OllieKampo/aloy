@@ -224,23 +224,24 @@ def atomic_update(
     0
     """
     def decorator(func: typing.Callable[SP, ST]) -> typing.Callable[SP, ST]:
+        lock_name: str
         if method:
             if global_lock is not None:
                 lock_name = f"__method_global__ {global_lock}"
             else:
-                lock_name: str = f"__method_local__ {func.__name__}"
+                lock_name = f"__method_local__ {func.__name__}"
 
             @functools.wraps(func)
-            def wrapper(self, *args: SP.args, **kwargs: SP.kwargs) -> ST:
-                with atomic_context(lock_name, inst=self):
-                    return func(self, *args, **kwargs)
+            def wrapper(*args: SP.args, **kwargs: SP.kwargs) -> ST:
+                with atomic_context(lock_name, inst=args[0]):
+                    return func(*args, **kwargs)
             return wrapper
 
         else:
             if global_lock is not None:
                 lock_name = f"__function_global__ {global_lock}"
             else:
-                lock_name: str = f"__function_local__ {func.__name__}"
+                lock_name = f"__function_local__ {func.__name__}"
 
             @functools.wraps(func)
             def wrapper(*args: SP.args, **kwargs: SP.kwargs) -> ST:
