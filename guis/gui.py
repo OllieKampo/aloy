@@ -125,23 +125,51 @@ class JinxObserverWidget(observable.Observer):
 
     __slots__ = {
         "__weakref__": "Weak reference to the object.",
-        "__widget": "The encapsulated widget."
+        "__widget": "The encapsulated widget.",
+        "__size": "The size of the widget."
     }
 
     def __init__(
         self,
         widget: QtWidgets.QWidget, /,
-        name: str | None = None, *,
+        name: str | None = None,
+        size: tuple[int, int] | None = None, *,
+        resize: bool = True,
         debug: bool = False
     ) -> None:
-        """Create a new Jinx widget within the given parent widget."""
+        """
+        Create a new Jinx widget wrapping the given parent widget.
+
+        Parameters
+        ----------
+        `widget: QtWidgets.QWidget` - The parent widget.
+
+        `name: str | None = None` - The name of the object. If None, the
+        class name and id of the object are used.
+
+        `size: tuple[int, int] | None = None` - The size of the widget in
+        pixels. If None, the size of the widget is not set.
+
+        `resize: bool = True` - Whether to resize the widget to the given
+        size, or just simply store the size.
+
+        `debug: bool = False` - Whether to log debug messages.
+        """
         super().__init__(name, debug=debug)
         self.__widget: QtWidgets.QWidget = widget
+        self.__size: tuple[int, int] | None = size
+        if size is not None and resize:
+            self.__widget.resize(*size)
 
     @property
     def widget(self) -> QtWidgets.QWidget:
         """Get the widget."""
         return self.__widget
+
+    @property
+    def size(self) -> tuple[int, int] | None:
+        """Get the size of the widget."""
+        return self.__size
 
     def update_observer(self, observable: JinxGuiData) -> None:
         """
