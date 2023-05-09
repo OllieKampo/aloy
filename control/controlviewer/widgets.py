@@ -3,7 +3,7 @@ import random
 import sys
 from collections import deque
 from typing import Final
-from PyQt6.QtWidgets import QApplication, QWidget, QGraphicsScene, QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsView, QLabel
+from PyQt6.QtWidgets import QApplication, QWidget, QGraphicsScene, QGraphicsLineItem, QGraphicsView
 from PyQt6 import QtWidgets, QtCore, QtGui
 
 from guis.gui import JinxObserverWidget
@@ -69,8 +69,10 @@ class PositionGraph(JinxObserverWidget):
         self.__view.setStyleSheet("background-color: white;")
         self.__view.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
         self.__view.setFixedSize(*self.size)
-        self.__view.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.__view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.__view.setHorizontalScrollBarPolicy(
+            QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.__view.setVerticalScrollBarPolicy(
+            QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.__layout.addWidget(self.__view, 0, 0, 1, 1)
 
     def __paint_display(self) -> None:
@@ -94,9 +96,10 @@ class PositionGraph(JinxObserverWidget):
             self.__x_label,
             QtGui.QFont("Arial", 15)
         )
+        rect = text.boundingRect()
         text.setPos(
-            int(self.DEFAULT_WIDTH * (1 / 20)) - text.boundingRect().center().y(),
-            (self.DEFAULT_HEIGHT // 2) + text.boundingRect().center().x()
+            int(self.DEFAULT_WIDTH * (1.25 / 20)) - rect.center().y(),
+            (self.DEFAULT_HEIGHT // 2) + rect.center().x()
         )
         text.setRotation(-90)
 
@@ -104,37 +107,74 @@ class PositionGraph(JinxObserverWidget):
             self.__y_label,
             QtGui.QFont("Arial", 15)
         )
+        rect = text.boundingRect()
         text.setPos(
-            (self.DEFAULT_WIDTH // 2) - text.boundingRect().center().x(),
-            int(self.DEFAULT_HEIGHT * (19 / 20)) - text.boundingRect().center().y()
+            (self.DEFAULT_WIDTH // 2) - rect.center().x(),
+            int(self.DEFAULT_HEIGHT * (18.75 / 20)) - rect.center().y()
         )
 
-        # TODO: Add limits to lines.
-        # self.__scene.addText(
-        #     "0",
-        #     QtGui.QFont("Arial", 15)
-        # ).setPos(
-        #     (self.DEFAULT_WIDTH // 2) - (self.DEFAULT_WIDTH // 40),
-        #     self.DEFAULT_HEIGHT - (self.DEFAULT_HEIGHT // 10)
-        # )
+        # Add limits to lines.
+        text = self.__scene.addText(
+            f"{self.__x_limits[0]}",
+            QtGui.QFont("Arial", 15)
+        )
+        text.setPos(
+            (self.DEFAULT_WIDTH // 8),
+            (self.DEFAULT_HEIGHT // 2)
+        )
 
-        # self.__scene.addText(
-        #     f"{self.DEFAULT_WIDTH // 2}",
-        #     QtGui.QFont("Arial", 15)
-        # ).setPos(
-        #     self.DEFAULT_WIDTH - (self.DEFAULT_WIDTH // 10),
-        #     (self.DEFAULT_HEIGHT // 2) + (self.DEFAULT_HEIGHT // 20)
-        # )
+        text = self.__scene.addText(
+            f"{self.__x_limits[1]}",
+            QtGui.QFont("Arial", 15)
+        )
+        rect = text.boundingRect()
+        text.setPos(
+            (self.DEFAULT_WIDTH - (self.DEFAULT_WIDTH // 8)) - rect.right(),
+            (self.DEFAULT_HEIGHT // 2)
+        )
 
-    def __convert_values_to_position(self, x_value: float, y_value: float) -> tuple[int, int]:
+        text = self.__scene.addText(
+            f"{self.__y_limits[0]}",
+            QtGui.QFont("Arial", 15)
+        )
+        rect = text.boundingRect()
+        text.setPos(
+            (self.DEFAULT_WIDTH // 2) - rect.right(),
+            (self.DEFAULT_HEIGHT
+             - (self.DEFAULT_HEIGHT // 8)) - rect.center().y()
+        )
+
+        text = self.__scene.addText(
+            f"{self.__y_limits[1]}",
+            QtGui.QFont("Arial", 15)
+        )
+        rect = text.boundingRect()
+        text.setPos(
+            (self.DEFAULT_WIDTH // 2) - rect.right(),
+            (self.DEFAULT_HEIGHT // 8) - rect.center().y()
+        )
+
+    def __convert_values_to_position(
+        self,
+        x_value: float,
+        y_value: float
+    ) -> tuple[int, int]:
         x_max, x_min = self.__x_limits
         y_max, y_min = self.__y_limits
         width, height = self.size
 
-        x = (width / 8) + ((x_value - x_min) / (x_max - x_min)) * (width * (3 / 4))
-        y = (height / 8) + ((y_value - y_min) / (y_max - y_min)) * (height * (3 / 4))
+        x_pos = (
+            (width / 8)
+            + ((x_value - x_min) / (x_max - x_min))
+            * (width * 0.75)
+        )
+        y_pos = (
+            (height / 8)
+            + ((y_value - y_min) / (y_max - y_min))
+            * (height * 0.75)
+        )
 
-        return int(x), int(y)
+        return int(x_pos), int(y_pos)
 
     def update_graph(self, x_value: float, y_value: float) -> None:
         self.__history_x.append(x_value)
@@ -145,21 +185,50 @@ class PositionGraph(JinxObserverWidget):
 
         if len(self.__history_x) > 1:
             # Draw lines between points.
-            pen = QtGui.QPen(QtCore.Qt.GlobalColor.cyan, 2, QtCore.Qt.PenStyle.SolidLine)
-            for (x_1, y_1), (x_2, y_2) in itertools.pairwise(zip(self.__history_x, self.__history_y)):
+            pen = QtGui.QPen(
+                QtCore.Qt.GlobalColor.cyan,
+                2,
+                QtCore.Qt.PenStyle.SolidLine
+            )
+            for (x_1, y_1), (x_2, y_2) in itertools.pairwise(
+                zip(self.__history_x, self.__history_y)
+            ):
                 x_1, y_1 = self.__convert_values_to_position(x_1, y_1)
                 x_2, y_2 = self.__convert_values_to_position(x_2, y_2)
                 self.__scene.addLine(x_1, y_1, x_2, y_2, pen)
 
             # Draw last point.
-            pen = QtGui.QPen(QtCore.Qt.GlobalColor.red, 2, QtCore.Qt.PenStyle.SolidLine)
-            brush = QtGui.QBrush(QtCore.Qt.GlobalColor.red, QtCore.Qt.BrushStyle.SolidPattern)
-            x, y = self.__convert_values_to_position(self.__history_x[-1], self.__history_y[-1])
+            pen = QtGui.QPen(
+                QtCore.Qt.GlobalColor.red,
+                2,
+                QtCore.Qt.PenStyle.SolidLine
+            )
+            brush = QtGui.QBrush(
+                QtCore.Qt.GlobalColor.red,
+                QtCore.Qt.BrushStyle.SolidPattern
+            )
+            x, y = self.__convert_values_to_position(
+                self.__history_x[-1],
+                self.__history_y[-1]
+            )
             self.__scene.addEllipse(x - 5, y - 5, 10, 10, pen, brush)
 
             # Draw marks on axis.
-            pen = QtGui.QPen(QtCore.Qt.GlobalColor.magenta, 2, QtCore.Qt.PenStyle.SolidLine)
-            ## TODO
+            pen = QtGui.QPen(
+                QtCore.Qt.GlobalColor.magenta,
+                2,
+                QtCore.Qt.PenStyle.SolidLine
+            )
+            self.__scene.addLine(
+                x, int(self.DEFAULT_HEIGHT * 0.475),
+                x, int(self.DEFAULT_HEIGHT * 0.525),
+                pen
+            )
+            self.__scene.addLine(
+                int(self.DEFAULT_WIDTH * 0.475), y,
+                int(self.DEFAULT_WIDTH * 0.525), y,
+                pen
+            )
 
 
 if __name__ == "__main__":
@@ -171,8 +240,12 @@ if __name__ == "__main__":
     qwindow.setCentralWidget(graph_qwidget)
 
     def test_update_graph():
-        x = graph_jwidget.history_x[-1] if len(graph_jwidget.history_x) > 0 else 50
-        y = graph_jwidget.history_y[-1] if len(graph_jwidget.history_y) > 0 else 50
+        x = (graph_jwidget.history_x[-1]
+             if len(graph_jwidget.history_x) > 0
+             else 50)
+        y = (graph_jwidget.history_y[-1]
+             if len(graph_jwidget.history_y) > 0
+             else 50)
         print(x, y)
         x = x + random.randint(-5, 5)
         x = max(0, min(x, 100))

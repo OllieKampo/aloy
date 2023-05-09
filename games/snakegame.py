@@ -534,8 +534,6 @@ class SnakeGameJinxWidget(JinxObserverWidget):
         self.__update_score()
         if self.debug:
             self.__draw_debug()
-        # if self.automated:
-        #     self.__draw_automated()
         if self._logic.game_over:
             self.__draw_game_over()
         elif self._logic.paused:
