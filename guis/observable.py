@@ -367,7 +367,16 @@ class Observer(metaclass=ABCMeta):
         name: str | None = None, *,
         debug: bool = False
     ) -> None:
-        """Create an observer."""
+        """
+        Create an observer.
+
+        Parameters
+        ----------
+        `name: str | None = None` - The name of the observable. If None, the
+        class name and id of the object are used.
+
+        `debug: bool = False` - Whether to log debug messages.
+        """
         self.__name: str
         if name is None:
             self.__name = f"{type(self).__name__}@{hex(id(self))}"
