@@ -25,6 +25,7 @@
 import random
 from itertools import count
 from math import copysign
+import sys
 from PyQt6 import QtWidgets
 from PyQt6 import QtCore
 from PyQt6 import QtGui
@@ -848,4 +849,4 @@ def play_snake_game(
     jdata.desired_view_state = "Snake Game"
 
     qwindow.show()
-    qapp.exec()
+    sys.exit(qapp.exec())
