@@ -3,7 +3,6 @@ import random
 import sys
 from collections import deque
 from typing import Final
-from PyQt6.QtWidgets import QApplication, QWidget, QGraphicsScene, QGraphicsLineItem, QGraphicsView
 from PyQt6 import QtWidgets, QtCore, QtGui
 
 from guis.gui import JinxObserverWidget
@@ -16,7 +15,7 @@ class PositionGraph(JinxObserverWidget):
 
     def __init__(
         self,
-        parent: QWidget, /,
+        parent: QtWidgets.QWidget, /,
         name: str = "Position Graph",
         x_label: str = "Cart position (mm)",
         y_label: str = "Pendulum angle (rads)",
@@ -64,8 +63,8 @@ class PositionGraph(JinxObserverWidget):
             QtWidgets.QSizePolicy.Policy.Fixed
         )
 
-        self.__scene = QGraphicsScene(0, 0, *self.size)
-        self.__view = QGraphicsView(self.__scene)
+        self.__scene = QtWidgets.QGraphicsScene(0, 0, *self.size)
+        self.__view = QtWidgets.QGraphicsView(self.__scene)
         self.__view.setStyleSheet("background-color: white;")
         self.__view.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
         self.__view.setFixedSize(*self.size)
@@ -76,7 +75,7 @@ class PositionGraph(JinxObserverWidget):
         self.__layout.addWidget(self.__view, 0, 0, 1, 1)
 
     def __paint_display(self) -> None:
-        self.__x_line = QGraphicsLineItem(
+        self.__x_line = QtWidgets.QGraphicsLineItem(
             self.DEFAULT_WIDTH // 2,
             self.DEFAULT_HEIGHT // 8,
             self.DEFAULT_WIDTH // 2,
@@ -84,7 +83,7 @@ class PositionGraph(JinxObserverWidget):
         )
         self.__scene.addItem(self.__x_line)
 
-        self.__y_line = QGraphicsLineItem(
+        self.__y_line = QtWidgets.QGraphicsLineItem(
             self.DEFAULT_WIDTH // 8,
             self.DEFAULT_HEIGHT // 2,
             self.DEFAULT_WIDTH - (self.DEFAULT_WIDTH // 8),
@@ -232,7 +231,7 @@ class PositionGraph(JinxObserverWidget):
 
 
 if __name__ == "__main__":
-    app = QApplication([])
+    app = QtWidgets.QApplication([])
     qwindow = QtWidgets.QMainWindow()
 
     graph_qwidget = QtWidgets.QWidget()
