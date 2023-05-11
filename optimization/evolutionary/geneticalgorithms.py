@@ -121,7 +121,7 @@ class BitStringBase(GeneBase[str]):
 
     def __str__(self) -> str:
         """Return the name of the base type and the number of bits per gene."""
-        return f"{self.__class__.__name__} :: {self.name}, values: {self.values}, bits/gene: {self.bits}"
+        return f"{self.__class__.__name__} :: {self.name}, values: {self.all_values}, bits/gene: {self.bits}"
 
     @cached_property
     def total_values(self) -> int:
@@ -194,6 +194,7 @@ class BitStringBaseTypes(enum.Enum):
     oct = BitStringBase("octal", 'o', 3)
     hex = BitStringBase("hexadecimal", 'x', 4)
 
+
 @dataclasses.dataclass(frozen=True)
 class NumericalBase(GeneBase[list], Generic[NT]):
     """
@@ -214,7 +215,7 @@ class NumericalBase(GeneBase[list], Generic[NT]):
 
     def random_chromosomes(self, length: int, quantity: int) -> list[list[NT]]:
         """Return the given quantity of random chromosomes of the given length."""
-        return chunk(random_integers(self.min_range, self.max_range, length * quantity), length, quantity, as_type=list)
+        return list(chunk(random_integers(self.min_range, self.max_range, length * quantity), length, quantity, as_type=list))
 
     def random_genes(self, quantity: int) -> list[NT]:
         """Return the given quantity of random genes."""
@@ -688,15 +689,18 @@ class PointMutator(GeneticMutator):
         """
         Create a point mutator.
 
-        A point mutator randomly selects one or more genes in a chromosome (with uniform probability with replacement),
-        and changes their values to some random value (with uniform probability).
+        A point mutator randomly selects one or more genes in a chromosome
+        (with uniform probability with replacement), and changes their values
+        to some random value (with uniform probability).
 
         Parameters
         ----------
-        `points: int = 1` - The number of genes in the chromosome to point mutate.
+        `points: int = 1` - The number of genes in the chromosome to point
+        mutate.
 
-        `rng: Generator | int | None` - Either an random number generator instance,
-        or a seed for the selector to create its own, None generates a random seed.
+        `rng: Generator | int | None` - Either an random number generator
+        instance, or a seed for the selector to create its own, None generates
+        a random seed.
         """
         super().__init__(rng)
         if not isinstance(points, int) or points < 1:
@@ -959,8 +963,12 @@ class GeneticSelector(metaclass=ABCMeta):
         if quantity < 1:
             raise ValueError("Quantity of chromosomes to select must be greater than zero.")
 
+
 class ProportionateSelector(GeneticSelector):
-    """Selects chromosomes from a population with probability proportionate to fitness with replacement."""
+    """
+    Selects chromosomes from a population with probability proportionate to
+    fitness with replacement.
+    """
 
     def __init__(self) -> None:
         """Create a new proportionate selector."""
@@ -974,7 +982,8 @@ class ProportionateSelector(GeneticSelector):
         quantity: int
     ) -> Iterable[int]:
         """
-        Select a given quantity of chromosomes from the population with probability proportionate to fitness with replacement.
+        Select a given quantity of chromosomes from the population with
+        probability proportionate to fitness with replacement.
 
         Returns an iterable of the indices of the selected chromosomes.
         """
@@ -982,7 +991,10 @@ class ProportionateSelector(GeneticSelector):
 
 
 class RankedSelector(GeneticSelector):
-    """Selects chromosomes from a population with probability proportionate to fitness rank with replacement."""
+    """
+    Selects chromosomes from a population with probability proportionate to
+    fitness rank with replacement.
+    """
 
     def __init__(self) -> None:
         """Create a new ranked selector."""
@@ -995,7 +1007,8 @@ class RankedSelector(GeneticSelector):
         quantity: int
     ) -> Iterable[int]:
         """
-        Select a given quantity of chromosomes from the population with probability proportionate to fitness rank with replacement.
+        Select a given quantity of chromosomes from the population with
+        probability proportionate to fitness rank with replacement.
 
         Returns an iterable of the indices of the selected chromosomes.
         """
@@ -1150,37 +1163,36 @@ class GeneticSystem:
         - Proportional Seletion: Reproduction chances are proportional to fitness value.
         - Ranked Fitness Selection: Solutions are ranked according to fitness, reproduction chance proportional to fitness.
         - Tournament Selection: Solutions compete against each other, fittest wins and gets to reproduce.
-        
+
         - Elitism in selection:
         - Convergence and diversity biases in selection: Affect selection pressure towards high values of fitness, and thus exploration/exploitation trade-off.
         - Boltzmann decay for biases:
             ...In Boltzmann selection, a continuously varying temperature controls the rate of selection according to a preset schedule.
             The temperature starts out high, which means that the selection pressure is low.
             The temperature is gradually lowered, which gradually increases the selection pressure, thereby allowing the GA to narrow in more closely to the best part of the search space while maintaining the appropriate degree of diversity...
-    
+
     3. Genetic Recombinator
-    
+
     4. Genetic Mutator
-    
+
     Algorithm procedure/structure
     -----------------------------
-    
+
     1. population initialisation
-    
+
     2. population evaluation
-    
+
     3. stopping condition -> best solution
-    
+
     4. selection
-    
+
     5. crossover
-    
+
     6. mutation
-    
+
     7. population evaluation and update 3
-    
     """
-    
+
     __slots__ = (
         "__encoder",
         "__selector",
@@ -1188,7 +1200,7 @@ class GeneticSystem:
         "__mutator",
         "__random_generator"
     )
-    
+
     def __init__(
         self,
         encoder: GeneticEncoder,
@@ -1198,44 +1210,51 @@ class GeneticSystem:
     ) -> None:
         """
         Create a genetic system.
-        
+
         Parameters
         ----------
-        `encoder : GeneticEncoder` - An encoder instance.
-        
-        `selector : GeneticSelector` - A selector instance.
-        The selector is used for both population culling and population growth (reproduction) phases.
-        It is used to select which individuals; survive culling to be eligible to reproduce,
-        survive through the reproduction phase, and that get to actually reproduce.
-        
-        `recombinator : GeneticRecombinator` - A recombinator instance.
-        The recombinator is used only in the population growth (reproduction) phase.
-        It is used to combine selected pairs of 'parent' individuals from an existing generation,
-        to generate pairs of new 'child' individuals for the next generation, that are some mix of the parents' genes.
-        
-        `mutator : GeneticMutator` - A mutator instance.
-        
+        `encoder: GeneticEncoder` - An encoder instance.
+
+        `selector: GeneticSelector` - A selector instance. The selector is
+        used for both population culling and population growth (reproduction)
+        phases. It is used to select which individuals; survive culling to be
+        eligible to reproduce, survive through the reproduction phase, and
+        that get to actually reproduce.
+
+        `recombinator: GeneticRecombinator` - A recombinator instance. The
+        recombinator is used only in the population growth (reproduction)
+        phase. It is used to combine selected pairs of 'parent' individuals
+        from an existing generation, to generate pairs of new 'child'
+        individuals for the next generation, that are some mix of the parents'
+        genes.
+
+        `mutator: GeneticMutator` - A mutator instance. The mutator is used
+        only in the mutation phase. It is used to mutate the genes of
+        individuals in the population, to introduce new genetic material into
+        the population, and to prevent the population from converging on a
+        local optimum.
         """
         self.__encoder: GeneticEncoder = encoder
         self.__selector: GeneticSelector = selector
         self.__recombinator: GeneticRecombinator = recombinator
         self.__mutator: GeneticMutator = mutator
         self.__random_generator: Generator = default_rng()
-    
-    def set_operators(self,
-                      selector: GeneticSelector | None = None,
-                      recombinator: GeneticRecombinator | None = None,
-                      mutator: GeneticMutator | None = None
-                      ) -> None:
+
+    def set_operators(
+        self,
+        selector: GeneticSelector | None = None,
+        recombinator: GeneticRecombinator | None = None,
+        mutator: GeneticMutator | None = None
+    ) -> None:
         """
         Set the genetic operators.
-        
+
         A value of None leaves the operator unchanged.
         """
         self.__selector: GeneticSelector = selector
         self.__recombinator: GeneticRecombinator = recombinator
         self.__mutator: GeneticMutator = mutator
-    
+
     def run(
         self,
         init_pop_size: int,
@@ -1246,7 +1265,7 @@ class GeneticSystem:
         survival_factor_final: float = 0.75,
         survival_factor_growth_type: Literal["lin", "pol", "exp", "sin"] = "lin",
         survival_factor_growth_start: int = 0,
-        survival_factor_growth_end: int | Literal["threshold", "stagnation"] = "threshold",
+        survival_factor_growth_end: int | Literal["threshold", "stagnation"] = None,
         survival_factor_growth_rate: float = 0.0,
 
         survival_elitism_factor: float | None = None,
@@ -1418,6 +1437,32 @@ class GeneticSystem:
         diversity_bias_decay_start = _get(diversity_bias_decay_start, 0)
         mutation_factor_growth_start = _get(mutation_factor_growth_start, 0)
         mutation_strength_decay_start = _get(mutation_strength_decay_start, 0)
+
+        if survival_factor_growth_end is None:
+            if max_generations is None:
+                raise ValueError("Survival factor growth end must be given if the maximum generations is not given or None."
+                                 f"Got; {survival_factor_growth_end=} of type {type(survival_factor_growth_end)} and {max_generations=} of {type(max_generations)}.")
+            survival_factor_growth_end = max_generations
+        if reproduction_elitism_factor_growth_end is None:
+            if max_generations is None:
+                raise ValueError("Reproduction elitism factor growth end must be given if the maximum generations is not given or None."
+                                 f"Got; {reproduction_elitism_factor_growth_end=} of type {type(reproduction_elitism_factor_growth_end)} and {max_generations=} of {type(max_generations)}.")
+            reproduction_elitism_factor_growth_end = max_generations
+        if survival_elitism_factor_growth_end is None:
+            if max_generations is None:
+                raise ValueError("Survival elitism factor growth end must be given if the maximum generations is not given or None."
+                                 f"Got; {survival_elitism_factor_growth_end=} of type {type(survival_elitism_factor_growth_end)} and {max_generations=} of {type(max_generations)}.")
+            survival_elitism_factor_growth_end = max_generations
+        if diversity_bias_decay_end is None:
+            if max_generations is None:
+                raise ValueError("Diversity bias decay end must be given if the maximum generations is not given or None."
+                                 f"Got; {diversity_bias_decay_end=} of type {type(diversity_bias_decay_end)} and {max_generations=} of {type(max_generations)}.")
+            diversity_bias_decay_end = max_generations
+        if mutation_factor_growth_end is None:
+            if max_generations is None:
+                raise ValueError("Mutation factor growth end must be given if the maximum generations is not given or None."
+                                 f"Got; {mutation_factor_growth_end=} of type {type(mutation_factor_growth_end)} and {max_generations=} of {type(max_generations)}.")
+            mutation_factor_growth_end = max_generations
 
         reproduction_elitism_factor_growth_rate = _get(reproduction_elitism_factor_growth_rate, 1.0)
         diversity_bias_decay_rate = _get(diversity_bias_decay_rate, 1.0)

@@ -1187,11 +1187,15 @@ if __name__ == "__main__":
         pend_system.reset()
         return simulate_control(pend_system, controller, ticks, delta_time)
 
-    psystem = ParticleSwarmSystem([Dimension(0.0, 25.0, 2.5),
-                                Dimension(0.0, 5.0, 0.5),
-                                Dimension(0.0, 10.0, 1.0)],
-                                control_evaluator,
-                                maximise=False)
+    psystem = ParticleSwarmSystem(
+        [
+            Dimension(0.0, 25.0, 2.5),
+            Dimension(0.0, 5.0, 0.5),
+            Dimension(0.0, 10.0, 1.0)
+        ],
+        control_evaluator,
+        maximise=False
+    )
 
     result, data = psystem.run(
         total_particles=100,
@@ -1219,7 +1223,7 @@ if __name__ == "__main__":
         gather_stats=True,
         use_tqdm=True
     )
-    
+
     print(f"Best position :: {result.best_position}")
 
     fig, (fitness_axes, position_axes, velocity_axes, coefficient_axes) = plt.subplots(1, 4)
