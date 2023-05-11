@@ -302,8 +302,14 @@ def index_sequence(
     yield from (sequence[i] for i in indices)
 
 
+# TODO: Need:
+#   - divide: divide a sequence into n equal parts
+#   - split: split a sequence into parts of given sizes
+
+
+# TODO: Not much difference between chunk and ichunk_sequence.
 def chunk(
-    sequence: Sequence[VT],
+    sequence: SupportsLenAndGetitem[VT],
     size: int,
     quantity: int | None = None,
     as_type: Type[ST] | None = None
