@@ -336,10 +336,37 @@ def chunk(
                     for index in range(0, quantity * size, size))
 
 
+@overload
 def ichunk_iterable(
     iterable: Iterable[VT],
-    size: int,
+    size: int, /
+) -> Iterator[Iterator[VT]]:
+    ...
+
+
+@overload
+def ichunk_iterable(
+    iterable: Iterable[VT],
+    size: int, /, *,
     quantity: int | None
+) -> Iterator[Iterator[VT]]:
+    ...
+
+
+@overload
+def ichunk_iterable(
+    iterable: Iterable[VT],
+    size: int, /, *,
+    infinite: bool
+) -> Iterator[Iterator[VT]]:
+    ...
+
+
+def ichunk_iterable(
+    iterable: Iterable[VT],
+    size: int, /, *,
+    quantity: int | None = None,
+    infinite: bool = False
 ) -> Iterator[Iterator[VT]]:
     """
     Yield an iterator of chunk of an iterable of a given size and quantity.
@@ -349,12 +376,12 @@ def ichunk_iterable(
 
     Unlike `chunk`, the chunks are returned as "slice" iterators over the
     argument iterable. If `quantity` is not None, then only at most `quantity`
-    chunks are yielded (if the length of the iterable is not divisible by
-    `size`, then the last chunk will be shorter than `size`). Otherwise, if
-    `quantity` is None, then yield chunks indefinitely (if the iterable is
-    exhausted, then the iterator will yield empty chunks indefinitely,
-    therefore it is advisable only to set `quantity` to None if the iterable
-    is an infinite iterator).
+    chunks are yielded. Otherwise, if `quantity` is None, then yield chunks
+    until the iterable is exhausted. If `infinite` is True, then yield chunks
+    indefinitely, achieving a performance benefit over `quantity=None` for
+    infinite iterators. Note that if the iterable is not an infinite iterator,
+    then when the iterable is exhausted, empty chunks will be yielded
+    indefinitely.
 
     Example Usage
     -------------
@@ -362,33 +389,43 @@ def ichunk_iterable(
     >>> from itertools import count
     >>> from more_itertools import ichunk_iterable
 
-    ## Chunk an iterable into chunks of size 3, yielding at most 2 chunks.
+    # Chunk an iterable into chunks of size 3, yielding at most 2 chunks.
     >>> for chunk in ichunk_iterable(count(), 3, 2):
     ...     print(list(chunk))
     [0, 1, 2]
     [3, 4, 5]
 
-    ## Chunk an iterable into chunks of size 3, yielding chunks indefinitely.
-    >>> for chunk in ichunk_iterable(count(), 3, None):
+    # Chunk an iterable into chunks of size 3, yielding chunks indefinitely.
+    >>> for chunk in ichunk_iterable(count(), 3, infinite=True):
     ...     print(list(chunk))
     [0, 1, 2]
     [3, 4, 5]
     [6, 7, 8]
-    ## Continues infinitely...
+    # Continues infinitely...
     ```
     """
     iterator = iter(iterable)
-    ## Advance the iterator to the next chunk and yield
-    ## the chunk as an iterator if such a chunk exists.
-    if quantity is None:
-        while chunk_ := itertools.islice(iterator, size):
-            yield chunk_
+    # Advance the iterator to the next chunk and yield
+    # the chunk as an iterator if such a chunk exists.
+    if infinite:
+        while True:
+            yield itertools.islice(iterator, size)
+    elif quantity is None:
+        while True:
+            chunk_ = itertools.islice(iterator, size)
+            try:
+                first = next(chunk_)
+            except StopIteration:
+                break
+            yield itertools.chain((first,), chunk_)
     else:
         for _ in range(quantity):
-            if chunk_ := itertools.islice(iterator, size):
-                yield chunk_
-            else:
+            chunk_ = itertools.islice(iterator, size)
+            try:
+                first = next(chunk_)
+            except StopIteration:
                 break
+            yield itertools.chain((first,), chunk_)
 
 
 def ichunk_sequence(
