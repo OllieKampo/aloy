@@ -34,8 +34,7 @@ from typing import (
 import statistics
 
 from control.controlutils import ControllerTimer
-from datastructures.graph import Graph
-from datastructures.mappings import TwoWayMap
+from datastructures.mappings import ReversableDict, TwoWayMap
 from datastructures.views import SetView
 
 __copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
@@ -697,7 +696,7 @@ class MultiVariateController:
         self.__cascades = TwoWayMap[str]()
 
         # Maps: order -> output_names
-        self.__order: dict[int, list[str]] = {1: []}
+        self.__order = ReversableDict[str, int]()
 
         # Maps: output_name -> input_name -> weight of controller to output
         self.__weights: dict[str, dict[str, float]] = {}
@@ -991,8 +990,8 @@ class MultiVariateController:
         #   - All modules which take `input_name` as input have to be
         #     calculated before the module whose output is `output_name`.
         #   - If a cascade is added to a module whose output is already
-        #     cascaded to another input, then shift the order of the modules that are
-        #     cascaded to down the list.
+        #     cascaded to another input, then shift the order of the modules
+        #     that arecascaded to down the list.
         self.__order[self.__input_output_mapping[input_name]] = order
 
     def control_output(
@@ -1009,24 +1008,41 @@ class MultiVariateController:
         set-points should be provided. The set-points for cascaded inputs are
         the outputs of the controllers they are cascaded from.
         """
+        setpoints = dict(setpoints)
         outputs: dict[str, float] = dict.fromkeys(self.__modules.keys(), 0.0)
-        for output_name, module in self.__modules.items():
-            output: list[float] = []
-            for input_name, controller in module.items():
-                if input_name not in control_inputs:
-                    raise ValueError(
-                        f"Control input for variable {input_name!r}"
-                        f"not given. Got; {control_inputs!r}."
-                    )
-                output.append(
-                    controller.control_output(
+        cache: dict[tuple[str, Controller], float] = {}
+        for order in sorted(self.__order.values()):
+            output_names = self.__order.reversed_get(order)
+            for output_name in output_names:
+                module = self.__modules[output_name]
+                total_output: list[float] = []
+                for input_name, controller in module.items():
+                    if (input_name, controller) in cache:
+                        total_output.append(cache[(input_name, controller)])
+                        continue
+                    if input_name not in control_inputs:
+                        raise ValueError(
+                            f"Control input for variable {input_name!r}"
+                            f"not given. Got; {control_inputs!r}."
+                        )
+                    if input_name not in setpoints:
+                        raise ValueError(
+                            f"Setpoint for variable {input_name!r}"
+                            f"not given. Got; {setpoints!r}."
+                        )
+                    individual_output = controller.control_output(
                         control_inputs[input_name],
                         setpoints[input_name],
                         delta_time,
                         abs_tol
                     ) * self.__weights[output_name][input_name]
-                )
-            outputs[output_name] = self.__modes[output_name](output)
+                    cache[(input_name, controller)] = individual_output
+                    total_output.append(individual_output)
+                aggregate_output = self.__modes[output_name](total_output)
+                if output_name in self.__cascades:
+                    setpoints[self.__cascades[output_name]] = aggregate_output
+                else:
+                    outputs[output_name] = aggregate_output
         return outputs
 
 
