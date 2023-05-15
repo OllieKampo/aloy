@@ -29,6 +29,7 @@ import sys
 from PyQt6 import QtWidgets
 from PyQt6 import QtCore
 from PyQt6 import QtGui
+import numpy as np
 from concurrency.atomic import AtomicObject
 from guis.gui import JinxGuiData, JinxGuiWindow, JinxObserverWidget
 
@@ -147,38 +148,37 @@ class SnakeGameLogic:
         if self.game_over or self.paused:
             return
 
-        with self.direction:
-            direction = self.direction.get_object()
+        direction = self.direction.get_obj()
 
-            ## Get the current head of the snake
-            x, y = self.snake[0]
+        ## Get the current head of the snake
+        x, y = self.snake[0]
 
-            ## Get the new head of the snake
-            new_x = (x + direction[0]) % self.grid_size[0]
-            new_y = (y + direction[1]) % self.grid_size[1]
-            new_head = (new_x, new_y)
+        ## Get the new head of the snake
+        new_x = (x + direction[0]) % self.grid_size[0]
+        new_y = (y + direction[1]) % self.grid_size[1]
+        new_head = (new_x, new_y)
 
-            ## Check if the snake has hit itself or an obstacle
-            if new_head in self.snake or new_head in self.obstacles:
-                self.game_over = True
-                return
+        ## Check if the snake has hit itself or an obstacle
+        if new_head in self.snake or new_head in self.obstacles:
+            self.game_over = True
+            return
 
-            ## Check if the snake has eaten the food
-            if new_head == self.food:
-                self.score += 1
-                self._random_food()
-                self._random_obstacles()
-                if self.score % self.food_per_snake_growth == 0:
-                    self.seconds_per_move = max(
-                        0.1, self.seconds_per_move - 0.005
-                    )
-                else:
-                    self.snake.pop()
+        ## Check if the snake has eaten the food
+        if new_head == self.food:
+            self.score += 1
+            self._random_food()
+            self._random_obstacles()
+            if self.score % self.food_per_snake_growth == 0:
+                self.seconds_per_move = max(
+                    0.1, self.seconds_per_move - 0.005
+                )
             else:
                 self.snake.pop()
+        else:
+            self.snake.pop()
 
-            ## Add the new head to the snake
-            self.snake.insert(0, new_head)
+        ## Add the new head to the snake
+        self.snake.insert(0, new_head)
 
     def _random_start(self) -> None:
         """Start the snake at a random location."""
@@ -217,7 +217,7 @@ class SnakeGameLogic:
                 next_cell = tuple(vector_add(self.snake[0], direction))
                 if next_cell not in self.snake:
                     with self.direction:
-                        self.direction.set_object(direction)
+                        self.direction.set_obj(direction)
                     valid = True
                     break
 
@@ -247,7 +247,9 @@ class SnakeGameLogic:
                     and food not in self.obstacles
                     and (not self.snake
                          or vector_distance(
-                             self.snake[0], food, manhattan=True
+                             self.snake[0],
+                             food,
+                             manhattan=True
                          ) > 10)):
                 self.food = food
                 break
@@ -319,8 +321,7 @@ class SnakeGameLogic:
         distance: int
     ) -> list[tuple[int, int]]:
         """Get the cells infront of the snake's head."""
-        with self.direction:
-            direction = self.direction.get_object()
+        direction = self.direction.get_obj()
         return [
             tuple(  # type: ignore
                 vector_modulo(
@@ -340,7 +341,7 @@ class SnakeGameLogic:
     def _reset_game_state(self) -> None:
         """Reset the game state."""
         with self.direction as direction:
-            direction.set_object(_INITIAL_DIRECTION)
+            direction.set_obj(_INITIAL_DIRECTION)
         self.score = _INITIAL_SCORE
         self.seconds_per_move = _INITIAL_SECONDS_PER_MOVE
         self.game_over = False
@@ -355,6 +356,32 @@ class SnakeGameLogic:
         self._random_obstacles()
         self._random_food()
         self._random_start()
+
+    def get_state(self) -> np.ndarray:
+        """
+        Get the current state of the game as a numpy array.
+
+        The array is of shape (width, height) and contains the following
+        values: 0 for empty cells, 1 for food, 2 for the snake's body, 3 for
+        the snake's head, 4 for obstacles, 5 if the snake's head is about to
+        move into an empty cell, 6 if the snake's head is about to eat food,
+        and 7 if the snake's head is about to hit an obstacle.
+        """
+        obs = np.zeros(self.grid_size, dtype=np.int8)
+        obs[self.food] = 1
+        obs[tuple(segment for segment in zip(*self.snake[1:]))] = 2
+        obs[self.snake[0]] = 3
+        if self.obstacles:
+            obs[tuple(obstacle for obstacle in zip(*self.obstacles))] = 4
+        next_head = vector_add(self.snake[0], self.direction.get_obj())
+        next_head = tuple(vector_modulo(next_head, self.grid_size))
+        if obs[next_head] == 1:
+            obs[next_head] = 6
+        elif obs[next_head] == 4:
+            obs[next_head] = 7
+        else:
+            obs[next_head] = 5
+        return obs
 
 
 _CELL_SIZE: int = 20
@@ -476,13 +503,13 @@ class SnakeGameJinxWidget(JinxObserverWidget):
         """
         with self._logic.direction:
             if event.key() == QtCore.Qt.Key.Key_W:  # type: ignore
-                self._logic.direction.set_object((0, -1))
+                self._logic.direction.set_obj((0, -1))
             elif event.key() == QtCore.Qt.Key.Key_S:  # type: ignore
-                self._logic.direction.set_object((0, 1))
+                self._logic.direction.set_obj((0, 1))
             elif event.key() == QtCore.Qt.Key.Key_A:  # type: ignore
-                self._logic.direction.set_object((-1, 0))
+                self._logic.direction.set_obj((-1, 0))
             elif event.key() == QtCore.Qt.Key.Key_D:  # type: ignore
-                self._logic.direction.set_object((1, 0))
+                self._logic.direction.set_obj((1, 0))
             elif event.key() == QtCore.Qt.Key.Key_Space:  # type: ignore
                 self._logic.paused = not self._logic.paused
 
@@ -493,13 +520,13 @@ class SnakeGameJinxWidget(JinxObserverWidget):
         with self._logic.direction:
             match action:
                 case "up" | "w" | 0:
-                    self._logic.direction.set_object((0, -1))
+                    self._logic.direction.set_obj((0, -1))
                 case "down" | "s" | 1:
-                    self._logic.direction.set_object((0, 1))
+                    self._logic.direction.set_obj((0, 1))
                 case "left" | "a" | 2:
-                    self._logic.direction.set_object((-1, 0))
+                    self._logic.direction.set_obj((-1, 0))
                 case "right" | "d" | 3:
-                    self._logic.direction.set_object((1, 0))
+                    self._logic.direction.set_obj((1, 0))
                 case "restart" | "r":
                     self._logic.restart()
                 case "pause" | "p":
@@ -618,11 +645,10 @@ class SnakeGameJinxWidget(JinxObserverWidget):
 
     def __draw_debug(self) -> None:
         """Draw debug information."""
-        with self._logic.direction:
-            self.__scene.addText(
-                f"Direction: {self._logic.direction.get_object()}",
-                QtGui.QFont("Arial", 12)
-            ).setPos(0, 0)
+        self.__scene.addText(
+            f"Direction: {self._logic.direction.get_obj()}",
+            QtGui.QFont("Arial", 12)
+        ).setPos(0, 0)
         self.__scene.addText(
             f"Snake Head: {self._logic.snake[0]}",
             QtGui.QFont("Arial", 12)
