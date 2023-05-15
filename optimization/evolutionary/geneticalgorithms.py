@@ -1119,8 +1119,8 @@ class GeneticAlgorithmSolution:
     best_fitness: Fraction
     population: list[CT] ## TODO Order the population such that the highest fitness individuals occur first.
     fitness_values: list[Fraction]
-    max_fitness_reached: bool = False
     max_generations_reached: bool = False
+    max_fitness_reached: bool = False
     stagnation_limit_reached: bool = False
 
 
@@ -1300,9 +1300,9 @@ class GeneticSystem:
 
         max_generations: int | None = 100,  # If not none this is the maximum number of generations to run the algorithm.
         fitness_threshold: float | None = None,  # If not none this is the fitness threshold that must be reached to stop the algorithm.
-        fitness_proportion: float | int | None = None,  # If not none this proportion of the population must be above the fitness threshold to stop the algorithm.
+        # fitness_proportion: float | int | None = None,  # If not none this proportion of the population must be above the fitness threshold to stop the algorithm.
         stagnation_limit: float | int | None = None,  # If not none this is the number of generations that the best fitness individual(s) can stay the same before stopping the algorithm.
-        stagnation_proportion: float | int | None = 0.25,  # If not none this proportion of the population must be stagnated to stop the algorithm.
+        # stagnation_proportion: float | int | None = 0.25,  # If not none this proportion of the population must be stagnated to stop the algorithm.
 
         ## These are used only for proportional fitness
         diversity_bias: float = 0.95,
@@ -1532,6 +1532,10 @@ class GeneticSystem:
                 mutation_strength_decay_rate
             )
 
+        max_generations_reached: bool = False
+        max_fitness_reached: bool = False
+        stagnation_limit_reached: bool = False
+
         progress_bar = ResourceProgressBar(initial=1, total=max_generations)
 
         while not (generation >= max_generations):
@@ -1635,18 +1639,19 @@ class GeneticSystem:
 
             # Determine whether the fitness threshold has been reached.
             if fitness_threshold is not None and best_fitness_achieved >= fitness_threshold:
-                return GeneticAlgorithmSolution(best_individual_achieved, best_fitness_achieved, population, fitness_values, max_fitness_reached=True)
-
-            # Determine whether the stagnation limit has been reached.
+                max_fitness_reached = True
             if stagnation_limit is not None and stagnated_generations == stagnation_limit:
-                return GeneticAlgorithmSolution(best_individual_achieved, best_fitness_achieved, population, fitness_values, stagnation_limit_reached=True)
+                stagnation_limit_reached = True
 
+        progress_bar.close()
         return GeneticAlgorithmSolution(
             best_individual_achieved,
             best_fitness_achieved,
             population,
             fitness_values,
-            max_generations_reached=True
+            max_generations_reached=max_generations_reached,
+            max_fitness_reached=max_fitness_reached,
+            stagnation_limit_reached=stagnation_limit_reached
         )
 
     def create_population(self, population_size: int) -> list[CT]:
