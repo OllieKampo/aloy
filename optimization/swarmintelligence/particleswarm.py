@@ -754,7 +754,7 @@ class ParticleSwarmSystem:
                     global_coef,
                     neighbour_coef]
                 )
-        
+
         solution = ParticleSwarmSolution(
             # Solution attributes
             global_best_position,
@@ -1157,89 +1157,3 @@ class ParticleSwarmSystem:
         else:
             particles_fitness = np.apply_along_axis(self.__fitness_function, 1, position_vectors)
         return particles_fitness
-
-
-import math
-import numpy as np
-import matplotlib.pyplot as plt
-
-from dask.distributed import Client, LocalCluster
-
-from control.pid import PIDController
-from control.systems import InvertedPendulumSystem
-from control.controlutils import simulate_control
-
-
-if __name__ == "__main__":
-    
-    # cluster = LocalCluster(n_workers=20, processes=True, threads_per_worker=2)
-    # client = Client(cluster)
-    
-    pend_system = InvertedPendulumSystem()
-    controller = PIDController(0.0, 0.0, 0.0, initial_error=pend_system.get_control_input() - pend_system.get_setpoint())
-
-    ticks: int = 100
-    delta_time: float = 0.1
-
-    def control_evaluator(vec):
-        controller.reset()
-        controller.set_gains(*vec)
-        pend_system.reset()
-        return simulate_control(pend_system, controller, ticks, delta_time)
-
-    psystem = ParticleSwarmSystem(
-        [
-            Dimension(0.0, 25.0, 2.5),
-            Dimension(0.0, 5.0, 0.5),
-            Dimension(0.0, 10.0, 1.0)
-        ],
-        control_evaluator,
-        maximise=False
-    )
-
-    result, data = psystem.run(
-        total_particles=100,
-        init_strategy="linspace",
-        iterations_limit=1000,
-        stagnation_limit=1.0,
-        inertia=1.5,
-        final_inertia=0.5,
-        inertia_decay_type="sin",
-        personal_coef=2.0,
-        personal_coef_final=0.0,
-        global_coef=0.0,
-        global_coef_final=1.5,
-        use_neighbourhood=True,
-        neighbour_coef=0.5,
-        neighbour_coef_final=1.0,
-        neighbour_size=10,
-        neighbour_method="kd_tree",
-        coef_decay_type="sin",
-        bounce=True,
-        # use_fitness_approximation=True,
-        # fitness_approximation_method="knr",
-        # parallelise=True,
-        # threads=40,
-        gather_stats=True,
-        use_tqdm=True
-    )
-
-    print(f"Best position :: {result.best_position}")
-
-    fig, (fitness_axes, position_axes, velocity_axes, coefficient_axes) = plt.subplots(1, 4)
-    fitness_axes.plot(data["iteration"], data["global_best_fitness"], label="Global best fitness")
-    # fitness_axes.plot(data["iteration"], data["mean_best_particles_fitness"], label="Mean best particles fitness")
-    # fitness_axes.plot(data["iteration"], data["std_particles_fitness"], label="Std current particles fitness")
-    position_axes.plot(data["iteration"], data["mean_distance_from_global_best"], "b", label="Mean distance from global best")
-    position_axes.plot(data["iteration"], data["mean_distance_from_global_best"] + data["std_distance_from_global_best"], "r--", label="Std distance from global best")
-    position_axes.plot(data["iteration"], data["mean_distance_from_global_best"] - data["std_distance_from_global_best"], "r--", label="Std distance from global best")
-    velocity_axes.plot(data["iteration"], data["mean_velocity"], "b", label="Mean velocity")
-    velocity_axes.plot(data["iteration"], data["mean_velocity"] + data["std_velocity"], "r--", label="Std velocity")
-    velocity_axes.plot(data["iteration"], data["mean_velocity"] - data["std_velocity"], "r--", label="Std velocity")
-    coefficient_axes.plot(data["iteration"], data["personal_coef"], label="personal")
-    coefficient_axes.plot(data["iteration"], data["global_coef"], label="global")
-    coefficient_axes.plot(data["iteration"], data["neighbour_coef"], label="neighbour")
-    coefficient_axes.legend()
-    fig.set_size_inches(18.5, 10.5)
-    fig.subplots_adjust(hspace=2.0)
-    plt.show()
