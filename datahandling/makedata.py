@@ -2,6 +2,7 @@
 """This module contains helper classes and functions for data handling with pandas."""
 
 from typing import Any, Iterable, Optional, Type
+import numpy as np
 import pandas as pd
 
 class DataHolder:
@@ -34,23 +35,26 @@ class DataHolder:
         `configuration_as_index : bool` - Whether to add the configuration as a multi-index to the dataframe's rows.
         Otherwise, they are added as columns.
         """
-        self.__data = [[] for _ in headers]
+        self.__data = {header: [] for header in headers}
         self.__headers: list[str | tuple[str, ...]] = headers
         self.__converters: dict[str, Type] = converters if converters is not None else {}
-    
-    def add_row(self,
-                data: list[Any], /,
-                upper_headers: Optional[list[str]] = None
-                ) -> None:
+
+    def add_row(
+        self,
+        data: list[Any], /,
+        upper_headers: Optional[list[str]] = None
+    ) -> None:
         """Add a row of data under the given hierarchical column index headers."""
         if not len(data) == len(self.__headers):
             raise ValueError("Data length does not match headers length.")
-        for index, (item, header) in enumerate(zip(data, self.__headers)):
-            self.__data[index].append(item if header not in self.__converters
-                                      else self.__converters[header](item))
-    
+        for item, header in zip(data, self.__headers):
+            self.__data[header].append(
+                item if header not in self.__converters
+                else self.__converters[header](item)
+            )
+
     def to_dataframe(self) -> pd.DataFrame:
-        return pd.DataFrame(self.__data, columns=self.__headers)
+        return pd.DataFrame(self.__data)
 
 
 # def combine_trials(dataframes: Iterable[pd.DataFrame],
