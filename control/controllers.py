@@ -43,7 +43,9 @@ __license__ = "GPL-3.0"
 __all__ = (
     "Controller",
     "ControllerCombiner",
+    "MultiVariateController",
     "ControlledSystem",
+    "ControlTick",
     "SystemController",
     "AutoSystemController"
 )
@@ -660,16 +662,12 @@ class MultiVariateController:
     """
     Class defining a multi-variate controller.
 
-    Multi-variate controllers are composed of many controllers and can
-    handle multiple inputs and outputs with complex mappings.
-
-    Moduler controllers are composed of many controllers and can
-    handle multiple inputs and outputs with complex mappings.
-    Controllers are bundled into modules, which are then combined
-    in series or in parallel to form the final controller.
-
-    Moduler controllers can also be used to define cascading controllers,
-    in which the output of one controller is the setpoint of another
+    Multi-variate controllers are composed of many controllers and can handle
+    multiple input and output variables with complex mappings. Controllers are
+    bundled into modules, one for each output variables, which are then
+    combined in series or in parallel to form the final controller. Combining
+    modules in series allows definition of cascading controllers, in which the
+    output of one controller is passed as the input set-point of another
     controller.
     """
 
@@ -687,15 +685,17 @@ class MultiVariateController:
         # Maps: output_name -> input_name -> controller
         self.__modules: dict[str, dict[str, Controller]] = {}
 
-        # Maps: input_name <-> output_name
+        # Maps: input_names <-> output_names
         self.__input_output_mapping = TwoWayMap[str]()
 
-        # Maps: output_name <-> input_name
+        # Maps: output_name <-> input_names
         # An output can cascade to multiple inputs, but an input can only
-        # be cascaded to from one output.
+        # be cascaded to from one output, therefore the mapping is one-to-many.
+        # Doing self.__cascade[input_name] return one output_name, but
+        # self.__cascade[output_name] returns a set of input_names.
         self.__cascades = TwoWayMap[str]()
 
-        # Maps: order -> output_names
+        # Maps: output_name -> order
         self.__order = ReversableDict[str, int]()
 
         # Maps: output_name -> input_name -> weight of controller to output
@@ -818,11 +818,35 @@ class MultiVariateController:
         output_name: str,
         controllers: Mapping[str, Controller],
         weights: Mapping[str, float] | None = None,
-        mode: Literal["sum", "mean", "median"] | None = None
+        mode: Literal["sum", "mean", "median"] = "mean"
     ) -> None:
         """
         Update a module for a given output variable, with a set of controllers
         for a set of input variables.
+
+        Parameters
+        ----------
+        `output_name: str` - The name of the output variable.
+
+        `controllers: Mapping[str, Controller]` - The controllers for the
+        input variables. A mapping of input variable names to controllers.
+
+        `weights: Mapping[str, float] | None = None` - The weights of the
+        controllers for each of the input variables. A mapping of input
+        variable names to weights. If `None`, all weights are set to 1.0.
+        Any input variables not in the mapping are given a weight of 0.0.
+        Any key in the mapping that is not an input variable is ignored.
+
+        `mode: Literal["sum", "mean", "median"] = "mean"` - The aggregation
+        mode of the module, used to combine the control outputs for all
+        controllers in the module.
+
+        Raises
+        ------
+        `ValueError` - If a module for the given output variable does not
+        exist.
+
+        `TypeError` - If any of the controllers are not of type `Controller`.
         """
         if output_name not in self.__modules:
             raise ValueError(
@@ -850,7 +874,19 @@ class MultiVariateController:
             self.__modes[output_name] = __get_combiner_func(mode)
 
     def remove_module(self, output_name: str, /) -> None:
-        """Remove a module and all of its controllers."""
+        """
+        Remove a module and all of its controllers.
+
+        Parameters
+        ----------
+        `output_name: str` - The name of the output variable whose module
+        is to be removed.
+
+        Raises
+        ------
+        `ValueError` - If a module for the given output variable does not
+        exist.
+        """
         if output_name not in self.__modules:
             raise ValueError(
                 f"Module for output {output_name!r} does not exist."
@@ -876,7 +912,27 @@ class MultiVariateController:
         weight: float = 1.0
     ) -> None:
         """
-        Add a controller to the moduler controller.
+        Add a controller for a given input and output mapping.
+
+        Parameters
+        ----------
+        `input_name: str` - The name of the input variable.
+
+        `output_name: str` - The name of the output variable. The controller
+        will be added to the module for this output variable.
+
+        `controller: Controller` - The controller instance.
+
+        `weight: float = 1.0` - The output combination weight of the
+        controller within the module for the given output variable.
+
+        Raises
+        ------
+        `ValueError` - If a module for the given output variable does not
+        exist, or if the input variable already exists as an output, or if
+        the input variable already maps to the given output variable.
+
+        `TypeError` - If the controller is not of type `Controller`.
         """
         if output_name not in self.__modules:
             raise ValueError(
@@ -919,9 +975,35 @@ class MultiVariateController:
         weights: Mapping[str, float]
     ) -> None:
         """
-        Update the output combination weights of the inner controllers.
+        Update the output combination weights for the controllers of a module,
+        i.e. all those controllers which map to the given output variable.
+
+        Parameters
+        ----------
+        `output_name: str` - The name of the output variable.
+
+        `weights: Mapping[str, float]` - The output combination weights of the
+        controllers for the given output variable, given as a mapping of input
+        variable names to weights. If a weight is not present in the mapping,
+        then its old value is kept.
+
+        Raises
+        ------
+        `ValueError` - If a module for the given output variable does not
+        exist or if any of the weights are for input variables that do not
+        map to the given output variable.
         """
-        self.__weights[output_name].update(weights)
+        if output_name not in self.__modules:
+            raise ValueError(
+                f"Module for output {output_name!r} does not exist."
+            )
+        for input_name, weight in weights.items():
+            if input_name not in self.__modules[output_name]:
+                raise ValueError(
+                    f"Input {input_name!r} does not exist for output "
+                    f"{output_name!r}."
+                )
+            self.__weights[output_name][input_name] = weight
 
     def cascade_output_to_input(
         self,
@@ -929,12 +1011,9 @@ class MultiVariateController:
         input_name: str, /
     ) -> None:
         """
-        Cascade the output of one module to the set-point of an input
-        variable.
+        Cascade an output variable to the set-point of an input variable.
 
-        Note that this does not cascade the output of one controller to the
-        input of another. It only cascades the output of one controller to the
-        set-point of the input of another controller.
+        
         """
         if output_name not in self.__modules:
             raise ValueError(
@@ -950,14 +1029,12 @@ class MultiVariateController:
                 f"Input {input_name!r} is already cascaded to."
             )
 
-        # Do not allow a cascade that creates a cycle,
+        # Do not allow a cascade that creates a cycle;
         # either directly or indirectly.
-        frontier: set[str] = {output_name}
+        output_frontier: set[str] = {output_name}
         path = dict[str, str]()
-        order: int = self.__order[output_name]
-        while frontier:
-            order += 1
-            _output_name = frontier.pop()
+        while output_frontier:
+            _output_name = output_frontier.pop()
             _inputs_for_output = self.__input_output_mapping[_output_name]
             if input_name in _inputs_for_output:
                 if _output_name == output_name:
@@ -980,19 +1057,30 @@ class MultiVariateController:
                     )
             for _input in _inputs_for_output:
                 if _input in self.__cascades:
-                    frontier.add(self.__cascades[_input])
+                    output_frontier.add(self.__cascades[_input][0])
                     path[_input] = _output_name
-                    path[self.__cascades[_input]] = _input
+                    path[self.__cascades[_input][0]] = _input
 
+        # Add the cascade itself.
         self.__cascades.add(output_name, input_name)
 
         # Ensure that control outputs are calculated in the correct order;
-        #   - All modules which take `input_name` as input have to be
-        #     calculated before the module whose output is `output_name`.
+        #   - The module whose output is `output_name` must be calculated
+        #     before all modules which take `input_name` as an input.
         #   - If a cascade is added to a module whose output is already
         #     cascaded to another input, then shift the order of the modules
         #     that arecascaded to down the list.
-        self.__order[self.__input_output_mapping[input_name]] = order
+        order: int = self.__order[output_name]
+        input_frontier: set[tuple[str, int]] = {(input_name, order + 1)}
+        while input_frontier:
+            _input_name, _order = input_frontier.pop()
+            _outputs_for_input = self.__input_output_mapping[_input_name]
+            for _output in _outputs_for_input:
+                if _output in self.__cascades:
+                    self.__order[_output_name] = _order
+                    _input_names = self.__cascades[_output]
+                    for _name in _input_names:
+                        input_frontier.add((_name, _order + 1))
 
     def control_output(
         self,
