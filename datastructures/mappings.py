@@ -169,13 +169,13 @@ class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
     -------------
     ```
     >>> from jinx.datastructures.mappings import ReversableDict
-    >>> rev_dict = ReversableDict({"a" : 1, "b" : 2, "z" : 2})
+    >>> rev_dict = ReversableDict({"a": 1, "b": 2, "z": 2})
     >>> rev_dict
-    ReversableDict({"a" : 1, "b" : 2, "z" : 2})
+    ReversableDict({"a": 1, "b": 2, "z": 2})
 
     # Access the standard and reversed mappings directly.
     >>> rev_dict.standard_mapping
-    {"a" : 1, "b" : 2, "z" : 2}
+    {"a": 1, "b": 2, "z": 2}
     >>> rev_dict.reversed_mapping
     {1 : ["a"], 2 : ["b", "z"]}
 
@@ -208,9 +208,9 @@ class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
 
         For example:
         ```
-        >>> rev_dict = ReversableDict({"one" : 1, "two" : 2})
+        >>> rev_dict = ReversableDict({"one": 1, "two": 2})
         >>> rev_dict
-        ReversableDict({"one" : 1, "two" : 2})
+        ReversableDict({"one": 1, "two": 2})
         ```
         """
         ...
@@ -225,7 +225,7 @@ class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
         ```
         >>> rev_dict = ReversableDict([("one", 1), ("two", 2)])
         >>> rev_dict
-        ReversableDict({"one" : 1, "two" : 2})
+        ReversableDict({"one": 1, "two": 2})
         ```
         """
         ...
@@ -240,7 +240,7 @@ class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
         ```
         >>> rev_dict = ReversableDict(one=1, two=2)
         >>> rev_dict
-        ReversableDict({"one" : 1, "two" : 2})
+        ReversableDict({"one": 1, "two": 2})
         ```
         """
         ...
@@ -521,13 +521,16 @@ class FrozenReversableDict(collections.abc.Mapping, Generic[KT, VT]):
     reversed_get.__doc__ = ReversableDict.reversed_get.__doc__
 
 
-# TODO: InvertableUniqueKeysDict/BijectiveMap, MultiKeyDict, MultiValueDict, MultiItemDict.
+# TODO: InvertableUniqueKeysDict/BijectiveMap, MultiKeyDict, MultiValueDict,
+# MultiItemDict.
 
 
 MT = TypeVar("MT", bound=Hashable)
 TwoWayMapInit: TypeAlias = Mapping[MT, Iterable[MT]] | Iterable[tuple[MT, MT]]
 
 
+# TODO: Add support for setting;
+# kind: Literal["one-to-one", "one-to-many", "many-to-one", "many-to-many"]
 @final
 class TwoWayMap(collections.abc.MutableMapping, Generic[MT]):
     """

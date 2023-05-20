@@ -1019,9 +1019,8 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
                 final_path.reverse()
                 return final_path
 
-            if vertex in path:
-                if path[vertex] is None:
-                    continue
+            if vertex in path and path[vertex] is None:
+                continue
 
             path[vertex] = parent
 
