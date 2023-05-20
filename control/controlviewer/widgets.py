@@ -1,35 +1,66 @@
+"""Module for Jinx widgets that display control variables."""
+
 import itertools
 import random
 import sys
 from collections import deque
-from typing import Final
 from PyQt6 import QtWidgets, QtCore, QtGui
 
 from guis.gui import JinxObserverWidget
 
 
 class PositionGraph(JinxObserverWidget):
-    DEFAULT_WIDTH: Final[int] = 400
-    DEFAULT_HEIGHT: Final[int] = 400
-    DEFAULT_MAX_HISTORY: Final[int] = 100
+    """A widget that displays a radial graph of two control variables."""
 
     def __init__(
         self,
         parent: QtWidgets.QWidget, /,
         name: str = "Position Graph",
-        x_label: str = "Cart position (mm)",
-        y_label: str = "Pendulum angle (rads)",
+        x_label: str = "x variable",
+        y_label: str = "y variable",
         x_limits: tuple[float, float] = (0.0, 100.0),
         y_limits: tuple[float, float] = (0.0, 100.0),
-        max_history: int = DEFAULT_MAX_HISTORY,
-        width: int = DEFAULT_WIDTH,
-        height: int = DEFAULT_HEIGHT, *,
+        max_history: int = 100,
+        size: tuple[int, int] = (400, 400),
+        *,
         debug: bool = False
     ) -> None:
+        """
+        Create a new position graph Jinx widget within the given parent widget.
+
+        A position graph is a widget that displays a radial graph of the values
+        of two control variables over time.
+
+        Parameters
+        ----------
+        `parent: QtWidgets.QWidget` - The parent widget to draw this widget on.
+        Note that this will modify the parent widget's layout.
+
+        `name: str = "Position Graph"` - The name of the widget.
+
+        `x_label: str = "x variable"` - The label for the x axis.
+
+        `y_label: str = "y variable"` - The label for the y axis.
+
+        `x_limits: tuple[float, float] = (0.0, 100.0)` - The limits for the x
+        axis.
+
+        `y_limits: tuple[float, float] = (0.0, 100.0)` - The limits for the y
+        axis.
+
+        `max_history: int = 100` - The maximum number of points to display on
+        the graph.
+
+        `size: tuple[int, int] = (400, 400)` - The size of the widget in
+        pixels. The widget is resized to this size.
+
+        `debug: bool = False` - Whether to log debug messages.
+        """
         super().__init__(
             parent,
-            name,
-            size=(width, height),
+            name=name,
+            size=size,
+            resize=True,
             debug=debug
         )
 
@@ -44,6 +75,46 @@ class PositionGraph(JinxObserverWidget):
 
         self.__create_scene()
         self.__paint_display()
+
+    @property
+    def x_label(self) -> str:
+        return self.__x_label
+
+    @x_label.setter
+    def x_label(self, value: str) -> None:
+        self.__x_label = value
+
+    @property
+    def y_label(self) -> str:
+        return self.__y_label
+
+    @y_label.setter
+    def y_label(self, value: str) -> None:
+        self.__y_label = value
+
+    @property
+    def x_limits(self) -> tuple[float, float]:
+        return self.__x_limits
+
+    @x_limits.setter
+    def x_limits(self, value: tuple[float, float]) -> None:
+        if len(value) != 2:
+            raise ValueError("x_limits must be a tuple of length 2.")
+        if value[0] >= value[1]:
+            raise ValueError("x_limits[0] must be less than x_limits[1].")
+        self.__x_limits = value
+
+    @property
+    def y_limits(self) -> tuple[float, float]:
+        return self.__y_limits
+
+    @y_limits.setter
+    def y_limits(self, value: tuple[float, float]) -> None:
+        if len(value) != 2:
+            raise ValueError("y_limits must be a tuple of length 2.")
+        if value[0] >= value[1]:
+            raise ValueError("y_limits[0] must be less than y_limits[1].")
+        self.__y_limits = value
 
     @property
     def history_x(self) -> deque[float]:
@@ -76,18 +147,18 @@ class PositionGraph(JinxObserverWidget):
 
     def __paint_display(self) -> None:
         self.__x_line = QtWidgets.QGraphicsLineItem(
-            self.DEFAULT_WIDTH // 2,
-            self.DEFAULT_HEIGHT // 8,
-            self.DEFAULT_WIDTH // 2,
-            self.DEFAULT_HEIGHT - (self.DEFAULT_HEIGHT // 8)
+            self.size.width // 2,
+            self.size.height // 8,
+            self.size.width // 2,
+            self.size.height - (self.size.height // 8)
         )
         self.__scene.addItem(self.__x_line)
 
         self.__y_line = QtWidgets.QGraphicsLineItem(
-            self.DEFAULT_WIDTH // 8,
-            self.DEFAULT_HEIGHT // 2,
-            self.DEFAULT_WIDTH - (self.DEFAULT_WIDTH // 8),
-            self.DEFAULT_HEIGHT // 2
+            self.size.width // 8,
+            self.size.height // 2,
+            self.size.width - (self.size.width // 8),
+            self.size.height // 2
         )
         self.__scene.addItem(self.__y_line)
 
@@ -97,8 +168,8 @@ class PositionGraph(JinxObserverWidget):
         )
         rect = text.boundingRect()
         text.setPos(
-            int(self.DEFAULT_WIDTH * (1.25 / 20)) - rect.center().y(),
-            (self.DEFAULT_HEIGHT // 2) + rect.center().x()
+            int(self.size.width * (1.25 / 20)) - rect.center().y(),
+            (self.size.height // 2) + rect.center().x()
         )
         text.setRotation(-90)
 
@@ -108,8 +179,8 @@ class PositionGraph(JinxObserverWidget):
         )
         rect = text.boundingRect()
         text.setPos(
-            (self.DEFAULT_WIDTH // 2) - rect.center().x(),
-            int(self.DEFAULT_HEIGHT * (18.75 / 20)) - rect.center().y()
+            (self.size.width // 2) - rect.center().x(),
+            int(self.size.height * (18.75 / 20)) - rect.center().y()
         )
 
         # Add limits to lines.
@@ -118,8 +189,8 @@ class PositionGraph(JinxObserverWidget):
             QtGui.QFont("Arial", 15)
         )
         text.setPos(
-            (self.DEFAULT_WIDTH // 8),
-            (self.DEFAULT_HEIGHT // 2)
+            (self.size.width // 8),
+            (self.size.height // 2)
         )
 
         text = self.__scene.addText(
@@ -128,8 +199,8 @@ class PositionGraph(JinxObserverWidget):
         )
         rect = text.boundingRect()
         text.setPos(
-            (self.DEFAULT_WIDTH - (self.DEFAULT_WIDTH // 8)) - rect.right(),
-            (self.DEFAULT_HEIGHT // 2)
+            (self.size.width - (self.size.width // 8)) - rect.right(),
+            (self.size.height // 2)
         )
 
         text = self.__scene.addText(
@@ -138,9 +209,9 @@ class PositionGraph(JinxObserverWidget):
         )
         rect = text.boundingRect()
         text.setPos(
-            (self.DEFAULT_WIDTH // 2) - rect.right(),
-            (self.DEFAULT_HEIGHT
-             - (self.DEFAULT_HEIGHT // 8)) - rect.center().y()
+            (self.size.width // 2) - rect.right(),
+            (self.size.height
+             - (self.size.height // 8)) - rect.center().y()
         )
 
         text = self.__scene.addText(
@@ -149,8 +220,8 @@ class PositionGraph(JinxObserverWidget):
         )
         rect = text.boundingRect()
         text.setPos(
-            (self.DEFAULT_WIDTH // 2) - rect.right(),
-            (self.DEFAULT_HEIGHT // 8) - rect.center().y()
+            (self.size.width // 2) - rect.right(),
+            (self.size.height // 8) - rect.center().y()
         )
 
     def __convert_values_to_position(
@@ -219,13 +290,13 @@ class PositionGraph(JinxObserverWidget):
                 QtCore.Qt.PenStyle.SolidLine
             )
             self.__scene.addLine(
-                x, int(self.DEFAULT_HEIGHT * 0.475),
-                x, int(self.DEFAULT_HEIGHT * 0.525),
+                x, int(self.size.height * 0.475),
+                x, int(self.size.height * 0.525),
                 pen
             )
             self.__scene.addLine(
-                int(self.DEFAULT_WIDTH * 0.475), y,
-                int(self.DEFAULT_WIDTH * 0.525), y,
+                int(self.size.width * 0.475), y,
+                int(self.size.width * 0.525), y,
                 pen
             )
 
@@ -239,19 +310,34 @@ if __name__ == "__main__":
     qwindow.setCentralWidget(graph_qwidget)
 
     def test_update_graph():
-        x = (graph_jwidget.history_x[-1]
-             if len(graph_jwidget.history_x) > 0
-             else 50)
-        y = (graph_jwidget.history_y[-1]
-             if len(graph_jwidget.history_y) > 0
-             else 50)
-        print(x, y)
-        x = x + random.randint(-5, 5)
-        x = max(0, min(x, 100))
-        y = y + random.randint(-5, 5)
-        y = max(0, min(y, 100))
-        print(x, y)
-        graph_jwidget.update_graph(x, y)
+        """Update the graph with random jitter."""
+        x_point = (
+            graph_jwidget.history_x[-1]
+            if len(graph_jwidget.history_x) > 0
+            else 50
+        )
+        y_point = (
+            graph_jwidget.history_y[-1]
+            if len(graph_jwidget.history_y) > 0
+            else 50
+        )
+        x_point = x_point + random.randint(-5, 5)
+        x_point = max(
+            graph_jwidget.x_limits[0],
+            min(
+                x_point,
+                graph_jwidget.x_limits[1]
+            )
+        )
+        y_point = y_point + random.randint(-5, 5)
+        y_point = max(
+            graph_jwidget.y_limits[0],
+            min(
+                y_point,
+                graph_jwidget.y_limits[1]
+            )
+        )
+        graph_jwidget.update_graph(x_point, y_point)
 
     qtimer = QtCore.QTimer()
     qtimer.timeout.connect(test_update_graph)
