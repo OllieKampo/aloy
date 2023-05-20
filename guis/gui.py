@@ -22,7 +22,7 @@
 
 """Module defining GUI classes."""
 
-from typing import Any
+from typing import Any, NamedTuple
 from PyQt6 import QtWidgets
 from PyQt6.QtCore import QTimer  # pylint: disable=E0611
 from concurrency.clocks import ClockThread
@@ -120,6 +120,13 @@ class JinxGuiData(observable.Observable):
         self.__data[key] = value
 
 
+class JinxWidgetSize(NamedTuple):
+    """Tuple representing the size of a Jinx widget."""
+
+    width: int
+    height: int
+
+
 class JinxObserverWidget(observable.Observer):
     """A class defining an observer widget."""
 
@@ -157,7 +164,9 @@ class JinxObserverWidget(observable.Observer):
         """
         super().__init__(name, debug=debug)
         self.__widget: QtWidgets.QWidget = widget
-        self.__size: tuple[int, int] | None = size
+        self.__size: JinxWidgetSize | None = None
+        if size is not None:
+            self.__size = JinxWidgetSize(*size)
         if size is not None and resize:
             self.__widget.resize(*size)
 
@@ -167,7 +176,7 @@ class JinxObserverWidget(observable.Observer):
         return self.__widget
 
     @property
-    def size(self) -> tuple[int, int] | None:
+    def size(self) -> JinxWidgetSize | None:
         """Get the size of the widget."""
         return self.__size
 
