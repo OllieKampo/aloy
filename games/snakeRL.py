@@ -37,53 +37,76 @@ if is_ipython:
 
 
 class SnakeGameEnv(gym.Env[np.ndarray, tuple[int, int]]):
+    """Snake game environment."""
+
     metadata = {'render.modes': ['human']}
 
-    def __init__(self, cells_width: int, cells_height: int, max_moves: int = 1000) -> None:
+    def __init__(
+        self,
+        cells_width: int,
+        cells_height: int,
+        max_moves: int = 1000
+    ) -> None:
+        """Initialize the environment."""
         cells_grid_size: tuple[int, int] = (cells_width, cells_height)
         self.game = SnakeGameLogic(cells_grid_size)
         self.max_moves: int = max_moves
         self.moves: int = 0
         self.done: bool = False
-        self.observation_space = spaces.Box(low=np.array((0, 0)), high=np.array(cells_grid_size), dtype=np.int8)
+        self.observation_space = spaces.Box(
+            low=np.array((0, 0)),
+            high=np.array(cells_grid_size),
+            dtype=np.int8
+        )
         self.action_space = spaces.Discrete(4)
         self.actions_mapping: dict[int, tuple[int, int]] = {
             0: (0, 1), 1: (0, -1), 2: (1, 0), 3: (-1, 0)
         }
         self.reset()
 
-    def step(self, action: int) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
+    def step(
+        self,
+        action: int
+    ) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
+        """Perform one step in the environment."""
+
+        current_score = self.game.score
+
         # Update action and move snake
         direction = self.actions_mapping[action]
-        with self.game._direction:
-            self.game._direction.set_object(direction)
-        self.game._move_snake()
+        with self.game.direction:
+            self.game.direction.set_obj(direction)
+        self.game.move_snake()
         self.moves += 1
 
         observation = self.get_obs()
         distance = vector_distance_torus_wrapped(
-            vector_add(
-                self.game._snake[0],
-                direction
-            ),
-            self.game._food,
-            self.game._grid_size,
+            self.game.snake[0],
+            self.game.food,
+            self.game.grid_size,
             manhattan=True
         )
-        terminated = self.game._game_over
+
+        terminated = self.game.game_over
         if terminated:
             reward = -10.0
         else:
-            reward = exp_decay_between(distance, 1.0, sum(self.game._grid_size) / 2.0) * 10.0
+            reward = exp_decay_between(
+                distance,
+                0.0,
+                sum(self.game.grid_size)
+            ) * 10.0
+            if self.game.score > current_score:
+                reward += 10.0
+
         truncated = self.moves >= self.max_moves
-        with self.game._direction:
-            info = {
-                "score": self.game._score,
-                "head": self.game._snake[0],
-                "direction": self.game._direction.get_object(),
-                "food": self.game._food,
-                "distance": distance
-            }
+        info = {
+            "score": self.game.score,
+            "head": self.game.snake[0],
+            "direction": self.game.direction.get_obj(),
+            "food": self.game.food,
+            "distance": distance
+        }
         return observation, reward, terminated, truncated, info
 
     def reset(
@@ -91,29 +114,29 @@ class SnakeGameEnv(gym.Env[np.ndarray, tuple[int, int]]):
         seed: int | None = None,
         options: dict[str, Any] | None = None,
     ) -> tuple[np.ndarray, dict[str, Any]]:
+        """Reset the environment."""
         self.moves = 0
         self.done = False
-        self.game._restart()
-        with self.game._direction:
+        self.game.restart()
+        with self.game.direction:
             info = {
-                "head": self.game._snake[0],
-                "direction": self.game._direction.get_object(),
-                "food": self.game._food
+                "head": self.game.snake[0],
+                "direction": self.game.direction.get_obj(),
+                "food": self.game.food
             }
         return self.get_obs(), info
 
-    def get_obs(self):
-        return get_state(self.game)
+    def get_obs(self) -> np.ndarray:
+        """Get the current observation."""
+        return self.game.get_state()
 
-
-def get_state(game: SnakeGameLogic) -> np.ndarray:
-    obs = np.zeros(game._grid_size, dtype=np.int8)
-    obs[game._food] = 1
-    obs[tuple(segment for segment in zip(*game._snake[1:]))] = 2
-    obs[game._snake[0]] = 3
-    if game._obstacles:
-        obs[tuple(obstacle for obstacle in zip(*game._obstacles))] = 4
-    return obs
+    def render(self, mode: str = "human") -> None:
+        """Render the environment."""
+        if mode == "human":
+            plt.imshow(self.game.get_state())
+            plt.show()
+        else:
+            raise NotImplementedError
 
 
 class DQN(nn.Module):
@@ -162,141 +185,147 @@ class DQN(nn.Module):
         return self.lin4(x)
 
 
-def train(args: argparse.Namespace) -> None:
+def select_action(
+    policy_net: DQN,
+    state: torch.Tensor,
+    steps_done: int,
+    eps_start: float,
+    eps_end: float,
+    eps_decay: float
+) -> torch.Tensor:
+    sample = random.random()
+    eps_threshold = eps_end + (eps_start - eps_end) * math.exp(-1.0 * (steps_done / eps_decay))
+    ## With random probability, choose exploitatively, the best currently known action.
+    if sample > eps_threshold:
+        with torch.no_grad():
+            # t.max(1) will return the largest column value of each row.
+            # second column on max result is index of where max element was
+            # found, so we pick action with the larger expected reward.
+            return policy_net(state).max(1)[1].view(1, 1)
+    ## Otherwise, randomly choose an action exploratorively
+    else:
+        return torch.tensor([[snake_env.action_space.sample()]], device=device, dtype=torch.long)
+
+
+def plot_output(show_result=False):
+    plt.figure(1)
+    scores_t = torch.tensor(episode_scores, dtype=torch.float)
+    if show_result:
+        plt.title("Result")
+    else:
+        plt.clf()
+        plt.title("Training...")
+    plt.xlabel("Episode")
+    plt.ylabel("Score")
+    plt.plot(scores_t.numpy())
+    # Take 100 episode averages and plot them too
+    if len(scores_t) >= 100:
+        means = scores_t.unfold(0, 100, 1).mean(1).view(-1)
+        means = torch.cat((torch.zeros(99), means))
+        plt.plot(means.numpy())
+    # pause a bit so that plots are updated
+    plt.pause(0.001)
+
+
+def optimize_model(
+    policy_net: DQN,
+    target_net: DQN,
+    memory: ReplayMemory,
+    optimizer: optim.Adam,
+    batch_size: int,
+    gamma: float,
+    device: str | torch.device
+) -> None:
+    if len(memory) < batch_size:
+        return
+    transitions = memory.sample(batch_size)
+    # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
+    # detailed explanation). This converts batch-array of Transitions
+    # to Transition of batch-arrays.
+    batch = Transition(*zip(*transitions))
+
+    # Compute a mask of non-final states and concatenate the batch elements
+    # (a final state would've been the one after which simulation ended)
+    non_final_mask = torch.tensor(
+        tuple(map(lambda s: s is not None,
+                  batch.next_state)),
+        device=device,
+        dtype=torch.bool
+    )
+    non_final_next_states = torch.cat(
+        [s for s in batch.next_state
+         if s is not None]
+    )
+    state_batch = torch.cat(batch.state)
+    action_batch = torch.cat(batch.action)
+    reward_batch = torch.cat(batch.reward)
+
+    # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
+    # columns of actions taken. These are the actions which would've been taken
+    # for each batch state according to policy_net
+    state_action_values = policy_net(state_batch).gather(1, action_batch)
+
+    # Compute V(s_{t+1}) for all next states.
+    # Expected values of actions for non_final_next_states are computed based
+    # on the "older" target_net; selecting their best reward with max(1)[0].
+    # This is merged based on the mask, such that we'll have either the expected
+    # state value or 0 in case the state was final.
+    next_state_values = torch.zeros(batch_size, device=device)
+    with torch.no_grad():
+        next_state_values[non_final_mask] = target_net(non_final_next_states).max(1)[0]
+    # Compute the expected Q values
+    expected_state_action_values = (next_state_values * gamma) + reward_batch
+
+    # Compute Huber loss
+    criterion = nn.SmoothL1Loss()
+    loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
+
+    # Optimize the model
+    optimizer.zero_grad()
+    loss.backward()
+    # In-place gradient clipping
+    torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
+    optimizer.step()
+
+
+def qtrain(
+    env: gym.Env,
+    policy_net: nn.Module,
+    target_net: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    device: str | torch.device,
+    num_episodes: int,
+    batch_size: int,
+    gamma: float,
+    eps_start: float,
+    eps_end: float,
+    eps_decay: float,
+    tau: float
+) -> None:
     plt.ion()
 
-    snake_env = SnakeGameEnv(10, 10)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # BATCH_SIZE is the number of transitions sampled from the replay buffer
-    # GAMMA is the discount factor
-    # EPS_START is the starting value of epsilon
-    # EPS_END is the final value of epsilon
-    # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
-    # TAU is the update rate of the target network
-    # LR is the learning rate of the AdamW optimizer
-    BATCH_SIZE = 256
-    GAMMA = 0.99
-    EPS_START = 0.95
-    EPS_END = 0.05
-    EPS_DECAY = 10000
-    TAU = 0.005
-    LR = 1e-4
-
-    state, info = snake_env.reset()
-    n_actions = snake_env.action_space.n
-
-    policy_net = DQN(*state.shape, n_actions).to(device)
-    target_net = DQN(*state.shape, n_actions).to(device)
     target_net.load_state_dict(policy_net.state_dict())
-
-    optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
     memory = ReplayMemory(10000)
     steps_done = 0
-
-    def select_action(state):
-        nonlocal steps_done
-        sample = random.random()
-        eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1.0 * (steps_done / EPS_DECAY))
-        steps_done += 1
-        ## With random probability, choose exploitatively, the best currently known action.
-        if sample > eps_threshold:
-            with torch.no_grad():
-                # t.max(1) will return the largest column value of each row.
-                # second column on max result is index of where max element was
-                # found, so we pick action with the larger expected reward.
-                return policy_net(state).max(1)[1].view(1, 1)
-        ## Otherwise, randomly choose an action exploratorively
-        else:
-            return torch.tensor([[snake_env.action_space.sample()]], device=device, dtype=torch.long)
 
     episode_scores = []
     episode_durations = []
 
-    def plot_output(show_result=False):
-        plt.figure(1)
-        scores_t = torch.tensor(episode_scores, dtype=torch.float)
-        # durations_t = torch.tensor(episode_durations, dtype=torch.float)
-        if show_result:
-            plt.title("Result")
-        else:
-            plt.clf()
-            plt.title("Training...")
-        plt.xlabel("Episode")
-        plt.ylabel("Score")
-        plt.plot(scores_t.numpy())
-        # Take 100 episode averages and plot them too
-        if len(scores_t) >= 100:
-            means = scores_t.unfold(0, 100, 1).mean(1).view(-1)
-            means = torch.cat((torch.zeros(99), means))
-            plt.plot(means.numpy())
-
-        plt.pause(0.001)  # pause a bit so that plots are updated
-        if is_ipython:
-            if not show_result:
-                display.display(plt.gcf())
-                display.clear_output(wait=True)
-            else:
-                display.display(plt.gcf())
-
-    def optimize_model():
-        if len(memory) < BATCH_SIZE:
-            return
-        transitions = memory.sample(BATCH_SIZE)
-        # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
-        # detailed explanation). This converts batch-array of Transitions
-        # to Transition of batch-arrays.
-        batch = Transition(*zip(*transitions))
-
-        # Compute a mask of non-final states and concatenate the batch elements
-        # (a final state would've been the one after which simulation ended)
-        non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
-                                            batch.next_state)), device=device, dtype=torch.bool)
-        non_final_next_states = torch.cat([s for s in batch.next_state
-                                                    if s is not None])
-        state_batch = torch.cat(batch.state)
-        action_batch = torch.cat(batch.action)
-        reward_batch = torch.cat(batch.reward)
-
-        # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
-        # columns of actions taken. These are the actions which would've been taken
-        # for each batch state according to policy_net
-        state_action_values = policy_net(state_batch).gather(1, action_batch)
-
-        # Compute V(s_{t+1}) for all next states.
-        # Expected values of actions for non_final_next_states are computed based
-        # on the "older" target_net; selecting their best reward with max(1)[0].
-        # This is merged based on the mask, such that we'll have either the expected
-        # state value or 0 in case the state was final.
-        next_state_values = torch.zeros(BATCH_SIZE, device=device)
-        with torch.no_grad():
-            next_state_values[non_final_mask] = target_net(non_final_next_states).max(1)[0]
-        # Compute the expected Q values
-        expected_state_action_values = (next_state_values * GAMMA) + reward_batch
-
-        # Compute Huber loss
-        criterion = nn.SmoothL1Loss()
-        loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
-
-        # Optimize the model
-        optimizer.zero_grad()
-        loss.backward()
-        # In-place gradient clipping
-        torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
-        optimizer.step()
-
-    if torch.cuda.is_available():
-        num_episodes = 10000
-    else:
-        num_episodes = 1000
-
-    for i_episode in range(num_episodes):
+    for _ in range(num_episodes):
         # Initialize the environment and get it's state
-        state, info = snake_env.reset()
+        state, info = env.reset()
         state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
         for t in count():
-            action = select_action(state)
-            observation, reward, terminated, truncated, info = snake_env.step(action.item())
+            action = select_action(
+                policy_net,
+                state,
+                steps_done,
+                eps_start,
+                eps_end,
+                eps_decay
+            )
+            steps_done += 1
+            observation, reward, terminated, truncated, info = env.step(action.item())
             reward = torch.tensor([reward], device=device)
             done = terminated or truncated
 
@@ -312,7 +341,15 @@ def train(args: argparse.Namespace) -> None:
             state = next_state
 
             # Perform one step of the optimization (on the policy network)
-            optimize_model()
+            optimize_model(
+                policy_net,
+                target_net,
+                memory,
+                optimizer,
+                batch_size,
+                gamma,
+                device
+            )
 
             # Soft update of the target network's weights
             # θ′ ← τ θ + (1 −τ )θ′
@@ -334,7 +371,7 @@ def train(args: argparse.Namespace) -> None:
     plt.show()
 
     # Save the model
-    if args.save:
+    if save:
         if not os.path.exists("models"):
             os.mkdir("models")
         torch.save(policy_net, "models/policy_net.pth")
@@ -366,8 +403,8 @@ def render(args: argparse.Namespace) -> None:
         snake_qwidget, width, height,
         snake_game_logic=snake_game_logic, manual_update=True, debug=debug
     )
-    snake_game_logic._restart()
-    print(snake_game_logic._grid_size)
+    snake_game_logic.restart()
+    print(snake_game_logic.grid_size)
     # snake_options_widget = QWidget()
     # snake_game_options_jwidget = GamePerformanceDisplayJinxWidget(
     #     snake_options_widget, jdata, debug=debug
@@ -382,10 +419,10 @@ def render(args: argparse.Namespace) -> None:
             return policy_net(state).max(1)[1].view(1, 1)
 
     def set_action() -> None:
-        if snake_game_logic._game_over:
-            snake_game_logic._restart()
+        if snake_game_logic.game_over:
+            snake_game_logic.restart()
 
-        state = get_state(snake_game_logic)
+        state = snake_game_logic.get_state()
         state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
         action = select_action(state)
         snake_game_jwidget.manual_update_game(action.item())
@@ -399,7 +436,7 @@ def render(args: argparse.Namespace) -> None:
     qapp.exec()
 
 
-if __name__ == "__main__":
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--load", action="store_true", help="Load the model")
     parser.add_argument("--render", action="store_true", help="Render the environment")
@@ -410,7 +447,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--train", action="store_true", help="Train the model")
     parser.add_argument("--save", action="store_true", help="Save the model")
-    parser.add_argument("--num_episodes", type=int, default=1, help="Number of episodes to run")
+    parser.add_argument("--num_episodes", type=int, default=10000, help="Number of episodes to run")
     parser.add_argument("--max_steps", type=int, default=1000, help="Maximum number of steps per episode")
     # parser.add_argument("--record", action="store_true", help="Record the environment")
     # parser.add_argument("--record_fps", type=int, default=10, help="Frames per second for recording")
@@ -419,7 +456,43 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    snake_env = SnakeGameEnv(10, 10)
+    state, info = snake_env.reset()
+    n_actions = snake_env.action_space.n
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    policy_net = DQN(*state.shape, n_actions).to(device)
+    target_net = DQN(*state.shape, n_actions).to(device)
+
+    optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
+
+    # BATCH_SIZE is the number of transitions sampled from the replay buffer
+    # GAMMA is the discount factor
+    # EPS_START is the starting value of epsilon
+    # EPS_END is the final value of epsilon
+    # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
+    # TAU is the update rate of the target network
+    # LR is the learning rate of the AdamW optimizer
+    # BATCH_SIZE = 256
+    # GAMMA = 0.99
+    # EPS_START = 0.95
+    # EPS_END = 0.05
+    # EPS_DECAY = 10000
+    # TAU = 0.005
+    # LR = 1e-4
+
     if args.render:
         render(args)
     elif args.train:
-        train(args)
+        qtrain(
+            snake_env,
+            policy_net,
+            target_net,
+            optimizer,
+            device,
+            args.num_episodes
+        )
+
+
+if __name__ == "__main__":
+    main()
