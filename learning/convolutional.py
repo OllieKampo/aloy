@@ -261,13 +261,29 @@ def calc_conv_output_shape_from(
     -------
     `tuple[int, ...]` - The shape of the output tensor.
     """
-    return calc_conv_output_shape(
-        input_size=input_size,
-        kernel_size=layer.kernel_size,
-        stride=layer.stride,
-        padding=layer.padding,  # TODO: This can be a string? Check this.
-        dilation=layer.dilation
-    )
+    if isinstance(layer, (nn.Conv1d, nn.Conv2d, nn.Conv3d)):
+        return calc_conv_output_shape(
+            input_size=input_size,
+            kernel_size=layer.kernel_size,
+            stride=layer.stride,
+            padding=layer.padding,  # TODO: This can be a string? Check this.
+            dilation=layer.dilation
+        )
+    elif isinstance(layer, (nn.ConvTranspose1d, nn.ConvTranspose2d,
+                            nn.ConvTranspose3d)):
+        return calc_conv_transpose_output_shape(
+            input_size=input_size,
+            kernel_size=layer.kernel_size,
+            stride=layer.stride,
+            padding=layer.padding,  # TODO: This can be a string? Check this.
+            dilation=layer.dilation,
+            output_padding=layer.output_padding
+        )
+    else:
+        raise TypeError(
+            "Layer must be convolutional. "
+            f"Got; {layer!r} of type {type(layer)!r}."
+        )
 
 
 def size_of_flat_layer(
