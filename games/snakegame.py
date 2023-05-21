@@ -863,9 +863,9 @@ def play_snake_game(
     snake_game_jwidget = SnakeGameJinxWidget(
         snake_qwidget, width, height, debug=debug
     )
-    snake_options_widget = QtWidgets.QWidget()
+    snake_options_qwidget = QtWidgets.QWidget()
     snake_game_options_jwidget = SnakeGameOptionsJinxWidget(
-        snake_options_widget, jdata, width, height, debug=debug
+        snake_options_qwidget, jdata, width, height, debug=debug
     )
 
     jgui.add_view("Snake Game", snake_game_jwidget)
