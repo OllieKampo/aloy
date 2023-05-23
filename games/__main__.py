@@ -6,6 +6,9 @@ import importlib.util
 import sys
 from typing import Any, Callable, Final, Iterable, NamedTuple
 
+import curses
+import pyfiglet
+
 from auxiliary.argparseutils import mapping_argument_factory
 from games.snakegame import play_snake_game
 
@@ -138,6 +141,74 @@ register_game(
     "Play the snake game."
 )
 
+# register_game(
+#     None,
+#     "tetrisgame",
+#     "tetris",
+#     "Play the tetris game."
+# )
+
+
+def run_game_launcher(stdscr) -> str:
+    """Run a game launcher with curses."""
+    # stdscr: curses.window = curses.initscr()
+
+    curses.noecho()
+    curses.cbreak()
+    curses.curs_set(False)
+    stdscr.keypad(True)
+    stdscr.clear()
+    stdscr.border(0)
+    stdscr.refresh()
+
+    curses.start_color()
+    curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)
+    curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_BLUE)
+
+    title = pyfiglet.figlet_format("Jinx Game Launcher", font="small")
+    title_window = curses.newwin(10, 100, 1, 2)
+    title_window.addstr(0, 0, title, curses.color_pair(1))
+    title_window.refresh()
+    stdscr.refresh()
+
+    stdscr.addstr(6, 5, "Available Games:", curses.A_BOLD)
+    for i, (game_name, game_registration) in enumerate(__registered_games__.items()):
+        if i == 0:
+            stdscr.addstr(8 + i, 7, f"{game_name}: {game_registration.description}", curses.color_pair(2))
+        else:
+            stdscr.addstr(8 + i, 7, f"{game_name}: {game_registration.description}", curses.A_NORMAL)
+    title_window.refresh()
+    stdscr.refresh()
+
+    index: int = 0
+    char = stdscr.getch()
+    title_window.refresh()
+    while True:
+        previous_index = index
+        if char == ord("q"):
+            return None
+        elif char == curses.KEY_UP:
+            index = max(index - 1, 0)
+        elif char == curses.KEY_DOWN:
+            index = min(index + 1, len(__registered_games__) - 1)
+        elif char == curses.KEY_ENTER or char == 10 or char == 13:
+            break
+        if index != previous_index:
+            game_name, game_registration = list(__registered_games__.items())[previous_index]
+            stdscr.addstr(8 + previous_index, 7, f"{game_name}: {game_registration.description}", curses.A_NORMAL)
+            game_name, game_registration = list(__registered_games__.items())[index]
+            stdscr.addstr(8 + index, 7, f"{game_name}: {game_registration.description}", curses.color_pair(2))
+        char = stdscr.getch()
+        title_window.refresh()
+
+    stdscr.clear()
+    curses.nocbreak()
+    stdscr.keypad(False)
+    curses.echo()
+    curses.curs_set(True)
+    curses.endwin()
+    return list(__registered_games__.keys())[index]
+
 
 def main() -> int:
     """Run a game on the command line."""
@@ -146,7 +217,7 @@ def main() -> int:
         "-g",
         "--game",
         type=str,
-        choices=["snake", "tetris", "pacman"],
+        choices=list(__registered_games__.keys()),
         help="The name of the game to run."
     )
     parser.add_argument(
@@ -171,11 +242,11 @@ def main() -> int:
 
     if args.launcher:
         print("Launching game launcher...")
-        print("Not implemented yet...")  # TODO: Implement game launcher.
-        # game = run_game_launcher()
-        return 0
+        game = curses.wrapper(run_game_launcher)
+        if game is None:
+            return 0
     else:
-        game: str = args.game
+        game = args.game
 
     if game not in __registered_games__:
         print(f"Game '{game}' is not registered.")
