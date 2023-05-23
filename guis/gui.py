@@ -91,20 +91,24 @@ class JinxGuiData(observable.Observable):
         else:
             self.__data = data_dict.copy()
 
+    @atomic_update("view_states", method=True)
     def add_view_state(self, view_state: str) -> None:
         """Add a new view state name."""
         self.__view_states.append(view_state)
 
+    @atomic_update("view_states", method=True)
     def remove_view_state(self, view_state: str) -> None:
         """Remove a view state name."""
         self.__view_states.remove(view_state)
 
     @property
+    @atomic_update("desired_view_state", method=True)
     def desired_view_state(self) -> str | None:
         """Get the current desired view state name."""
         return self.__desired_view_state
 
     @desired_view_state.setter
+    @atomic_update("desired_view_state", method=True)
     @observable.notifies_observers()
     def desired_view_state(self, desired_view_state: str | None) -> None:
         """Set the current desired view state name."""
@@ -115,10 +119,17 @@ class JinxGuiData(observable.Observable):
         """Get the data associated with the given key."""
         return self.__data.get(key, default)
 
+    @atomic_update("data", method=True)
     @observable.notifies_observers()
     def set_data(self, key: str, value: Any) -> None:
         """Set the data associated with the given key."""
         self.__data[key] = value
+
+    @atomic_update("data", method=True)
+    @observable.notifies_observers()
+    def del_data(self, key: str) -> None:
+        """Delete the data associated with the given key."""
+        self.__data.pop(key)
 
 
 class JinxWidgetSize(NamedTuple):
