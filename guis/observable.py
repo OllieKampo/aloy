@@ -399,8 +399,8 @@ class Observer(metaclass=ABCMeta):
         return self.__debug
 
     @abstractmethod
-    def update_observer(self, observable: Observable) -> None:
-        """Update this observer."""
+    def update_observer(self, observable_: Observable) -> None:
+        """Update the observer."""
         raise NotImplementedError
 
     @final
@@ -418,7 +418,7 @@ class Observer(metaclass=ABCMeta):
     @property
     def observables(self) -> list[Observable]:
         """
-        Return the observables being observed by this observer.
+        Return the observables being observed by the observer.
 
         This field updated automatically when the observer is added to or
         removed from an observable.

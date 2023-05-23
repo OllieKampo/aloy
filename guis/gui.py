@@ -22,6 +22,7 @@
 
 """Module defining GUI classes."""
 
+from abc import abstractmethod
 from typing import Any, NamedTuple
 from PyQt6 import QtWidgets
 from PyQt6.QtCore import QTimer  # pylint: disable=E0611
@@ -132,13 +133,13 @@ class JinxObserverWidget(observable.Observer):
 
     __slots__ = {
         "__weakref__": "Weak reference to the object.",
-        "__widget": "The encapsulated widget.",
+        "__qwidget": "The encapsulated widget.",
         "__size": "The size of the widget."
     }
 
     def __init__(
         self,
-        widget: QtWidgets.QWidget, /,
+        qwidget: QtWidgets.QWidget, /,
         name: str | None = None,
         size: tuple[int, int] | None = None, *,
         resize: bool = True,
@@ -149,44 +150,41 @@ class JinxObserverWidget(observable.Observer):
 
         Parameters
         ----------
-        `widget: QtWidgets.QWidget` - The parent widget.
+        `qwidget: QtWidgets.QWidget` - The parent widget.
 
         `name: str | None = None` - The name of the object. If None, the
         class name and id of the object are used.
 
         `size: tuple[int, int] | None = None` - The size of the widget in
-        pixels. If None, the size of the widget is not set.
+        pixels (width, height). If None, the size of the widget is not set.
 
-        `resize: bool = True` - Whether to resize the widget to the given
-        size, or just simply store the size.
+        `resize: bool = True` - Whether to resize the parent widget to the
+        given size, or just simply store the size.
 
         `debug: bool = False` - Whether to log debug messages.
         """
         super().__init__(name, debug=debug)
-        self.__widget: QtWidgets.QWidget = widget
+        self.__qwidget: QtWidgets.QWidget = qwidget
         self.__size: JinxWidgetSize | None = None
         if size is not None:
             self.__size = JinxWidgetSize(*size)
         if size is not None and resize:
-            self.__widget.resize(*size)
+            self.__qwidget.resize(*size)
 
     @property
-    def widget(self) -> QtWidgets.QWidget:
-        """Get the widget."""
-        return self.__widget
+    def qwidget(self) -> QtWidgets.QWidget:
+        """Get the qt widget."""
+        return self.__qwidget
 
     @property
     def size(self) -> JinxWidgetSize | None:
         """Get the size of the widget."""
         return self.__size
 
-    def update_observer(self, observable: JinxGuiData) -> None:
-        """
-        Update the observer.
-
-        This method should be overridden by subclasses.
-        """
-        pass
+    @abstractmethod
+    def update_observer(self, observable_: JinxGuiData) -> None:
+        """Update the observer."""
+        return super().update_observer(observable_)
 
 
 class JinxGuiWindow(observable.Observer):
@@ -194,48 +192,93 @@ class JinxGuiWindow(observable.Observer):
 
     __slots__ = {
         "__weakref__": "Weak reference to the object.",
-        "__window": "The main window.",
-        "__main_widget": "The main widget.",
+        "__qwindow": "The main window.",
+        "__main_qwidget": "The main widget.",
         "__vbox": "The main vertical box layout.",
         "__stack": "The stacked widget for the views.",
+        "__tabbed": "Whether the views are tabbed or not.",
         "__combo_box": "The combo box for the views selection.",
+        "__tab_bar": "The tab bar for the views selection.",
         "__data": "The Jinx gui data for the window.",
         "__views": "The views of the window.",
         "__current_view_state": "The current view state of the window.",
-        "__default_widget": "The default widget."
+        "__default_qwidget": "The default widget."
     }
 
     def __init__(
         self,
-        window: QtWidgets.QMainWindow,
+        qwindow: QtWidgets.QMainWindow,
         data: JinxGuiData,
-        name: str | None = None, *,
+        name: str | None = None,
+        size: tuple[int, int] | None = None, /,
+        tabbed: bool = True, *,
+        set_title: bool = True,
+        resize: bool = True,
         debug: bool = False
     ) -> None:
-        """Create a new Jinx window within the given parent widget."""
+        """
+        Create a new Jinx window within the given main window.
+
+        This creates a new widget and sets it as the central widget of
+        the main window.
+
+        Parameters
+        ----------
+        `qwindow: QtWidgets.QMainWindow` - The main window.
+
+        `data: JinxGuiData` - The Jinx gui data for the window.
+
+        `name: str | None = None` - The name of the object. If None, the
+        class name and id of the object are used.
+
+        `size: tuple[int, int] | None = None` - The size of the window in
+        pixels (width, height). If None, the size of the window is not set.
+
+        `tabbed: bool = True` - Whether the views are tabbed or to use a
+        combo box drop-down menu to select the views.
+
+        `set_title: bool = True` - Whether to set the title of the window
+        to the given name.
+
+        `resize: bool = True` - Whether to resize the window to the given
+        size, or just simply store the size.
+
+        `debug: bool = False` - Whether to log debug messages.
+        """
         super().__init__(name, debug=debug)
 
-        # self.__window: QtWidgets.QWidget = window
-        self.__main_widget = QtWidgets.QWidget()
-        # self.__window.setCentralWidget(self.__main_widget)
-        window.setCentralWidget(self.__main_widget)
+        self.__qwindow: QtWidgets.QWidget = qwindow
+        if name is not None and set_title:
+            self.__qwindow.setWindowTitle(name)
+        if size is not None and resize:
+            self.__qwindow.resize(*size)
+        self.__main_qwidget = QtWidgets.QWidget()
+        self.__qwindow.setCentralWidget(self.__main_qwidget)
 
         self.__vbox = QtWidgets.QVBoxLayout()
         self.__stack = QtWidgets.QStackedWidget()
-        self.__combo_box = QtWidgets.QComboBox()
-        self.__combo_box.currentTextChanged.connect(
-            self.__combo_box_changed
-        )
-        self.__vbox.addWidget(self.__combo_box)
+        self.__tabbed: bool = bool(tabbed)
+        if tabbed:
+            self.__tab_bar = QtWidgets.QTabBar()
+            self.__tab_bar.currentChanged.connect(
+                self.__tab_bar_changed
+            )
+            self.__vbox.addWidget(self.__tab_bar)
+        else:
+            self.__combo_box = QtWidgets.QComboBox()
+            self.__combo_box.currentTextChanged.connect(
+                self.__combo_box_changed
+            )
+            self.__vbox.addWidget(self.__combo_box)
         self.__vbox.addWidget(self.__stack)
-        self.__main_widget.setLayout(self.__vbox)
+        self.__main_qwidget.setLayout(self.__vbox)
 
         self.__data: JinxGuiData = data
         self.__data.assign_observers(self)
 
         self.__views: dict[str, JinxObserverWidget] = {}
         self.__current_view_state: str | None = None
-        self.__default_widget = QtWidgets.QWidget()
+        self.__default_qwidget = QtWidgets.QWidget()
 
         self.__data.notify_all()
 
@@ -248,11 +291,18 @@ class JinxGuiWindow(observable.Observer):
         """Handle a change in the combo box."""
         self.__data.desired_view_state = view_name
 
+    def __tab_bar_changed(self, index: int) -> None:
+        """Handle a change in the tab bar."""
+        self.__data.desired_view_state = self.__tab_bar.tabText(index)
+
     def add_view(self, name: str, widget: JinxObserverWidget) -> None:
         """Add a new view state to the window."""
         self.__views[name] = widget
-        self.__stack.addWidget(widget.widget)
-        self.__combo_box.addItem(name)
+        self.__stack.addWidget(widget.qwidget)
+        if self.__tabbed:
+            self.__tab_bar.addTab(name)
+        else:
+            self.__combo_box.addItem(name)
         self.__data.add_view_state(name)
         if self.__current_view_state is None:
             self.__data.assign_observers(widget)
@@ -261,27 +311,33 @@ class JinxGuiWindow(observable.Observer):
 
     def remove_view(self, name: str) -> None:
         """Remove a view state from the window."""
-        self.__views.pop(name)
         self.__stack.removeWidget(self.__views[name].widget)
-        self.__combo_box.removeItem(self.__combo_box.findText(name))
+        self.__views.pop(name)
+        if self.__tabbed:
+            for index in range(self.__tab_bar.count()):
+                if self.__tab_bar.tabText(index) == name:
+                    self.__tab_bar.removeTab(index)
+                    break
+        else:
+            self.__combo_box.removeItem(self.__combo_box.findText(name))
         self.__data.remove_view_state(name)
         if self.__current_view_state == name:
             self.__data.remove_observers(self.__views[name])
             self.__data.desired_view_state = None
 
-    def update_observer(self, observable: JinxGuiData) -> None:
+    def update_observer(self, observable_: JinxGuiData) -> None:
         """Update the observer."""
         desired_view_state: str | None = self.__data.desired_view_state
         if self.__current_view_state != desired_view_state:
             if self.__current_view_state is not None:
-                jinx_widget = self.__views[self.__current_view_state]
-                self.__data.remove_observers(jinx_widget)
+                jwidget = self.__views[self.__current_view_state]
+                self.__data.remove_observers(jwidget)
             if desired_view_state is not None:
-                jinx_widget = self.__views[desired_view_state]
-                qt_widget = jinx_widget.widget
-                self.__stack.setCurrentWidget(qt_widget)
-                self.__data.assign_observers(jinx_widget)
-                self.__data.notify(jinx_widget)
+                jwidget = self.__views[desired_view_state]
+                qwidget = jwidget.qwidget
+                self.__stack.setCurrentWidget(qwidget)
+                self.__data.assign_observers(jwidget)
+                self.__data.notify(jwidget)
             else:
-                self.__stack.setCurrentWidget(self.__default_widget)
+                self.__stack.setCurrentWidget(self.__default_qwidget)
             self.__current_view_state = desired_view_state
