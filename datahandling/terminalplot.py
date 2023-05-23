@@ -73,10 +73,10 @@ def make_terminal_relplot(
         TerminalPlotColours.GREEN
     ),
     fill: bool = False,
-    x_min: np.number = -np.inf,
-    x_max: np.number = np.inf,
-    y_min: np.number = -np.inf,
-    y_max: np.number = np.inf
+    x_min: float = -np.inf,
+    x_max: float = np.inf,
+    y_min: float = -np.inf,
+    y_max: float = np.inf
 ) -> str:
     """
     Make a relational line plot in the terminal using ASCII characters.
@@ -181,34 +181,16 @@ def make_terminal_relplot(
 
     # Create the string builder and add the title and legend
     string_builder = StringBuilder()
-    if title is not None:
-        string_builder += " " * (y_tick_padding + 4)
-        string_builder += ("-" * (len(title) + 2)).center(plot_width * 2)
-        string_builder += "\n"
-        string_builder += " " * (y_tick_padding + 4)
-        string_builder += title.center(plot_width * 2)
-        string_builder += "\n"
-        string_builder.duplicate(7, 4)
-    if legend is not None:
-        if len(legend) != x_data.shape[0]:
-            raise ValueError(
-                "Legend must have the same number of elements as "
-                f"x_data has rows. Got; legend = {len(legend)} "
-                f"and x_data rows = {x_data.shape[0]}."
-            )
-        if title is not None:
-            string_builder += "\n"
-        string_builder += " " * (y_tick_padding + 4)
-        string_builder += (
-            " || ".join(
-                ((f"[{colours[i % len(colours)].value}"
-                  f"{markers[i % len(markers)]}{__RESET_COLOUR}] {label}")
-                 for i, label in enumerate(legend))
-            )
-        ).center(((plot_width + (len(legend) * __EXTRA_COLOUR_LEN)) * 2) - 2)
-        string_builder += "\n"
-    elif title is not None:
-        string_builder += "\n"
+    add_title(
+        x_data,
+        plot_width,
+        title,
+        legend,
+        markers,
+        colours,
+        y_tick_padding,
+        string_builder
+    )
 
     # Add the y-axis, ticks and labels, and the plot itself
     for index, row in zip(range(plot_height, 0, -1), reversed(grid)):
@@ -252,8 +234,8 @@ def make_terminal_hisplot(
         TerminalPlotColours.BLUE,
     ),
     kind: Literal["count", "percent"] = "count",
-    data_min: np.number = -np.inf,
-    data_max: np.number = np.inf
+    data_min: float = -np.inf,
+    data_max: float = np.inf
 ) -> str:
     """
     Make a histogram density plot in the terminal using ASCII characters.
@@ -333,34 +315,16 @@ def make_terminal_hisplot(
 
     # Create the string builder and add the title and legend
     string_builder = StringBuilder()
-    if title is not None:
-        string_builder += " " * (y_tick_padding + 4)
-        string_builder += ("-" * (len(title) + 2)).center(plot_width * 2)
-        string_builder += "\n"
-        string_builder += " " * (y_tick_padding + 4)
-        string_builder += title.center(plot_width * 2)
-        string_builder += "\n"
-        string_builder.duplicate(7, 4)
-    if legend is not None:
-        if len(legend) != data.shape[0]:
-            raise ValueError(
-                "Legend must have the same number of elements as "
-                f"data has rows. Got; legend = {len(legend)} "
-                f"and data rows = {data.shape[0]}."
-            )
-        if title is not None:
-            string_builder += "\n"
-        string_builder += " " * (y_tick_padding + 4)
-        string_builder += (
-            " || ".join(
-                ((f"[{colours[i % len(colours)].value}"
-                  f"{markers[i % len(markers)]}{__RESET_COLOUR}] {label}")
-                 for i, label in enumerate(legend))
-            )
-        ).center(((plot_width + (len(legend) * __EXTRA_COLOUR_LEN)) * 2) - 2)
-        string_builder += "\n"
-    elif title is not None:
-        string_builder += "\n"
+    add_title(
+        data,
+        plot_width,
+        title,
+        legend,
+        markers,
+        colours,
+        y_tick_padding,
+        string_builder
+    )
 
     # Add the y-axis, ticks and labels, and the plot itself
     for y, i in zip(bin_centres, range(bin_counts.shape[1])):
@@ -407,7 +371,7 @@ def update_grid(
     normalised_y_data: np.ndarray,
     grid: np.ndarray,
     marker: str,
-    color: str,
+    color: TerminalPlotColours,
     fill: bool
 ) -> None:
     """Update the grid with the normalised data points."""
@@ -421,12 +385,65 @@ def update_grid(
             grid[index_range[y], x] = marker
 
 
+def add_title(
+    x_data: np.ndarray,
+    plot_width: int,
+    title: str | None,
+    legend: Sequence[str] | None,
+    markers: Sequence[str],
+    colours: Sequence[TerminalPlotColours],
+    y_tick_padding: int,
+    string_builder: StringBuilder
+) -> None:
+    """Add the title and legend to the string builder."""
+    if title is not None:
+        string_builder.set_duplicator_flag("title frame start")
+        string_builder += " " * (y_tick_padding + 4)
+        string_builder += ("-" * (len(title) + 2)).center(plot_width * 2)
+        string_builder.set_duplicator_flag("title frame end")
+        string_builder += "\n"
+        string_builder += " " * (y_tick_padding + 4)
+        string_builder += title.center(plot_width * 2)
+        string_builder += "\n"
+        string_builder.duplicate_flagged(
+            "title frame start",
+            "title frame end"
+        )
+    if legend is not None:
+        if len(legend) != x_data.shape[0]:
+            raise ValueError(
+                "Legend must have the same number of elements as "
+                f"data has rows. Got; legend = {len(legend)} "
+                f"and data rows = {x_data.shape[0]}."
+            )
+        if title is not None:
+            string_builder += "\n"
+        string_builder += " " * (y_tick_padding + 4)
+        string_builder += (
+            " || ".join(
+                ((f"[{colours[i % len(colours)].value}"
+                  f"{markers[i % len(markers)]}{__RESET_COLOUR}] {label}")
+                 for i, label in enumerate(legend))
+            )
+        ).center(((plot_width + (len(legend) * __EXTRA_COLOUR_LEN)) * 2) - 2)
+        string_builder += "\n"
+    elif title is not None:
+        string_builder += "\n"
+
+
 if __name__ == "__main__":
     print(
         make_terminal_relplot(
             np.tile(np.arange(0, 200), 3).reshape(3, 200),
-            np.array([(np.linspace(0, 40, 200) ** 2), (np.linspace(0, 40, 200) ** 1.5), np.linspace(0, 40, 200)]),
-            40, 20,
+            np.array(
+                [
+                    (np.linspace(0, 40, 200) ** 2),
+                    (np.linspace(0, 40, 200) ** 1.5),
+                    np.linspace(0, 40, 200)
+                ]
+            ),
+            40,
+            20,
             title="Jake is the best <3",
             legend=["y = x^2", "y = x^1.5", "y = x"]
         )
@@ -434,7 +451,8 @@ if __name__ == "__main__":
     print(
         make_terminal_hisplot(
             np.random.normal(0, 1, 1000),
-            40, 20,
+            40,
+            20,
             title="Normal Distribution",
             legend=["y = N(0, 1)"],
             kind="count",
@@ -445,8 +463,14 @@ if __name__ == "__main__":
     )
     print(
         make_terminal_hisplot(
-            np.array([np.random.normal(0, 1, 1000), np.random.normal(0, 2.5, 1000)]),
-            40, 20,
+            np.array(
+                [
+                    np.random.normal(0, 1, 1000),
+                    np.random.normal(0, 2.5, 1000)
+                ]
+            ),
+            40,
+            20,
             title="Normal Distribution",
             legend=["y = N(0, 1)", "y = N(0, 2.5)"],
             kind="percent",
