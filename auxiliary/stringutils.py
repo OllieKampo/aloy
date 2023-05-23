@@ -28,6 +28,8 @@ import textwrap
 from typing import Iterable, final, overload
 import warnings
 
+from datastructures.views import ListView
+
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
 
@@ -42,7 +44,6 @@ def __dir__() -> tuple[str, ...]:
     return __all__
 
 
-# TODO: Support flagged duplication.
 @final
 class StringBuilder(collections.abc.Sequence):
     """
@@ -68,14 +69,17 @@ class StringBuilder(collections.abc.Sequence):
 
     __slots__ = {
         "__compiled": "The compiled string.",
-        "__strings": "A list of strings queued to be concatenated on "
-                     "the next compile."
+        "__strings": "A list of strings queued to be appended on the next "
+                     "compile.",
+        "__duplicator_flags": "A list of flags for duplicating strings "
+                              "queued to be appended.",
     }
 
     def __init__(self, string: str = "") -> None:
         """Initialize the string builder, optionally with a string."""
         self.__compiled: str = str(string)
         self.__strings: list[str] = []
+        self.__duplicator_flags: dict[str, int] = {}
 
     def __repr__(self) -> str:
         """
@@ -93,11 +97,18 @@ class StringBuilder(collections.abc.Sequence):
                f"Queued appends = {self.queued_appends}, " \
                f"Queued length = {self.queued_length}"
 
+    @overload
     def __getitem__(self, index: int) -> str:
         """Return the character at the given index."""
-        if index < len(self):
-            return self.__compiled[index]
-        raise IndexError(f"Index {index} out of range.")
+        ...
+
+    @overload
+    def __getitem__(self, index: slice) -> str:
+        """Return a string of characters over the given slice."""
+        ...
+
+    def __getitem__(self, index: int | slice) -> str:
+        return self.__compiled[index]
 
     def __len__(self) -> int:
         """Return the current length of the string builder."""
@@ -112,6 +123,26 @@ class StringBuilder(collections.abc.Sequence):
     def queued_length(self) -> int:
         """Return the total length of the strings queued to be appended."""
         return sum(map(len, self.__strings))
+
+    @overload
+    def get_queued(self, index: int) -> str:
+        """Return the string queued to be appended at the given index."""
+        ...
+
+    @overload
+    def get_queued(self, index: slice) -> ListView[str]:
+        """
+        Return a list of strings queued to be appended over the given slice.
+        """
+        ...
+
+    def get_queued(  # pylint: disable=missing-function-docstring
+        self,
+        index: int | slice
+    ) -> str | ListView[str]:
+        if isinstance(index, int):
+            return self.__strings[index]
+        return ListView(self.__strings[index])
 
     def __iadd__(self, other: str) -> "StringBuilder":
         """Concatenate the string builder with another string in-place."""
@@ -212,8 +243,9 @@ class StringBuilder(collections.abc.Sequence):
         Duplicate in-place the last `back` appends to the string builder
         `times` times.
 
-        If `back` is negative, it is treated as zero.
-        If `times` is negative, it is treated as zero.
+        If `back` is negative, it is treated as zero. If `back` is greater than
+        the number of queued appends, it is treated as the number of queued
+        appends. If `times` is negative, it is treated as zero.
         """
         ...
 
@@ -228,21 +260,22 @@ class StringBuilder(collections.abc.Sequence):
         Duplicate in-place the last `back` appends to the string builder
         `times` times ignoring the last `skip` appends.
 
-        If `back` is negative, it is treated as zero.
-        If `times` is negative, it is treated as zero.
+        If `back` is negative, it is treated as zero. If `back` is greater than
+        the number of queued appends, it is treated as the number of queued
+        appends. If `skip` is negative, it is treated as zero. If `skip` is
+        greater than `back`, it is treated as `back`. If `times` is negative,
+        it is treated as zero.
         """
         ...
 
-    def duplicate(
+    def duplicate(  # pylint: disable=missing-function-docstring
         self,
         back: int,
         skip: int | None = None, /, *,
         times: int | None = None
     ) -> None:
-        if back is None:
-            back = skip
+        if skip is None:
             skip = 0
-            times = 1
         if times is None:
             times = 1
         back = min(len(self.__strings), max(back, 0))
@@ -252,6 +285,40 @@ class StringBuilder(collections.abc.Sequence):
             self.__strings.extend(self.__strings[-back:] * times)
         else:
             self.__strings.extend(self.__strings[-back:-skip] * times)
+
+    def duplicate_flagged(
+        self,
+        from_flag: str,
+        to_flag: str | None = None, /, *,
+        times: int = 1
+    ) -> None:
+        """
+        Duplicate in-place the strings queued to be appended from the flag
+        `from_flag` to the flag `to_flag` to the string builder `times` times.
+
+        If `to_flag` is None, the strings are duplicated to the most recent
+        append.
+        """
+        if to_flag is None:
+            to_flag = ""
+        from_index = self.__duplicator_flags.get(from_flag, 0)
+        to_index = self.__duplicator_flags.get(to_flag, self.queued_appends)
+        self.__strings.extend(self.__strings[from_index:to_index] * times)
+
+    def set_duplicator_flag(self, flag: str, index: int | None = None) -> None:
+        """
+        Set a flag for the duplicator.
+
+        If `index` is not given or None, the flag is set for the most recent
+        append. If `index` is negative, it is treated as zero. If `index` is
+        greater than the number of queued appends, it is treated as the number
+        of queued appends.
+        """
+        if index is None or index > self.queued_appends:
+            index = self.queued_appends
+        elif index < 0:
+            index = 0
+        self.__duplicator_flags[flag] = index
 
     def compile(self) -> str:
         """Compile and return the string builder into a string."""
@@ -303,13 +370,15 @@ def center_text(
         warnings.warn("Wrapping width is very small compared to the size of "
                       "the vertical bars.")
 
-    line_iter = itertools.chain(*[
-        textwrap.wrap(
-            f"{part:^{free_space}}",
-            width=free_space,
-            replace_whitespace=False,
-            drop_whitespace=False)
-        for part in text.split("\n")
+    line_iter = itertools.chain(
+        *[
+            textwrap.wrap(
+                f"{part:^{free_space}}",
+                width=free_space,
+                replace_whitespace=False,
+                drop_whitespace=False
+            )
+            for part in text.split("\n")
         ]
     )
 
