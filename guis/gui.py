@@ -23,8 +23,9 @@
 """Module defining GUI classes."""
 
 from abc import abstractmethod
-from typing import Any, NamedTuple
+from typing import Any, Literal, NamedTuple
 from PyQt6 import QtWidgets
+from PyQt6 import QtCore
 from PyQt6.QtCore import QTimer  # pylint: disable=E0611
 from concurrency.clocks import ClockThread
 from concurrency.synchronization import atomic_update
@@ -44,6 +45,30 @@ __all__ = (
 def __dir__() -> tuple[str, ...]:
     """Get the names of module attributes."""
     return __all__
+
+
+def scale_size(
+    size: tuple[int, int],
+    scale: tuple[float, float]
+) -> tuple[int, int]:
+    """Scale a size by the given factor."""
+    return (
+        int(round(size[0] * scale[0])),
+        int(round(size[1] * scale[1]))
+    )
+
+
+def scale_size_for_grid(
+    size: tuple[int, int],
+    grid_size: tuple[int, int],
+    widget_size: tuple[int, int]
+) -> tuple[int, int]:
+    """Scale a size to fit a grid."""
+    scale = (
+        grid_size[0] / widget_size[0],
+        grid_size[1] / widget_size[1]
+    )
+    return scale_size(size, scale)
 
 
 class JinxGuiData(observable.Observable):
@@ -154,6 +179,7 @@ class JinxObserverWidget(observable.Observer):
         name: str | None = None,
         size: tuple[int, int] | None = None, *,
         resize: bool = True,
+        set_size: Literal["fix", "base", "min", "max"] | None = None,
         debug: bool = False
     ) -> None:
         """
@@ -172,6 +198,12 @@ class JinxObserverWidget(observable.Observer):
         `resize: bool = True` - Whether to resize the parent widget to the
         given size, or just simply store the size.
 
+        `set_size: Literal["fix", "base", "min", "max"] | None = None` -
+        Whether to set the size of the widget to the given size. If 'fix'
+        then the size is fixed, if 'base' then the base size is set, if
+        'min' then the minimum size is set, if 'max' then the maximum size
+        is set. If None, the size of the widget is not set.
+
         `debug: bool = False` - Whether to log debug messages.
         """
         super().__init__(name, debug=debug)
@@ -179,8 +211,24 @@ class JinxObserverWidget(observable.Observer):
         self.__size: JinxWidgetSize | None = None
         if size is not None:
             self.__size = JinxWidgetSize(*size)
-        if size is not None and resize:
-            self.__qwidget.resize(*size)
+            if resize:
+                self.__qwidget.resize(*size)
+            if set_size is not None:
+                if set_size == "fix":
+                    self.__qwidget.setFixedSize(*size)
+                elif set_size == "base":
+                    self.__qwidget.setBaseSize(*size)
+                elif set_size == "min":
+                    self.__qwidget.setMinimumSize(*size)
+                elif set_size == "max":
+                    self.__qwidget.setMaximumSize(*size)
+                else:
+                    raise ValueError(
+                        f"Invalid set_size value: {set_size}."
+                        f"Choose from: fix, base, min, max."
+                    )
+        if name is not None:
+            self.__qwidget.setObjectName(name)
 
     @property
     def qwidget(self) -> QtWidgets.QWidget:
@@ -201,13 +249,17 @@ class JinxObserverWidget(observable.Observer):
 class JinxGuiWindow(observable.Observer):
     """A class defining a PyQt6 window used by Jinx."""
 
+    view_changed = QtCore.pyqtSignal(str)
+    view_added = QtCore.pyqtSignal(str)
+    view_removed = QtCore.pyqtSignal(str)
+
     __slots__ = {
         "__weakref__": "Weak reference to the object.",
         "__qwindow": "The main window.",
         "__main_qwidget": "The main widget.",
         "__vbox": "The main vertical box layout.",
         "__stack": "The stacked widget for the views.",
-        "__tabbed": "Whether the views are tabbed or not.",
+        "__kind": "Whether the views are tabbed or not.",
         "__combo_box": "The combo box for the views selection.",
         "__tab_bar": "The tab bar for the views selection.",
         "__data": "The Jinx gui data for the window.",
@@ -222,7 +274,7 @@ class JinxGuiWindow(observable.Observer):
         data: JinxGuiData,
         name: str | None = None,
         size: tuple[int, int] | None = None, /,
-        tabbed: bool = True, *,
+        kind: Literal["tabbed", "combo"] | None = "tabbed",
         set_title: bool = True,
         resize: bool = True,
         debug: bool = False
@@ -268,14 +320,14 @@ class JinxGuiWindow(observable.Observer):
 
         self.__vbox = QtWidgets.QVBoxLayout()
         self.__stack = QtWidgets.QStackedWidget()
-        self.__tabbed: bool = bool(tabbed)
-        if tabbed:
+        self.__kind: str | None = kind
+        if self.__kind == "tabbed":
             self.__tab_bar = QtWidgets.QTabBar()
             self.__tab_bar.currentChanged.connect(
                 self.__tab_bar_changed
             )
             self.__vbox.addWidget(self.__tab_bar)
-        else:
+        elif self.__kind == "combo":
             self.__combo_box = QtWidgets.QComboBox()
             self.__combo_box.currentTextChanged.connect(
                 self.__combo_box_changed
@@ -310,10 +362,12 @@ class JinxGuiWindow(observable.Observer):
         """Add a new view state to the window."""
         self.__views[name] = widget
         self.__stack.addWidget(widget.qwidget)
-        if self.__tabbed:
+        if self.__kind == "tabbed":
             self.__tab_bar.addTab(name)
-        else:
+        elif self.__kind == "combo":
             self.__combo_box.addItem(name)
+        else:
+            self.view_added.emit(name)
         self.__data.add_view_state(name)
         if self.__current_view_state is None:
             self.__data.assign_observers(widget)
@@ -324,13 +378,15 @@ class JinxGuiWindow(observable.Observer):
         """Remove a view state from the window."""
         self.__stack.removeWidget(self.__views[name].widget)
         self.__views.pop(name)
-        if self.__tabbed:
+        if self.__kind == "tabbed":
             for index in range(self.__tab_bar.count()):
                 if self.__tab_bar.tabText(index) == name:
                     self.__tab_bar.removeTab(index)
                     break
-        else:
+        elif self.__kind == "combo":
             self.__combo_box.removeItem(self.__combo_box.findText(name))
+        else:
+            self.view_removed.emit(name)
         self.__data.remove_view_state(name)
         if self.__current_view_state == name:
             self.__data.remove_observers(self.__views[name])
@@ -340,6 +396,7 @@ class JinxGuiWindow(observable.Observer):
         """Update the observer."""
         desired_view_state: str | None = self.__data.desired_view_state
         if self.__current_view_state != desired_view_state:
+            self.view_changed.emit(desired_view_state)
             if self.__current_view_state is not None:
                 jwidget = self.__views[self.__current_view_state]
                 self.__data.remove_observers(jwidget)
