@@ -35,8 +35,6 @@ from fractions import Fraction
 from numbers import Real
 from typing import Any, Callable, Literal, Sequence, TypeAlias
 
-import dask.array as daskarray
-
 import numpy as np
 import numpy.typing as npt
 import sklearn.neighbors as skn
@@ -1149,11 +1147,4 @@ class ParticleSwarmSystem:
         position_vectors: np.ndarray
     ) -> np.ndarray:
         """Calculate the fitness of all particles using numpy or dask."""
-        if parallelise:
-            dask_array = daskarray.from_array(position_vectors, chunks=(total_particles // threads, total_dimensions))
-            dask_array = dask_array.map_blocks(lambda block: np.apply_along_axis(self.__fitness_function, 1, block),
-                                               chunks=(total_particles // threads,), drop_axis=[1], dtype=np.float64)
-            particles_fitness = np.array(dask_array.compute())
-        else:
-            particles_fitness = np.apply_along_axis(self.__fitness_function, 1, position_vectors)
-        return particles_fitness
+        return np.apply_along_axis(self.__fitness_function, 1, position_vectors)
