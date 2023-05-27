@@ -1,36 +1,32 @@
-###########################################################################
-###########################################################################
-## Proportional-Integral-Derivative (PID) controllers.                   ##
-##                                                                       ##
-## Copyright (C) 2022 Oliver Michael Kamperis                            ##
-##                                                                       ##
-## This program is free software: you can redistribute it and/or modify  ##
-## it under the terms of the GNU General Public License as published by  ##
-## the Free Software Foundation, either version 3 of the License, or     ##
-## any later version.                                                    ##
-##                                                                       ##
-## This program is distributed in the hope that it will be useful,       ##
-## but WITHOUT ANY WARRANTY; without even the implied warranty of        ##
-## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          ##
-## GNU General Public License for more details.                          ##
-##                                                                       ##
-## You should have received a copy of the GNU General Public License     ##
-## along with this program. If not, see <https://www.gnu.org/licenses/>. ##
-###########################################################################
-###########################################################################
+"""
+Module defining Proportional-Integral-Derivative (PID) feedback controllers.
 
-"""Module defining Proportional-Integral-Derivative (PID) controllers."""
+Copyright (C) 2023 Oliver Michael Kamperis.
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
 
 from collections import deque
 from typing import Callable, NamedTuple
 
 from control.controllers import Controller, clamp, calc_error
 
-__copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
+__copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
+__version__ = "1.0.0"
 
 __all__ = (
     "PIDControllerGains",
+    "PIDControllerTerms",
     "PIDController"
 )
 
