@@ -24,6 +24,7 @@
 
 from collections import deque
 import time
+from matplotlib import figure
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -35,7 +36,6 @@ __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
 
 __all__ = (
-    "ControllerTimer",
     "simulate_control"
 )
 
@@ -52,7 +52,7 @@ def __dir__() -> tuple[str]:
 #     Instances of this class are used to create weight update functions.
 #     A single weight function is used for a controller combiner,
 #     where each function name is the name of a controller.
-#     A seperate weight function is needed for each control output of a modular controller,
+#     A seperate weight function is needed for each control output of a multivariate controller,
 #     where each function name is the name of a control input that maps to that output.
 #     """
 
@@ -179,26 +179,52 @@ def simulate_control(
 
 
 def plot_error(
-    time_points: np.ndarray,
-    error_values: np.ndarray,
-    output_values: np.ndarray,
+    time_points: list[float] | np.ndarray,
+    input_values: list[float] | np.ndarray,
+    setpoint_values: list[float] | np.ndarray,
+    error_values: list[float] | np.ndarray,
+    output_values: list[float] | np.ndarray,
     title_space: float = 0.09,
     plot_gap: float = 0.175,
     width: float = 8,
     height: float = 4
-) -> None:
+) -> tuple[figure.Figure, tuple[plt.Axes, plt.Axes]]:
     """Plot the control error and output over time with matplotlib."""
-    figure, (error_axis, output_axis) = plt.subplots(1, 2)
-    figure.suptitle("Control error and Output over Time")
+    fig, (error_axis, output_axis) = plt.subplots(1, 2)
+    fig.suptitle("Control Input and Output over Time")
 
-    error_axis.plot(time_points, error_values, color="red", label="Error")
+    error_axis.plot(
+        time_points,
+        input_values,
+        color="blue",
+        label="Input"
+    )
+    error_axis.plot(
+        time_points,
+        setpoint_values,
+        color="green",
+        label="Set-point"
+    )
+    error_axis.plot(
+        time_points,
+        error_values,
+        color="red",
+        label="Error"
+    )
     error_axis.set_xlabel("Time")
-    error_axis.set_ylabel("Error")
+    error_axis.set_ylabel("Input/Set-point/Error")
 
-    output_axis.plot(time_points, output_values, color="cyan", label="Output")
+    output_axis.plot(
+        time_points,
+        output_values,
+        color="cyan",
+        label="Output"
+    )
     output_axis.set_xlabel("Time")
     output_axis.set_ylabel("Output")
 
-    figure.tight_layout()
-    figure.subplots_adjust(top=(1.0 - title_space), wspace=plot_gap)
-    figure.set_size_inches(width, height)
+    fig.tight_layout()
+    fig.subplots_adjust(top=(1.0 - title_space), wspace=plot_gap)
+    fig.set_size_inches(width, height)
+
+    return fig, (error_axis, output_axis)
