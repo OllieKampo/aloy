@@ -49,6 +49,11 @@ from datahandling.makedata import DataHolder
 from optimization.decayfunctions import DecayFunctionType, get_decay_function
 
 
+# TODO: Add gravity following the paper "A novel hybrid gravitational search particle swarm optimization algorithm" https://www.sciencedirect.com/science/article/abs/pii/S095219762100110X
+# Build a kd-tree of particle cloud, take the weighted by inverse of distance average of the differences between the fitness of each particle and its k-nearest neighbours, and use that as the gravity for that position.
+# To find the gravity of a new position, find the k-nearest known gravity positions and take the weighted by inverse of distance average of the known gravity values.
+
+
 @dataclasses.dataclass(frozen=True)
 class Dimension:
     """
