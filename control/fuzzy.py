@@ -32,11 +32,14 @@ Contains inbuilt functionality for the following:
     Dynamic importance degrees
 """
 
-from abc import ABCMeta, abstractmethod
+from abc import ABCMeta, abstractmethod, abstractproperty
 from collections import deque
+from typing import Callable, Iterable, NamedTuple, Sequence, final
+from matplotlib import figure, pyplot as plt
+
 import numpy as np
 import numpy.typing as npt
-from typing import Callable, Iterable, NamedTuple, final
+
 from control.controllers import Controller, calc_error, clamp
 
 
@@ -69,7 +72,7 @@ class FuzzyVariable:
 
         `max_val: float` - The maximum value of the variable.
 
-        `gain: float` - The gain of the variable.
+        `gain: float = 1.0` - The gain of the variable.
         """
         self.__name: str = name
         self.__min_val: float = min_val
@@ -102,12 +105,7 @@ class FuzzyVariable:
         """Get the gain of the variable."""
         return self.__gain
 
-    @final
-    def __hash__(self) -> int:
-        """Get the hash of the variable."""
-        return hash(self.__name)
-
-    def get_value(
+    def get_value(  # pylint: disable=unused-argument
         self,
         error: float,
         delta_time: float,
@@ -115,6 +113,17 @@ class FuzzyVariable:
     ) -> float:
         """
         Calculate the weighted normalised proportional value of the variable.
+
+        Parameters
+        ----------
+        `error: float` - The error of the system.
+
+        `delta_time: float` - The time since the last update.
+
+        `abs_tol: float | None = None` - The absolute tolerance for the
+        time difference. If given and not None, if the time difference is
+        smaller than the given value, then the integral and derivative
+        errors are not updated to avoid precision errors.
         """
         return ((self.__gain * error) - self.__min_val) / self.__range
 
@@ -143,7 +152,19 @@ class IntegralFuzzyVariable(FuzzyVariable):
         max_val: float,
         gain: float = 1.0
     ) -> None:
-        """Create an integral fuzzy variable."""
+        """
+        Create an integral fuzzy variable.
+
+        Parameters
+        ----------
+        `name: str` - The name of the variable.
+
+        `min_val: float` - The minimum value of the variable.
+
+        `max_val: float` - The maximum value of the variable.
+
+        `gain: float = 1.0` - The gain of the variable.
+        """
         super().__init__(name, min_val, max_val, gain)
         self.__center: float = (max_val + min_val) / 2.0
         self.__integral_sum: float = 0.0
@@ -157,6 +178,17 @@ class IntegralFuzzyVariable(FuzzyVariable):
         """
         Calculate the estimated weighted normalised integral value of the
         variable.
+
+        Parameters
+        ----------
+        `error: float` - The error of the system.
+
+        `delta_time: float` - The time since the last update.
+
+        `abs_tol: float | None = None` - The absolute tolerance for the
+        time difference. If given and not None, if the time difference is
+        smaller than the given value, then the integral and derivative
+        errors are not updated to avoid precision errors.
         """
         if delta_time > 0.0 and (abs_tol is None or delta_time > abs_tol):
             self.__integral_sum += (error - self.__center) * delta_time
@@ -191,7 +223,19 @@ class DerivativeFuzzyVariable(FuzzyVariable):
         average_derivatives: int = 3,
         initial_error: float | None = None
     ) -> None:
-        """Create a derivative fuzzy variable."""
+        """
+        Create a derivative fuzzy variable.
+
+        Parameters
+        ----------
+        `name: str` - The name of the variable.
+
+        `min_val: float` - The minimum value of the variable.
+
+        `max_val: float` - The maximum value of the variable.
+
+        `gain: float = 1.0` - The gain of the variable.
+        """
         super().__init__(name, min_val, max_val, gain)
         self.__latest_error: float | None = None
         self.__derivatives = deque[float](maxlen=average_derivatives)
@@ -206,6 +250,17 @@ class DerivativeFuzzyVariable(FuzzyVariable):
         """
         Calculate the estimated weighted normalised derivative value of the
         variable.
+
+        Parameters
+        ----------
+        `error: float` - The error of the system.
+
+        `delta_time: float` - The time since the last update.
+
+        `abs_tol: float | None = None` - The absolute tolerance for the
+        time difference. If given and not None, if the time difference is
+        smaller than the given value, then the integral and derivative
+        errors are not updated to avoid precision errors.
         """
         derivative: float = 0.0
         if delta_time > 0.0 and (abs_tol is None or delta_time > abs_tol):
@@ -259,6 +314,19 @@ class MembershipFunction(metaclass=ABCMeta):
         """Get the name of the variable."""
         return self.__name
 
+    @abstractproperty
+    def params(self) -> tuple[float, ...]:
+        """Get the parameters of the membership function."""
+        raise NotImplementedError
+
+    def __repr__(self) -> str:
+        """Get an instantiable string representation of the membership function."""
+        return f"{self.__class__.__name__}({self.__name!r}, *{self.params!r})"
+
+    def __str__(self) -> str:
+        """Get a huamn readable string representation of the membership function."""
+        return f"{self.__class__.__name__} {self.__name!s}: {self.params!s}"
+
     @final
     def __hash__(self) -> int:
         """Get the hash of the membership function."""
@@ -270,12 +338,12 @@ class MembershipFunction(metaclass=ABCMeta):
         output: float
     ) -> RuleActivation:
         """
-        Calculate the activation of the rule.
+        Calculate the activation of a rule using this membership function
+        and for the given normalised input variable value and output weight.
 
-        The activation is equal to the degree of truth of the rule
-        multiplied by the output of the rule. Where the truth is
-        equivalent to the degree of membership of the value of
-        its given error variable in its membership function.
+        The activation is equal to the degree of truth of the rule (the
+        membership of the input value within this membership function)
+        multiplied by the output weight of the rule.
         """
         truth: float = self.fuzzify(input_)
         return RuleActivation(truth, truth * output)
@@ -283,9 +351,10 @@ class MembershipFunction(metaclass=ABCMeta):
     @abstractmethod
     def fuzzify(self, value: float) -> float:
         """
-        Fuzzify a value.
+        Fuzzify a value using this membership function.
 
-        This method must be implemented by subclasses.
+        This calculates the degree of membership of the given value in this
+        membership function.
         """
         ...
 
@@ -300,16 +369,35 @@ class MembershipFunction(metaclass=ABCMeta):
         """
         ...
 
+    @staticmethod
+    def plot_membership_functions(
+        membership_functions: Iterable["MembershipFunction"]
+    ) -> figure.Figure:
+        """
+        Plot the given membership functions.
+
+        Parameters
+        ----------
+        `membership_functions: Iterable[MembershipFunction]` - The membership
+        functions to plot.
+        """
+        fig, ax = plt.subplots()
+        for membership_function in membership_functions:
+            x, y = membership_function.to_array()
+            ax.plot(x, y, label=membership_function.name)
+        ax.legend()
+        return fig
+
 
 @final
 class TriangularFunction(MembershipFunction):
     """Class defining triangular membership functions."""
 
-    __slots__ = (
-        "__start",
-        "__peak",
-        "__end"
-    )
+    __slots__ = {
+        "__start": "The value at which the triangle starts.",
+        "__peak": "The value at which the triangle peaks.",
+        "__end": "The value at which the triangle ends."
+    }
 
     def __init__(
         self,
@@ -318,7 +406,30 @@ class TriangularFunction(MembershipFunction):
         peak: float,
         end: float
     ) -> None:
-        """Create a triangular membership function."""
+        """
+        Create a triangular membership function.
+
+        A value has a degree of membership of 1.0 if it is equal to the peak.
+        Has a degree of membership increasing linearly from 0.0 to 1.0 from the
+        start to the peak, and decreasing linearly from 1.0 to 0.0 from the
+        peak to the end. Otherwise the degree of membership is 0.0.
+
+        Parameters
+        ----------
+        `name: str` - The name of the membership function.
+
+        `start: float` - The value at which the triangle starts.
+
+        `peak: float` - The value at which the triangle peaks.
+
+        `end: float` - The value at which the triangle ends.
+
+        Raises
+        ------
+        `ValueError` - If the start is greater than the peak or the peak is
+        greater than the end. Or if any of the parameters are not in the range
+        [0.0, 1.0].
+        """
         super().__init__(name, start, peak, end)
         if start > peak or peak > end:
             raise ValueError(
@@ -330,9 +441,16 @@ class TriangularFunction(MembershipFunction):
         self.__peak: float = peak
         self.__end: float = end
 
+    @property
+    def params(self) -> tuple[float, float, float]:
+        """Get the parameters of the membership function."""
+        return self.__start, self.__peak, self.__end
+
     def fuzzify(self, value: float) -> float:
         """
-        Calculate the degree of membership of the given value in the
+        Fuzzify a value using this membership function.
+
+        This calculates the degree of membership of the given value in this
         membership function.
         """
         if not (self.__start <= value <= self.__end):
@@ -345,8 +463,8 @@ class TriangularFunction(MembershipFunction):
         self
     ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         """Convert the membership function to an array."""
-        x_points = np.array([0.0, self.__start, self.__peak, self.__end, 1.0])
-        y_points = np.array([0.0, 0.0, 1.0, 0.0, 0.0])
+        x_points = np.array([0.0, self.__start, self.__peak, self.__peak, self.__end, 1.0])
+        y_points = np.array([0.0, 0.0, 1.0, 1.0, 0.0, 0.0])
         return (x_points, y_points)
 
 
@@ -354,12 +472,12 @@ class TriangularFunction(MembershipFunction):
 class TrapezoidalFunction(MembershipFunction):
     """Class defining trapezoidal membership functions."""
 
-    __slots__ = (
-        "__start",
-        "__first_peak",
-        "__second_peak",
-        "__end"
-    )
+    __slots__ = {
+        "__start": "The value at which the trapezoid starts.",
+        "__first_peak": "The value of the first peak of the trapezoid.",
+        "__second_peak": "The value of the second peak of the trapezoid.",
+        "__end": "The value at which the trapezoid ends."
+    }
 
     def __init__(
         self,
@@ -369,19 +487,132 @@ class TrapezoidalFunction(MembershipFunction):
         second_peak: float,
         end: float
     ) -> None:
-        """Create a trapezoidal membership function."""
+        """
+        Create a trapezoidal membership function.
+
+        A value has a degree of membership of 1.0 if it is between the first
+        peak and second peak. Has a degree of membership increasing linearly
+        from 0.0 to 1.0 from the start to the first peak, and decreasing
+        linearly from 1.0 to 0.0 from the second peak to the end. Otherwise
+        the degree of membership is 0.0.
+
+        Parameters
+        ----------
+        `name: str` - The name of the membership function.
+
+        `start: float` - The value at which the trapezoid starts.
+
+        `first_peak: float` - The value of the first peak of the trapezoid.
+
+        `second_peak: float` - The value of the second peak of the trapezoid.
+
+        `end: float` - The value at which the trapezoid ends.
+
+        Raises
+        ------
+        `ValueError` - If the start is greater than the first peak, the
+        first peak is greater than the second peak or the second peak
+        is greater than the end. Or if any of the parameters are not in the
+        range [0.0, 1.0].
+        """
         super().__init__(name, start, first_peak, second_peak, end)
         if start > first_peak or first_peak > second_peak or second_peak > end:
             raise ValueError(
                 "Invalid trapezoidal membership function parameters."
                 "Start must be less than first peak, first peak less "
-                "than second peak and second peak less than end."
+                "than second peak, and second peak less than end."
                 f"Got; {start=}, {first_peak=}, {second_peak=}, {end=}."
             )
         self.__start: float = start
         self.__first_peak: float = first_peak
         self.__second_peak: float = second_peak
         self.__end: float = end
+
+    @classmethod
+    def create_set(
+        cls,
+        names: Sequence[str],
+        sizes: Sequence[float] | None = None,
+        overlap: float | None = None
+    ) -> tuple["TrapezoidalFunction", ...]:
+        """
+        Create a set of trapezoidal membership functions.
+
+        Parameters
+        ----------
+        `names: Sequence[str]` - The names of the membership functions.
+
+        `sizes: Sequence[float]` - The relative sizes of the membership
+        functions. This is the proportion of the total normalised range
+        of an input variable that each membership function covers. Must
+        sum to 1.0, no value can be 0.0.
+
+        Raises
+        ------
+        `ValueError` - If the number of names and sizes do not match or the
+        sum of the sizes is not 1.0.
+        """
+        if sizes is not None:
+            if len(names) != len(sizes):
+                raise ValueError(
+                    "The number of names and sizes must match."
+                    f"Got; {len(names)=}, {len(sizes)=}."
+                )
+            if overlap is None:
+                raise ValueError(
+                    "If sizes is provided, overlap must also be provided."
+                )
+            if sum(sizes) != 1.0:
+                raise ValueError(
+                    "The sum of the sizes must be 1.0."
+                    f"Got; {sum(sizes)=}."
+                )
+            if any(size == 0.0 for size in sizes):
+                raise ValueError(
+                    "No size can be 0.0."
+                    f"Got; {sizes=}."
+                )
+        # Each membership needs its plateau (of the same size) and its ramps
+        # (of the same size). The first and last membership functions only
+        # have one ramp (right and left respectively).
+        membership_functions: list[TrapezoidalFunction] = []
+        if sizes is None:
+            spaces = np.linspace(0.0, 1.0, len(names) * 2)
+            for index, name in enumerate(names, start=-1):
+                if index == -1:
+                    start = 0.0
+                else:
+                    start = spaces[(index * 2) + 1]
+                first_peak = spaces[(index * 2) + 2]
+                second_peak = spaces[(index * 2) + 3]
+                if index == len(names) - 2:
+                    end = 1.0
+                else:
+                    end = spaces[(index * 2) + 4]
+                membership_functions.append(
+                    cls(name, start, first_peak, second_peak, end)
+                )
+        else:
+            space_size = 1.0 / ((len(names) * 2) - 1)
+            for index, name in enumerate(names, start=-1):
+                start = max((index * 2 * space_size) + space_size, 0.0)
+                first_peak = (index * 2 * space_size) + (space_size * 2)
+                second_peak = (index * 2 * space_size) + (space_size * 3)
+                end = min((index * 2 * space_size) + (space_size * 4), 1.0)
+                membership_functions.append(
+                    cls(name, start, first_peak, second_peak, end)
+                )
+        return tuple(membership_functions)
+
+    @property
+    def params(self) -> tuple[float, float, float, float]:
+        """Get the parameters of the membership function."""
+        return (
+            self.__start,
+            self.__first_peak,
+            self.__second_peak,
+            self.__end
+        )
 
     def fuzzify(self, value: float) -> float:
         """
@@ -416,13 +647,31 @@ class TrapezoidalFunction(MembershipFunction):
 class RectangularFunction(MembershipFunction):
     """Class defining rectangular membership functions."""
 
-    __slots__ = (
-        "__start",
-        "__end"
-    )
+    __slots__ = {
+        "__start": "The value at which the rectangle starts.",
+        "__end": "The value at which the rectangle ends."
+    }
 
     def __init__(self, name: str, start: float, end: float) -> None:
-        """Create a rectangular membership function."""
+        """
+        Create a rectangular membership function.
+
+        A value has a degree of membership of 1.0 if it is between the start
+        and end values, otherwise it has a membership of 0.0.
+
+        Parameters
+        ----------
+        `name: str` - The name of the membership function.
+
+        `start: float` - The value at which the rectangle starts.
+
+        `end: float` - The value at which the rectangle ends.
+
+        Raises
+        ------
+        `ValueError` - If the start is greater than the end. Or if any of the
+        parameters are not in the range [0.0, 1.0].
+        """
         super().__init__(name, start, end)
         if start > end:
             raise ValueError(
@@ -431,6 +680,11 @@ class RectangularFunction(MembershipFunction):
             )
         self.__start: float = start
         self.__end: float = end
+
+    @property
+    def params(self) -> tuple[float, float]:
+        """Get the parameters of the membership function."""
+        return (self.__start, self.__end)
 
     def fuzzify(self, value: float) -> float:
         """
@@ -476,6 +730,11 @@ class SinusoidalFunction(MembershipFunction):
             )
         self.__start: float = start
         self.__end: float = end
+
+    @property
+    def params(self) -> tuple[float, float]:
+        """Get the parameters of the membership function."""
+        return (self.__start, self.__end)
 
     def fuzzify(self, value: float) -> float:
         """
@@ -872,10 +1131,22 @@ if __name__ == "__main__":
     derivative = DerivativeFuzzyVariable("derivative", -10.0, 10.0, gain=0.0)
     integral = IntegralFuzzyVariable("integral", -10.0, 10.0, gain=1.0)
 
-    tiny = TrapezoidalFunction("tiny", 0.0, 0.0, 0.1818, 0.2727)
-    small = TrapezoidalFunction("small", 0.1818, 0.2727, 0.4545, 0.5454)
-    big = TrapezoidalFunction("big", 0.4545, 0.5454, 0.7272, 0.8181)
-    large = TrapezoidalFunction("large", 0.7272, 0.8181, 1.0, 1.0)
+    # tiny = TrapezoidalFunction("tiny", 0.0, 0.0, 0.1818, 0.2727)
+    # small = TrapezoidalFunction("small", 0.1818, 0.2727, 0.4545, 0.5454)
+    # big = TrapezoidalFunction("big", 0.4545, 0.5454, 0.7272, 0.8181)
+    # large = TrapezoidalFunction("large", 0.7272, 0.8181, 1.0, 1.0)
+
+    tiny, small, big, large = TrapezoidalFunction.create_set(
+        ["tiny", "small", "big", "large"],
+        [0.25, 0.25, 0.25, 0.25]
+    )
+    for mem_func in [tiny, small, big, large]:
+        print(mem_func.params)
+    fig = MembershipFunction.plot_membership_functions(
+        [tiny, small, big, large]
+    )
+    fig.show()
+    input()
 
     controller = FuzzyController(
         [proportional, derivative, integral],
