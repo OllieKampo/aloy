@@ -687,8 +687,6 @@ class MultiVariateController:
         # Maps: output_name <-> input_names
         # An output can cascade to multiple inputs, but an input can only
         # be cascaded to from one output, therefore the mapping is one-to-many.
-        # Doing self.__cascade[input_name] returns one output_name, but
-        # self.__cascade[output_name] returns a set of input_names.
         self.__cascades = TwoWayMap[str]()
 
         # Maps: output_name -> order
@@ -717,6 +715,14 @@ class MultiVariateController:
     def outputs_for(self, input_name: str) -> SetView[str]:
         """Get the control output names for the moduler controller."""
         return self.__input_output_mapping.forwards[input_name]
+
+    def cascades_from(self, output_name: str) -> SetView[str]:
+        """Get the cascades from a given output name."""
+        return self.__cascades.forwards[output_name]
+
+    def cascade_to(self, input_name: str) -> SetView[str]:
+        """Get the cascade to a given input name."""
+        return next(iter(self.__cascades.backwards[input_name]))
 
     def declare_module(
         self,
@@ -1097,16 +1103,18 @@ class MultiVariateController:
                 while _next != output_name:
                     _path.append(_next)
                     _next = path[_next]
+                _path.append(output_name)
                 raise ValueError(
                     f"Cannot cascade output {output_name!r} to input "
                     f"{input_name!r}. As input maps to output via "
-                    f"the cyclic path {' -> '.join(_path)}."
+                    f"the cyclic path: {' -> '.join(_path)}."
                 )
-            for _input in _inputs_for_output:
-                if _input in self.__cascades:
-                    output_frontier.add(self.__cascades[_input][0])
-                    path[_input] = _output_name
-                    path[self.__cascades[_input][0]] = _input
+            for _input_name in _inputs_for_output:
+                if _input_name in self.__cascades:
+                    _next_output = self.cascade_to(_input_name)
+                    output_frontier.add(_next_output)
+                    path[_input_name] = _output_name
+                    path[_next_output] = _input_name
 
         # Add the cascade itself.
         self.__cascades.add(output_name, input_name)

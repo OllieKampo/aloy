@@ -105,33 +105,33 @@ class SetView(collections.abc.Set, Generic[ST]):
 
 
 KT = TypeVar("KT", bound=Hashable)
-VT = TypeVar("VT", bound=Hashable, covariant=True)
+VT_co = TypeVar("VT_co", bound=Hashable, covariant=True)
 
 
 @final
-class ListValuedMappingView(collections.abc.Mapping, Generic[KT, VT]):
+class ListValuedMappingView(collections.abc.Mapping, Generic[KT, VT_co]):
     """Class defining a list-valued mapping view type."""
 
     __slots__ = {
         "__list_valued_mapping": "The list-valued mapping being viewed."
     }
 
-    def __init__(self, mapping: Mapping[KT, list[VT]], /) -> None:
+    def __init__(self, mapping: Mapping[KT, list[VT_co]], /) -> None:
         """Create a new list-valued mapping view."""
-        self.__list_valued_mapping: Mapping[KT, list[VT]] = mapping
+        self.__list_valued_mapping: Mapping[KT, list[VT_co]] = mapping
 
     def __repr__(self) -> str:
         """
         Get an instantiable string representation of the list-valued mapping
         view.
         """
-        return f"ListValuedDictView({self.__list_valued_mapping!r})"
+        return f"ListValuedMappingView({self.__list_valued_mapping!r})"
 
     def __contains__(self, key: object, /) -> bool:
         """Check if a key is in the list-valued mapping view."""
         return key in self.__list_valued_mapping
 
-    def __getitem__(self, key: KT, /) -> ListView[VT]:
+    def __getitem__(self, key: KT, /) -> ListView[VT_co]:
         """Get the list of items in the list-valued mapping view."""
         return ListView(self.__list_valued_mapping[key])
 
@@ -145,29 +145,29 @@ class ListValuedMappingView(collections.abc.Mapping, Generic[KT, VT]):
 
 
 @final
-class SetValuedMappingView(collections.abc.Mapping, Generic[KT, VT]):
+class SetValuedMappingView(collections.abc.Mapping, Generic[KT, VT_co]):
     """Class defining a set-valued mapping view type."""
 
     __slots__ = {
         "__set_valued_mapping": "The set-valued mapping being viewed."
     }
 
-    def __init__(self, mapping: Mapping[KT, set[VT]], /) -> None:
+    def __init__(self, mapping: Mapping[KT, set[VT_co]], /) -> None:
         """Create a new set-valued mapping view."""
-        self.__set_valued_mapping: Mapping[KT, set[VT]] = mapping
+        self.__set_valued_mapping: Mapping[KT, set[VT_co]] = mapping
 
     def __repr__(self) -> str:
         """
         Get an instantiable string representation of the set-valued mapping
         view.
         """
-        return f"SetValuedDictView({self.__set_valued_mapping!r})"
+        return f"SetValuedMappingView({self.__set_valued_mapping!r})"
 
     def __contains__(self, key: object, /) -> bool:
         """Check if a key is in the set-valued mapping view."""
         return key in self.__set_valued_mapping
 
-    def __getitem__(self, key: KT, /) -> SetView[VT]:
+    def __getitem__(self, key: KT, /) -> SetView[VT_co]:
         """Get the set of items in the set-valued mapping view."""
         return SetView(self.__set_valued_mapping[key])
 
