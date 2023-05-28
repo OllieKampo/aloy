@@ -1,31 +1,26 @@
-############################################################################
-############################################################################
-## Module defining controllers.                                           ##
-##                                                                        ##
-## Copyright (C) 2022 Oliver Michael Kamperis                             ##
-##                                                                        ##
-## This program is free software: you can redistribute it and/or modify   ##
-## it under the terms of the GNU General Public License as published by   ##
-## the Free Software Foundation, either version 3 of the License, or      ##
-## any later version.                                                     ##
-##                                                                        ##
-## This program is distributed in the hope that it will be useful,        ##
-## but WITHOUT ANY WARRANTY; without even the implied warranty of         ##
-## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the           ##
-## GNU General Public License for more details.                           ##
-##                                                                        ##
-## You should have received a copy of the GNU General Public License      ##
-## along with this program. If not, see <https://www.gnu.org/licenses/>.  ##
-############################################################################
-############################################################################
+"""
+Module defining base classes for feedback controllers.
 
-"""Module defining controllers."""
+Copyright (C) 2023 Oliver Michael Kamperis.
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
 
 from abc import ABCMeta, abstractmethod
 from contextlib import contextmanager
 import inspect
 from numbers import Real
 import threading
+import time
 import types
 from typing import (
     Callable, Final, Iterable, Iterator, KeysView, Literal, Mapping,
@@ -33,12 +28,12 @@ from typing import (
 )
 import statistics
 
-from control.controlutils import ControllerTimer
 from datastructures.mappings import ReversableDict, TwoWayMap
 from datastructures.views import SetView
 
 __copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
+__version__ = "0.1.0"
 
 __all__ = (
     "Controller",
@@ -388,7 +383,7 @@ __COMBINFER_FUNCS: Final[dict[str, Callable[[Iterable[float]], float]]] = {
 }
 
 
-def __get_combiner_func(
+def _get_combiner_func(
     mode: Literal["sum", "mean", "median"] = "mean"
 ) -> Callable[[Iterable[float]], float]:
     """
@@ -501,7 +496,7 @@ class ControllerCombiner(Controller):
     @mode.setter
     def mode(self, mode: Literal["sum", "mean", "median"]) -> None:
         """Set the output combination mode of the inner controllers."""
-        self.__mode = __get_combiner_func(mode)
+        self.__mode = _get_combiner_func(mode)
 
     @property
     def weights(self) -> types.MappingProxyType[str, float]:
@@ -658,9 +653,10 @@ class ControllerCombiner(Controller):
             controller.reset()
 
 
+@final
 class MultiVariateController:
     """
-    Class defining a multi-variate controller.
+    Class defining multi-variate controllers.
 
     Multi-variate controllers are composed of many controllers and can handle
     multiple input and output variables with complex mappings. Controllers are
@@ -681,7 +677,7 @@ class MultiVariateController:
     }
 
     def __init__(self) -> None:
-        """Create a moduler controller from a mapping of controllers."""
+        """Create a new multi-variate controller."""
         # Maps: output_name -> input_name -> controller
         self.__modules: dict[str, dict[str, Controller]] = {}
 
@@ -691,7 +687,7 @@ class MultiVariateController:
         # Maps: output_name <-> input_names
         # An output can cascade to multiple inputs, but an input can only
         # be cascaded to from one output, therefore the mapping is one-to-many.
-        # Doing self.__cascade[input_name] return one output_name, but
+        # Doing self.__cascade[input_name] returns one output_name, but
         # self.__cascade[output_name] returns a set of input_names.
         self.__cascades = TwoWayMap[str]()
 
@@ -714,11 +710,11 @@ class MultiVariateController:
         """Get the output names."""
         return self.__input_output_mapping.backwards.keys()
 
-    def control_inputs_for(self, output_name: str) -> SetView[str]:
+    def inputs_for(self, output_name: str) -> SetView[str]:
         """Get the input names for a given output module name."""
         return self.__input_output_mapping.backwards[output_name]
 
-    def control_outputs_for(self, input_name: str) -> SetView[str]:
+    def outputs_for(self, input_name: str) -> SetView[str]:
         """Get the control output names for the moduler controller."""
         return self.__input_output_mapping.forwards[input_name]
 
@@ -747,12 +743,13 @@ class MultiVariateController:
         """
         if output_name in self.__modules:
             raise ValueError(
-                f"Module for Output {output_name!r} already exists."
+                f"Module for Output {output_name!r} already exists. "
                 "Use `update_module` or `add_controller` instead."
             )
         self.__modules[output_name] = {}
+        self.__order[output_name] = 1
         self.__weights[output_name] = {}
-        self.__modes[output_name] = __get_combiner_func(mode)
+        self.__modes[output_name] = _get_combiner_func(mode)
 
     def add_module(
         self,
@@ -795,6 +792,7 @@ class MultiVariateController:
                 "Use `update_module` or `add_controller` instead."
             )
 
+        self.__modules[output_name] = {}
         for input_name, controller in controllers.items():
             if not isinstance(controller, Controller):
                 raise TypeError(
@@ -804,6 +802,8 @@ class MultiVariateController:
             self.__input_output_mapping.add(input_name, output_name)
             self.__modules[output_name][input_name] = controller
 
+        self.__order[output_name] = 1
+
         if weights is None:
             self.__weights[output_name] = {name: 1.0 for name in controllers}
         else:
@@ -811,7 +811,8 @@ class MultiVariateController:
                 name: weights.get(name, 1.0)
                 for name in controllers
             }
-        self.__modes[output_name] = __get_combiner_func(mode)
+
+        self.__modes[output_name] = _get_combiner_func(mode)
 
     def update_module(
         self,
@@ -860,7 +861,8 @@ class MultiVariateController:
                     f"Controllers must be of type {Controller!r}. "
                     f"Got; {controller!r} of {type(controller)!r}."
                 )
-            if input_name not in self.__input_output_mapping[output_name]:
+            if not self.__input_output_mapping.maps_to(
+                    input_name, output_name):
                 self.__input_output_mapping.add(input_name, output_name)
             self.__modules[output_name][input_name] = controller
 
@@ -871,7 +873,7 @@ class MultiVariateController:
         else:
             self.__weights[output_name] = dict(weights)
         if mode is not None:
-            self.__modes[output_name] = __get_combiner_func(mode)
+            self.__modes[output_name] = _get_combiner_func(mode)
 
     def remove_module(self, output_name: str, /) -> None:
         """
@@ -892,7 +894,11 @@ class MultiVariateController:
                 f"Module for output {output_name!r} does not exist."
             )
         del self.__modules[output_name]
-        del self.__input_output_mapping[output_name]
+        if output_name in self.__input_output_mapping:
+            del self.__input_output_mapping[output_name]
+        if output_name in self.__cascades:
+            del self.__cascades[output_name]
+        del self.__order[output_name]
         del self.__weights[output_name]
         del self.__modes[output_name]
 
@@ -907,7 +913,7 @@ class MultiVariateController:
     def add_controller(
         self,
         input_name: str,
-        output_name: str,
+        output_name: str, /,
         controller: Controller,
         weight: float = 1.0
     ) -> None:
@@ -936,7 +942,7 @@ class MultiVariateController:
         """
         if output_name not in self.__modules:
             raise ValueError(
-                f"Module for output {output_name!r} does not exist."
+                f"Module for output {output_name!r} does not exist. "
                 "Use `declare_module` to declare a module."
             )
         if input_name in self.__input_output_mapping.forwards:
@@ -958,14 +964,37 @@ class MultiVariateController:
 
     def remove_controller(self, input_name: str, output_name: str, /) -> None:
         """
-        Remove a controller from the moduler controller.
+        Remove a controller for a given input and output mapping.
 
         If the module for the given output is empty after the removal, the
         module is also removed.
+
+        Parameters
+        ----------
+        `input_name: str` - The name of the input variable.
+
+        `output_name: str` - The name of the output variable.
+
+        Raises
+        ------
+        `ValueError` - If a module for the given output variable does not
+        exist, or if the input variable does not map to the given output
+        variable.
         """
+        if output_name not in self.__modules:
+            raise ValueError(
+                f"Module for output {output_name!r} does not exist."
+            )
+        if not self.__input_output_mapping.maps_to(input_name, output_name):
+            raise ValueError(
+                f"Input {input_name!r} does not map to output {output_name!r}."
+            )
         del self.__modules[output_name][input_name]
         del self.__input_output_mapping[(input_name, output_name)]
+        if input_name in self.__cascades:
+            del self.__cascades[input_name]
         del self.__weights[output_name][input_name]
+        del self.__modes[output_name][input_name]
         if not self.__modules[output_name]:
             self.remove_module(output_name)
 
@@ -1013,20 +1042,39 @@ class MultiVariateController:
         """
         Cascade an output variable to the set-point of an input variable.
 
-        
+        Parameters
+        ----------
+        `output_name: str` - The name of the output variable.
+
+        `input_name: str` - The name of the input variable.
+
+        Raises
+        ------
+        `ValueError` - If a module for the given output variable does not
+        exist, or if the input variables does not exist in any module, or if
+        the input variable is already cascaded to, or if the cascade would
+        create a cycle. A cycle is created if the module for the given output
+        variable either takes the input variables as input directly, or if it
+        takes the input variables as input indirectly via another output
+        that is cascaded to one of its inputs.
+
+        Note
+        ----
+        An output variable can cascade to multiple input variables, but an
+        input variable can only be cascaded to from one output variable.
         """
         if output_name not in self.__modules:
             raise ValueError(
                 f"Module for output {output_name!r} does not exist."
             )
-        if input_name not in self.__input_output_mapping[output_name]:
+        if input_name not in self.__input_output_mapping:
             raise ValueError(
-                f"Input {input_name!r} does not exist in module"
-                f"for output {output_name!r}."
+                f"Input {input_name!r} does not exist in any module."
             )
         if input_name in self.__cascades:
             raise ValueError(
-                f"Input {input_name!r} is already cascaded to."
+                f"Input {input_name!r} is already cascaded to. "
+                "Inputs can only be cascaded to from one output."
             )
 
         # Do not allow a cascade that creates a cycle;
@@ -1040,21 +1088,20 @@ class MultiVariateController:
                 if _output_name == output_name:
                     raise ValueError(
                         f"Cannot cascade output {output_name!r} to input "
-                        f"{input_name!r}. As input maps to output."
-                        f"Inputs for output {output_name!r}: "
+                        f"{input_name!r}. As input maps to output. "
+                        f"Inputs for output {output_name!r} are: "
                         f"{self.__input_output_mapping[output_name]!r}."
                     )
-                else:
-                    _path = [input_name, _output_name]
-                    _next = path[_output_name]
-                    while _next != output_name:
-                        _path.append(_next)
-                        _next = path[_next]
-                    raise ValueError(
-                        f"Cannot cascade output {output_name!r} to input "
-                        f"{input_name!r}. As input maps to output via "
-                        f"cyclic path {' -> '.join(_path)}."
-                    )
+                _path = [input_name, _output_name]
+                _next = path[_output_name]
+                while _next != output_name:
+                    _path.append(_next)
+                    _next = path[_next]
+                raise ValueError(
+                    f"Cannot cascade output {output_name!r} to input "
+                    f"{input_name!r}. As input maps to output via "
+                    f"the cyclic path {' -> '.join(_path)}."
+                )
             for _input in _inputs_for_output:
                 if _input in self.__cascades:
                     output_frontier.add(self.__cascades[_input][0])
@@ -1067,18 +1114,32 @@ class MultiVariateController:
         # Ensure that control outputs are calculated in the correct order;
         #   - The module whose output is `output_name` must be calculated
         #     before all modules which take `input_name` as an input.
-        #   - If a cascade is added to a module whose output is already
-        #     cascaded to another input, then shift the order of the modules
-        #     that arecascaded to down the list.
+        #   - If a cascade is added to an input that goes to a module whose
+        #     output is already cascaded to another input, then shift the
+        #     order of the modules that arecascaded to down the list.
         order: int = self.__order[output_name]
+        # Frontier contains input names and one greater than the order of the
+        # output which cascades to them. All modules that take that input as
+        # input must have at least that order. Since inputs can only be
+        # cascaded to from one output, each input is only added once.
         input_frontier: set[tuple[str, int]] = {(input_name, order + 1)}
         while input_frontier:
             _input_name, _order = input_frontier.pop()
+            # Go through all modules which take the input as an input.
             _outputs_for_input = self.__input_output_mapping[_input_name]
-            for _output in _outputs_for_input:
-                if _output in self.__cascades:
-                    self.__order[_output_name] = _order
-                    _input_names = self.__cascades[_output]
+            for _output_name in _outputs_for_input:
+                # Ensure the order of the module for this output is greater
+                # than the order of the module for the output which cascaded
+                # to the current input.
+                self.__order[_output_name] = max(
+                    self.__order[_output_name],
+                    _order
+                )
+                # If the output is cascaded to another input, then add that
+                # input to the frontier, and continue to shift the order of
+                # the modules that are cascaded to down the list.
+                if _output_name in self.__cascades:
+                    _input_names = self.__cascades[_output_name]
                     for _name in _input_names:
                         input_frontier.add((_name, _order + 1))
 
@@ -1128,9 +1189,9 @@ class MultiVariateController:
                     total_output.append(individual_output)
                 aggregate_output = self.__modes[output_name](total_output)
                 if output_name in self.__cascades:
-                    setpoints[self.__cascades[output_name]] = aggregate_output
-                else:
-                    outputs[output_name] = aggregate_output
+                    for input_name in self.__cascades[output_name]:
+                        setpoints[input_name] = aggregate_output
+                outputs[output_name] = aggregate_output
         return outputs
 
 
@@ -1201,17 +1262,82 @@ class ControlledSystem:
 
     def get_input_limits(
         self,
-        var_name: str | None = None
+        var_name: str | None = None  # pylint: disable=unused-argument
     ) -> tuple[float | None, float | None]:
         """Get the control input limits of the controlled system."""
         return (None, None)
 
     def get_output_limits(
         self,
-        var_name: str | None = None
+        var_name: str | None = None  # pylint: disable=unused-argument
     ) -> tuple[float | None, float | None]:
         """Get the control output limits of the controlled system."""
         return (None, None)
+
+
+@final
+class ControllerTimer:
+    """Class definng controller timers."""
+
+    __slots__ = {
+        "__time_last": "The time of the last call to `get_delta_time()`.",
+        "__calls": "The number of calls to `get_delta_time()` since the last "
+                   "reset."
+    }
+
+    def __init__(self):
+        """
+        Create a new controller timer.
+
+        The timer does not start tracking time until the first call to
+        `get_delta_time()`.
+        """
+        self.__time_last: float | None = None
+        self.__calls: int = 0
+
+    @property
+    def calls(self) -> int:
+        """Get the number of delta time calls since the last reset."""
+        return self.__calls
+
+    def get_delta_time(self, time_factor: float = 1.0) -> float:
+        """
+        Get the time difference since the last call to this method.
+
+        If this is the first call since the timer was created or reset then
+        return `0.0`.
+        """
+        self.__calls += 1
+        time_now = time.perf_counter()
+        if self.__time_last is None:
+            self.__time_last = time_now
+            return 0.0
+        raw_time = (time_now - self.__time_last)
+        self.__time_last = time_now
+        return raw_time * time_factor
+
+    def time_since_last(self, time_factor: float = 1.0) -> float:
+        """
+        Get the time since the last call to `get_delta_time()` without
+        updating the timer.
+        """
+        if self.__time_last is None:
+            return 0.0
+        return (time.perf_counter() - self.__time_last) * time_factor
+
+    def reset(self) -> None:
+        """Reset the timer to a state as if it were just created."""
+        self.__time_last = None
+        self.__calls = 0
+
+    def reset_time(self) -> None:
+        """
+        Reset the timer's internal time to the current time.
+
+        The next call to `get_delta_time()` will be calculated with respect to
+        the time this method was called.
+        """
+        self.__time_last = time.perf_counter()
 
 
 class ControlTick(NamedTuple):
@@ -1236,6 +1362,7 @@ class ControlTick(NamedTuple):
     delta_time: float
 
 
+@final
 class SystemController:
     """
     Class defining system controllers.
@@ -1257,14 +1384,15 @@ class SystemController:
         "__ticks": "The number of ticks since the last reset."
     }
 
-    def __init__(self,
-                 controller: Controller,
-                 system: ControlledSystem,
-                 input_var_name: str | None = None,
-                 output_var_name: str | None = None,
-                 get_input_limits: bool = False,
-                 get_output_limits: bool = False
-                 ) -> None:
+    def __init__(
+        self,
+        controller: Controller,
+        system: ControlledSystem,
+        input_var_name: str | None = None,
+        output_var_name: str | None = None,
+        get_input_limits: bool = False,
+        get_output_limits: bool = False
+    ) -> None:
         """
         Create a system controller from a controller and a controlled system.
 
@@ -1353,7 +1481,9 @@ class SystemController:
                             "difference since the last call, and the name "
                             "of the error variable.")
         if isinstance(setpoint, float):
-            def _setpoint(var_name: str) -> float:
+            def _setpoint(
+                var_name: str  # pylint: disable=unused-argument
+            ) -> float:
                 return setpoint  # type: ignore
             setpoint = _setpoint
         elif (not callable(setpoint)
@@ -1835,16 +1965,28 @@ class AutoSystemController:
             run_forever: bool = False
 
             if max_ticks is not None and max_time is not None:
-                def condition(i, e, o, dt, tt):
-                    return i < max_ticks and tt < max_time
+                def condition(  # pylint: disable=unused-argument
+                    tick,
+                    error, output,
+                    delta_time, total_time
+                ):
+                    return tick < max_ticks and total_time < max_time
                 run_forever = True
             elif max_ticks is not None:
-                def condition(i, e, o, dt, tt):
-                    return i < max_ticks
+                def condition(  # pylint: disable=unused-argument
+                    tick,
+                    error, output,
+                    delta_time, total_time
+                ):
+                    return tick < max_ticks
                 run_forever = True
             elif max_time is not None:
-                def condition(i, e, o, dt, tt):
-                    return tt < max_time
+                def condition(  # pylint: disable=unused-argument
+                    tick,
+                    error, output,
+                    delta_time, total_time
+                ):
+                    return total_time < max_time
                 run_forever = True
 
             self.__set_parameters(

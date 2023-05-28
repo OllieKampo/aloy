@@ -29,7 +29,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from auxiliary.numpyutils import get_turning_points
-import control.controllers as controllers
+from control.controllers import Controller, ControlledSystem
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
@@ -43,63 +43,6 @@ __all__ = (
 def __dir__() -> tuple[str]:
     """Get the names of module attributes."""
     return __all__
-
-
-class ControllerTimer:
-    """Class definng controller timers."""
-
-    __slots__ = ("__time_last",
-                 "__calls")
-
-    def __init__(self):
-        """
-        Create a new controller timer.
-
-        The timer does not start tracking time until the first call to
-        `get_delta_time()`.
-        """
-        self.__time_last: float | None = None
-        self.__calls: int = 0
-
-    @property
-    def calls(self) -> int:
-        """Get the number of delta time calls since the last reset."""
-        return self.__calls
-
-    def get_delta_time(self, time_factor: float = 1.0) -> float:
-        """
-        Get the time difference since the last call to this method.
-
-        If this is the first call since the timer was created or reset then
-        return `0.0`.
-        """
-        self.__calls += 1
-        time_now = time.perf_counter()
-        if self.__time_last is None:
-            self.__time_last = time_now
-            return 0.0
-        raw_time = (time_now - self.__time_last)
-        self.__time_last = time_now
-        return raw_time * time_factor
-
-    def time_since_last(self, time_factor: float = 1.0) -> float:
-        """Get the time since the last call to `get_delta_time()` without updating the timer."""
-        if self.__time_last is None:
-            return 0.0
-        return (time.perf_counter() - self.__time_last) * time_factor
-
-    def reset(self) -> None:
-        """Reset the timer to a state as if it were just created."""
-        self.__time_last = None
-        self.__calls = 0
-
-    def reset_time(self) -> None:
-        """
-        Reset the timer's internal time to the current time.
-
-        The next call to `get_delta_time()` will be calculated with respect to the time this method was called.
-        """
-        self.__time_last = time.perf_counter()
 
 
 # class WeightUpdateFunctionBuilder:
@@ -138,8 +81,8 @@ class ControllerTimer:
 
 
 def simulate_control(
-    control_system: "controllers.ControlledSystem",
-    controller: "controllers.Controller",
+    control_system: "ControlledSystem",
+    controller: "Controller",
     ticks: int,
     delta_time: float,
     penalise_oscillation: bool = True,
