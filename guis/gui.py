@@ -47,12 +47,19 @@ def __dir__() -> tuple[str, ...]:
     return __all__
 
 
+class JinxWidgetSize(NamedTuple):
+    """Tuple representing the size of a Jinx widget."""
+
+    width: int
+    height: int
+
+
 def scale_size(
     size: tuple[int, int],
     scale: tuple[float, float]
-) -> tuple[int, int]:
+) -> JinxWidgetSize:
     """Scale a size by the given factor."""
-    return (
+    return JinxWidgetSize(
         int(round(size[0] * scale[0])),
         int(round(size[1] * scale[1]))
     )
@@ -60,13 +67,30 @@ def scale_size(
 
 def scale_size_for_grid(
     size: tuple[int, int],
-    grid_size: tuple[int, int],
-    widget_size: tuple[int, int]
-) -> tuple[int, int]:
-    """Scale a size to fit a grid."""
-    scale = (
-        grid_size[0] / widget_size[0],
-        grid_size[1] / widget_size[1]
+    grid_shape: tuple[int, int],
+    padding: tuple[int, int] = (10, 10)
+) -> JinxWidgetSize:
+    """
+    Scale a size to find the size of a grid cell.
+
+    Parameters
+    ----------
+    `size: tuple[int, int]` - The size in pixels to be scaled.
+
+    `grid_size: tuple[int, int]` - The shape of the grid, i.e. the number
+    of rows and columns.
+
+    `padding: tuple[int, int] = (10, 10)` - The padding in pixels between
+    grid cells.
+
+    Returns
+    -------
+    `tuple[int, int]` - The scaled size in pixels of a grid cell.
+    """
+    scale = (1.0 / grid_shape[0], 1.0 / grid_shape[1])
+    size = (
+        size[0] - (padding[0] * (grid_shape[0] + 1)),
+        size[1] - (padding[1] * (grid_shape[1] + 1))
     )
     return scale_size(size, scale)
 
@@ -76,6 +100,8 @@ class JinxGuiData(observable.Observable):
 
     __slots__ = {
         "__weakref__": "Weak reference to the object.",
+        "__connected_gui": "The gui object connected to this data object.",
+        "__view_states": "The list of view states.",
         "__desired_view_state": "The currently desired view state.",
         "__view_states": "The list of view states.",
         "__data": "Arbitrary data associated with the gui."
@@ -84,18 +110,22 @@ class JinxGuiData(observable.Observable):
     def __init__(
         self,
         name: str | None = None,
+        gui: "JinxGuiWindow" | None = None,
         data_dict: dict[str, Any] | None = None, /,
         clock: ClockThread | QTimer | None = None, *,
         debug: bool = False
     ) -> None:
         """
-        Create a new Jinx gui data.
+        Create a new Jinx gui data object.
 
         Parameters
         ----------
         `name: str | None = None` - The name of the object.
         If not given or None, a unique name will be generated.
         See `jinx.guis.observable.Observable` for details.
+
+        `gui: JinxGuiWindow | None = None` - The gui object to be
+        connected to this gui data object.
 
         `data_dict: dict[str, Any] | None = None` - A data dictionary
         to be copied into the gui data object.
@@ -108,6 +138,9 @@ class JinxGuiData(observable.Observable):
         `debug: bool = False`  - Whether to log debug messages.
         """
         super().__init__(name, clock, debug=debug)
+        self.__connected_gui: JinxGuiWindow | None = None
+        if gui is not None:
+            self.connect_gui(gui)
         self.__desired_view_state: str | None = None
         self.__view_states: list[str] = []
         self.__data: dict[str, Any]
@@ -116,15 +149,33 @@ class JinxGuiData(observable.Observable):
         else:
             self.__data = data_dict.copy()
 
-    @atomic_update("view_states", method=True)
-    def add_view_state(self, view_state: str) -> None:
-        """Add a new view state name."""
-        self.__view_states.append(view_state)
+    @atomic_update("gui", method=True)
+    @observable.notifies_observers()
+    def connect_gui(self, gui: "JinxGuiWindow") -> None:
+        """Connect the gui to this gui data object."""
+        if self.__connected_gui is not None:
+            raise RuntimeError("Gui data object already connected to a gui.")
+        self.__connected_gui = gui
+
+    @property
+    @atomic_update("gui", method=True)
+    def connected_gui(self) -> "JinxGuiWindow" | None:
+        """Get the connected gui."""
+        return self.__connected_gui
 
     @atomic_update("view_states", method=True)
-    def remove_view_state(self, view_state: str) -> None:
-        """Remove a view state name."""
-        self.__view_states.remove(view_state)
+    @observable.notifies_observers()
+    def update_view_states(self) -> None:
+        """Update the view states of the connected gui."""
+        if self.connected_gui is None:
+            raise RuntimeError("Gui data object not connected to a gui.")
+        self.__view_states = self.connected_gui.view_states
+
+    @property
+    @atomic_update("view_states", method=True)
+    def view_states(self) -> list[str]:
+        """Get the list of view states."""
+        return self.__view_states
 
     @property
     @atomic_update("desired_view_state", method=True)
@@ -155,13 +206,6 @@ class JinxGuiData(observable.Observable):
     def del_data(self, key: str) -> None:
         """Delete the data associated with the given key."""
         self.__data.pop(key)
-
-
-class JinxWidgetSize(NamedTuple):
-    """Tuple representing the size of a Jinx widget."""
-
-    width: int
-    height: int
 
 
 class JinxObserverWidget(observable.Observer):
@@ -247,7 +291,16 @@ class JinxObserverWidget(observable.Observer):
 
 
 class JinxGuiWindow(observable.Observer):
-    """A class defining a PyQt6 window used by Jinx."""
+    """
+    A class defining a PyQt6 window used by Jinx.
+
+    A Jinx window is a window that can contain multiple views. The views
+    can optionally be selected using a combo box or a tab bar, or a custom
+    interface can be used to select the views. In the case where a custom
+    interface is desired, the window object emites the following signals;
+    `view_changed(str)`, `view_added(str)`, and `view_removed(str)`, to
+    allow the custom interface to be updated.
+    """
 
     view_changed = QtCore.pyqtSignal(str)
     view_added = QtCore.pyqtSignal(str)
@@ -337,6 +390,7 @@ class JinxGuiWindow(observable.Observer):
         self.__main_qwidget.setLayout(self.__vbox)
 
         self.__data: JinxGuiData = data
+        self.__data.connect_gui(self)
         self.__data.assign_observers(self)
 
         self.__views: dict[str, JinxObserverWidget] = {}
@@ -373,6 +427,7 @@ class JinxGuiWindow(observable.Observer):
             self.__data.assign_observers(widget)
             self.__current_view_state = name
             self.__data.desired_view_state = name
+        self.__data.update_view_states()
 
     def remove_view(self, name: str) -> None:
         """Remove a view state from the window."""
@@ -391,12 +446,16 @@ class JinxGuiWindow(observable.Observer):
         if self.__current_view_state == name:
             self.__data.remove_observers(self.__views[name])
             self.__data.desired_view_state = None
+        self.__data.update_view_states()
 
     def update_observer(self, observable_: JinxGuiData) -> None:
         """Update the observer."""
+        if observable_ is not self.__data:
+            return
         desired_view_state: str | None = self.__data.desired_view_state
         if self.__current_view_state != desired_view_state:
-            self.view_changed.emit(desired_view_state)
+            if self.__kind is None:
+                self.view_changed.emit(desired_view_state)
             if self.__current_view_state is not None:
                 jwidget = self.__views[self.__current_view_state]
                 self.__data.remove_observers(jwidget)
