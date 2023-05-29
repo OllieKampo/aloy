@@ -44,7 +44,7 @@ def arg_first(
 
 @njit
 def __arg_first(
-    array: np.ndarray,
+    arr: np.ndarray,
     value: np.number,
     default: np.number
 ) -> int | np.ndarray:
@@ -52,13 +52,13 @@ def __arg_first(
     Get the index of the first element in the array's first axis that is equal
     to the given value.
     """
-    if array.ndim > 1:
-        arr = np.empty(array.shape[:-1], dtype=array.dtype)
-        for i in range(array.shape[0]):
-            arr[i] = __arg_first(array[i], value, default)
+    if arr.ndim > 1:
+        arr = np.empty(arr.shape[:-1], dtype=arr.dtype)
+        for i in range(arr.shape[0]):
+            arr[i] = __arg_first(arr[i], value, default)
         return arr
-    for i in range(array.shape[0]):
-        if array[i] == value:
+    for i in range(arr.shape[0]):
+        if arr[i] == value:
             return i
     return default
 
