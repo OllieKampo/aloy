@@ -8,7 +8,7 @@ from PyQt6 import QtWidgets
 from PyQt6 import QtCore
 from PyQt6 import QtGui
 
-from guis.gui import JinxGuiData, JinxObserverWidget
+from guis.gui import JinxGuiData, JinxObserverWidget, JinxWidgetSize, scale_size_for_grid
 
 
 class LabelledArrowButton(QtWidgets.QToolButton):
@@ -150,76 +150,70 @@ class DirectionalControlInterface(JinxObserverWidget):
             name,
             size,
             resize=resize,
+            set_size="fix",
             debug=debug
         )
 
         self.__layout = QtWidgets.QGridLayout()
 
+        padding = (10, 10)
+        widget_size = scale_size_for_grid(
+            self.size,
+            (3, 2),
+            padding
+        )
+
         self.__forward_button = QtWidgets.QPushButton()
         self.__forward_button.setText("Forward")
         self.__forward_button.setObjectName("forward_button")
-        self.__forward_button.pressed.connect(self.button_pressed)
-        self.__forward_button.released.connect(self.button_released)
-        self.__forward_button.setFixedSize(  # TODO: Account for padding.
-            self.size.width // 3,
-            self.size.height // 2
+        self.__connect_slots_and_set_size(
+            self.__forward_button, widget_size
         )
         self.__layout.addWidget(self.__forward_button, 0, 1)
 
         self.__left_button = QtWidgets.QPushButton()
         self.__left_button.setText("Left")
         self.__left_button.setObjectName("left_button")
-        self.__left_button.pressed.connect(self.button_pressed)
-        self.__left_button.released.connect(self.button_released)
-        self.__left_button.setFixedSize(
-            self.size.width // 3,
-            self.size.height // 2
+        self.__connect_slots_and_set_size(
+            self.__left_button, widget_size
         )
         self.__layout.addWidget(self.__left_button, 1, 0)
 
         self.__right_button = QtWidgets.QPushButton()
         self.__right_button.setText("Right")
         self.__right_button.setObjectName("right_button")
-        self.__right_button.pressed.connect(self.button_pressed)
-        self.__right_button.released.connect(self.button_released)
-        self.__right_button.setFixedSize(
-            self.size.width // 3,
-            self.size.height // 2
+        self.__connect_slots_and_set_size(
+            self.__right_button, widget_size
         )
         self.__layout.addWidget(self.__right_button, 1, 2)
 
         self.__backward_button = QtWidgets.QPushButton()
         self.__backward_button.setText("Backward")
         self.__backward_button.setObjectName("backward_button")
-        self.__backward_button.pressed.connect(self.button_pressed)
-        self.__backward_button.released.connect(self.button_released)
-        self.__backward_button.setFixedSize(
-            self.size.width // 3,
-            self.size.height // 2
+        self.__connect_slots_and_set_size(
+            self.__backward_button, widget_size
         )
         self.__layout.addWidget(self.__backward_button, 1, 1)
 
         self.__turn_left_button = QtWidgets.QPushButton()
         self.__turn_left_button.setText("Turn Left")
         self.__turn_left_button.setObjectName("turn_left_button")
-        self.__turn_left_button.pressed.connect(self.button_pressed)
-        self.__turn_left_button.released.connect(self.button_released)
-        self.__turn_left_button.setFixedSize(
-            self.size.width // 3,
-            self.size.height // 2
+        self.__connect_slots_and_set_size(
+            self.__turn_left_button, widget_size
         )
         self.__layout.addWidget(self.__turn_left_button, 0, 0)
 
         self.__turn_right_button = QtWidgets.QPushButton()
         self.__turn_right_button.setText("Turn Right")
         self.__turn_right_button.setObjectName("turn_right_button")
-        self.__turn_right_button.pressed.connect(self.button_pressed)
-        self.__turn_right_button.released.connect(self.button_released)
-        self.__turn_right_button.setFixedSize(
-            self.size.width // 3,
-            self.size.height // 2
+        self.__connect_slots_and_set_size(
+            self.__turn_right_button, widget_size
         )
         self.__layout.addWidget(self.__turn_right_button, 0, 2)
+
+        self.__speed_label = QtWidgets.QLabel()
+        self.__speed_label.setText("Speed:")
+        self.__layout.addWidget(self.__speed_label, 2, 0)
 
         self.__speed_slider = QtWidgets.QSlider(
             QtCore.Qt.Orientation.Horizontal
@@ -233,7 +227,43 @@ class DirectionalControlInterface(JinxObserverWidget):
         self.__speed_slider.setTickInterval(10)
         self.__speed_slider.setSingleStep(1)
         self.__speed_slider.setPageStep(10)
-        self.__layout.addWidget(self.__speed_slider, 2, 0, 1, 3)
+        self.__layout.addWidget(self.__speed_slider, 2, 1, 1, 2)
+
+        self.__step_height_label = QtWidgets.QLabel()
+        self.__step_height_label.setText("Step Height:")
+        self.__layout.addWidget(self.__step_height_label, 3, 0)
+
+        self.__step_height_slider = QtWidgets.QSlider(
+            QtCore.Qt.Orientation.Horizontal
+        )
+        self.__step_height_slider.setMinimum(0)
+        self.__step_height_slider.setMaximum(100)
+        self.__step_height_slider.setValue(50)
+        self.__step_height_slider.setTickPosition(
+            QtWidgets.QSlider.TickPosition.TicksBelow
+        )
+        self.__step_height_slider.setTickInterval(10)
+        self.__step_height_slider.setSingleStep(1)
+        self.__step_height_slider.setPageStep(10)
+        self.__layout.addWidget(self.__step_height_slider, 3, 1, 1, 2)
+
+        self.__walk_height_label = QtWidgets.QLabel()
+        self.__walk_height_label.setText("Walk Height:")
+        self.__layout.addWidget(self.__walk_height_label, 4, 0)
+
+        self.__walk_height_slider = QtWidgets.QSlider(
+            QtCore.Qt.Orientation.Horizontal
+        )
+        self.__walk_height_slider.setMinimum(0)
+        self.__walk_height_slider.setMaximum(100)
+        self.__walk_height_slider.setValue(50)
+        self.__walk_height_slider.setTickPosition(
+            QtWidgets.QSlider.TickPosition.TicksBelow
+        )
+        self.__walk_height_slider.setTickInterval(10)
+        self.__walk_height_slider.setSingleStep(1)
+        self.__walk_height_slider.setPageStep(10)
+        self.__layout.addWidget(self.__walk_height_slider, 4, 1, 1, 2)
 
         self.__layout.setRowStretch(0, 1)
         self.__layout.setRowStretch(1, 1)
@@ -242,7 +272,15 @@ class DirectionalControlInterface(JinxObserverWidget):
         self.__layout.setColumnStretch(1, 1)
         self.__layout.setColumnStretch(2, 1)
 
+        self.__layout.setContentsMargins(*padding)
+
         self.qwidget.setLayout(self.__layout)
+
+    def __connect_slots_and_set_size(self, button: QtWidgets.QPushButton, size: JinxWidgetSize) -> None:
+        """Connect slots and set the size of the button."""
+        button.pressed.connect(self.button_pressed)
+        button.released.connect(self.button_released)
+        button.setFixedSize(*size)
 
     def update_observer(self, observable_: JinxGuiData) -> None:
         pass
