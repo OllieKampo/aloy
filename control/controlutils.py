@@ -178,13 +178,123 @@ def simulate_control(
     return itae.sum()
 
 
-def plot_error(
+def find_rise_time(
+    control_system: "ControlledSystem",
+    controller: "Controller",
+    var_name: str | None = None,
+    delta_time: float = 0.01,
+    tolerance: float = 0.05,
+    max_ticks: int = 1000
+) -> float:
+    """
+    Find the rise time of a control system.
+
+    Parameters
+    ----------
+    `control_system : ControlledSystem` - The control system to simulate.
+
+    `controller : Controller` - The controller to use.
+
+    `delta_time : float` - The time difference between ticks.
+
+    `setpoint : float` - The setpoint to use.
+
+    `tolerance : float` - The tolerance to use when checking for the setpoint.
+
+    `max_ticks : int` - The maximum number of ticks to simulate.
+    """
+    if delta_time <= 0.0:
+        raise ValueError(f"Delta time must be greater than 0. Got; {delta_time}.")
+    if tolerance <= 0.0:
+        raise ValueError(f"Tolerance must be greater than 0. Got; {tolerance}.")
+    if max_ticks < 1:
+        raise ValueError(f"Max ticks must be greater than or equal to 1. Got; {max_ticks}.")
+
+    setpoint: float = control_system.get_setpoint(var_name)
+
+    for tick in range(max_ticks):
+        control_input = control_system.get_control_input()
+        control_output = controller.control_output(
+            control_input, setpoint, delta_time, abs_tol=tolerance
+        )
+        control_system.set_control_output(control_output, delta_time)
+        if abs(control_system.get_control_input() - setpoint) <= tolerance:
+            return tick * delta_time
+    return np.inf
+
+
+def find_settle_time(
+    control_system: "ControlledSystem",
+    controller: "Controller",
+    var_name: str | None = None,
+    delta_time: float = 0.01,
+    tolerance: float = 0.05,
+    max_ticks: int = 1000
+) -> float:
+    """
+    Find the settle time of a control system.
+
+    Parameters
+    ----------
+    `control_system : ControlledSystem` - The control system to simulate.
+
+    `controller : Controller` - The controller to use.
+
+    `delta_time : float` - The time difference between ticks.
+
+    `setpoint : float` - The setpoint to use.
+
+    `tolerance : float` - The tolerance to use when checking for the setpoint.
+
+    `max_ticks : int` - The maximum number of ticks to simulate.
+    """
+    if delta_time <= 0.0:
+        raise ValueError(f"Delta time must be greater than 0. Got; {delta_time}.")
+    if tolerance <= 0.0:
+        raise ValueError(f"Tolerance must be greater than 0. Got; {tolerance}.")
+    if max_ticks < 1:
+        raise ValueError(f"Max ticks must be greater than or equal to 1. Got; {max_ticks}.")
+
+    setpoint: float = control_system.get_setpoint(var_name)
+
+    for tick in range(max_ticks):
+        control_input = control_system.get_control_input()
+        control_output = controller.control_output(
+            control_input, setpoint, delta_time, abs_tol=tolerance
+        )
+        control_system.set_control_output(control_output, delta_time)
+        if abs(control_system.get_control_input() - setpoint) <= tolerance:
+            for tick in range(tick, max_ticks):
+                control_input = control_system.get_control_input()
+                control_output = controller.control_output(
+                    control_input, setpoint, delta_time, abs_tol=tolerance
+                )
+                control_system.set_control_output(control_output, delta_time)
+                if abs(control_system.get_control_input() - setpoint) > tolerance:
+                    return tick * delta_time
+            return np.inf
+    return np.inf
+
+
+# def calc_times(
+#     error_values: list[float] | np.ndarray,
+#     tolerance: float = 0.05
+# ) -> tuple[int, int]:
+#     """Calculate the rise and settle times from a list of error values."""
+#     if isinstance(error_values, list):
+#         error_values = np.array(error_values)
+#     rise_index: int = arg_first_where(error_values < tolerance)
+#     settle_index: int = arg_first_where(error_values > tolerance)
+#     return rise_index, settle_index
+
+
+def plot_control(
     time_points: list[float] | np.ndarray,
     input_values: list[float] | np.ndarray,
     setpoint_values: list[float] | np.ndarray,
     error_values: list[float] | np.ndarray,
     output_values: list[float] | np.ndarray,
-    title_space: float = 0.09,
+    title_space: float = 0.15,
     plot_gap: float = 0.175,
     width: float = 8,
     height: float = 4
@@ -211,8 +321,10 @@ def plot_error(
         color="red",
         label="Error"
     )
+    error_axis.legend()
+    error_axis.set_title("Control Inputs")
     error_axis.set_xlabel("Time")
-    error_axis.set_ylabel("Input/Set-point/Error")
+    error_axis.set_ylabel("Value")
 
     output_axis.plot(
         time_points,
@@ -220,8 +332,8 @@ def plot_error(
         color="cyan",
         label="Output"
     )
+    output_axis.set_title("Control Output")
     output_axis.set_xlabel("Time")
-    output_axis.set_ylabel("Output")
 
     fig.tight_layout()
     fig.subplots_adjust(top=(1.0 - title_space), wspace=plot_gap)
