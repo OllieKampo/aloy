@@ -1,35 +1,26 @@
-###########################################################################
-###########################################################################
-## Fuzzy controllers.                                                    ##
-##                                                                       ##
-## Copyright (C)  2022  Oliver Michael Kamperis                          ##
-## Email: o.m.kamperis@gmail.com                                         ##
-##                                                                       ##
-## This program is free software: you can redistribute it and/or modify  ##
-## it under the terms of the GNU General Public License as published by  ##
-## the Free Software Foundation, either version 3 of the License, or     ##
-## any later version.                                                    ##
-##                                                                       ##
-## This program is distributed in the hope that it will be useful,       ##
-## but WITHOUT ANY WARRANTY; without even the implied warranty of        ##
-## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          ##
-## GNU General Public License for more details.                          ##
-##                                                                       ##
-## You should have received a copy of the GNU General Public License     ##
-## along with this program. If not, see <https://www.gnu.org/licenses/>. ##
-###########################################################################
-###########################################################################
-
 """
 Module defining Takagi-Seguno style fuzzy controllers.
 
 Contains inbuilt functionality for the following:
     Proportional, integral and differential input variables
-    Triangular, trapezoidal, rectangular, piecewise linear, singleton and
+    Triangular, trapezoidal, rectangular, piecewise linear, sinusoidal and
     gaussian membership functions
-    Trapezoidal resolution hedges
+    Resolution hedges
     Rule modules
     Dynamic importance degrees
+
+Copyright (C) 2023 Oliver Michael Kamperis.
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 
 from abc import ABCMeta, abstractmethod, abstractproperty
@@ -528,82 +519,6 @@ class TrapezoidalFunction(MembershipFunction):
         self.__second_peak: float = second_peak
         self.__end: float = end
 
-    @classmethod
-    def create_set(
-        cls,
-        names: Sequence[str],
-        sizes: Sequence[float] | None = None,
-        overlap: float | None = None
-    ) -> tuple["TrapezoidalFunction", ...]:
-        """
-        Create a set of trapezoidal membership functions.
-
-        Parameters
-        ----------
-        `names: Sequence[str]` - The names of the membership functions.
-
-        `sizes: Sequence[float]` - The relative sizes of the membership
-        functions. This is the proportion of the total normalised range
-        of an input variable that each membership function covers. Must
-        sum to 1.0, no value can be 0.0.
-
-        Raises
-        ------
-        `ValueError` - If the number of names and sizes do not match or the
-        sum of the sizes is not 1.0.
-        """
-        if sizes is not None:
-            if len(names) != len(sizes):
-                raise ValueError(
-                    "The number of names and sizes must match."
-                    f"Got; {len(names)=}, {len(sizes)=}."
-                )
-            if overlap is None:
-                raise ValueError(
-                    "If sizes is provided, overlap must also be provided."
-                )
-            if sum(sizes) != 1.0:
-                raise ValueError(
-                    "The sum of the sizes must be 1.0."
-                    f"Got; {sum(sizes)=}."
-                )
-            if any(size == 0.0 for size in sizes):
-                raise ValueError(
-                    "No size can be 0.0."
-                    f"Got; {sizes=}."
-                )
-        # Each membership needs its plateau (of the same size) and its ramps
-        # (of the same size). The first and last membership functions only
-        # have one ramp (right and left respectively).
-        membership_functions: list[TrapezoidalFunction] = []
-        if sizes is None:
-            spaces = np.linspace(0.0, 1.0, len(names) * 2)
-            for index, name in enumerate(names, start=-1):
-                if index == -1:
-                    start = 0.0
-                else:
-                    start = spaces[(index * 2) + 1]
-                first_peak = spaces[(index * 2) + 2]
-                second_peak = spaces[(index * 2) + 3]
-                if index == len(names) - 2:
-                    end = 1.0
-                else:
-                    end = spaces[(index * 2) + 4]
-                membership_functions.append(
-                    cls(name, start, first_peak, second_peak, end)
-                )
-        else:
-            space_size = 1.0 / ((len(names) * 2) - 1)
-            for index, name in enumerate(names, start=-1):
-                start = max((index * 2 * space_size) + space_size, 0.0)
-                first_peak = (index * 2 * space_size) + (space_size * 2)
-                second_peak = (index * 2 * space_size) + (space_size * 3)
-                end = min((index * 2 * space_size) + (space_size * 4), 1.0)
-                membership_functions.append(
-                    cls(name, start, first_peak, second_peak, end)
-                )
-        return tuple(membership_functions)
-
     @property
     def params(self) -> tuple[float, float, float, float]:
         """Get the parameters of the membership function."""
@@ -769,6 +684,11 @@ class _SaturatedFunction(MembershipFunction):
         self.__scale: bool = scale
 
     @property
+    def params(self) -> tuple:
+        """Get the parameters of the membership function."""
+        return ()
+
+    @property
     def scale(self) -> bool:
         """
         Whether the degree of membership of the input value is scaled by
@@ -847,6 +767,109 @@ class MinSaturatedFunction(_SaturatedFunction):
         x_points = np.array([-0.1, 0.0, 0.0, 1.0])
         y_points = np.array([1.0, 1.0, 0.0, 0.0])
         return (x_points, y_points)
+
+
+def create_membership_function_set(
+    names: Sequence[str],
+    sizes: Sequence[float] | None = None,
+    overlap: float = 0.1,
+    include_saturated: bool | list[str] = False,
+    scale_saturated: bool = False
+) -> tuple["TrapezoidalFunction", ...]:
+    """
+    Create a set of trapezoidal (and possibly saturated) membership functions.
+
+    Parameters
+    ----------
+    `names: Sequence[str]` - The names of the membership functions.
+
+    `sizes: Sequence[float] | None = None` - The relative sizes of the
+    membership functions. This is the proportion of the total normalised range
+    of an input variable that each membership function covers. Must sum to 1.0,
+    no value can be 0.0. If not given or None, all membership functions will
+    have the same size and be evenly spaced across the normalised range.
+
+    `overlap: float = 0.1` - The amount of overlap between membership
+    functions. Must be less than the size of all membership functions.
+
+    `include_saturated: bool = False` - Whether to include max- and
+    min-saturated membership functions. By default, the saturated membership
+    functions are named 'max-saturated' and 'min-saturated'. If a list of
+    strings is given, then the first and seconds strings are used as the names
+    of the max- and min-saturated membership functions respectively.
+
+    `scale_saturated: bool = False` - Whether the degree of membership of the
+    input value of a saturated membership function is scaled by its magnitude.
+    If True, a saturated input value will return the absolute value as output.
+    Otherwise, a saturated input value will always return 1.0.
+
+    Raises
+    ------
+    `ValueError` - If sizes is given and not None and; the number of names and
+    sizes do not match, or the sum of the sizes is not 1.0, or any size is 0.0,
+    or any size is less than the overlap.
+    """
+    if sizes is not None:
+        if len(names) != len(sizes):
+            raise ValueError(
+                "The number of names and sizes must match."
+                f"Got; {len(names)=}, {len(sizes)=}."
+            )
+        if sum(sizes) != 1.0:
+            raise ValueError(
+                "The sum of the sizes must be 1.0."
+                f"Got; {sum(sizes)=}."
+            )
+        if any(size == 0.0 for size in sizes):
+            raise ValueError(
+                "No size can be 0.0."
+                f"Got; {sizes=}."
+            )
+        if any(size < overlap for size in sizes):
+            raise ValueError(
+                "No size can be less than the overlap."
+                f"Got; {sizes=}, {overlap=}."
+            )
+    # Each membership needs its plateau (of the same size) and its ramps
+    # (of the same size). The first and last membership functions only
+    # have one ramp (right and left respectively).
+    membership_functions: list[TrapezoidalFunction] = []
+    if sizes is None:
+        spaces = np.linspace(0.0, 1.0, len(names) * 2)
+    else:
+        sizes = np.cumsum(sizes)[:-1]
+        spaces = [0.0]
+        for size in sizes:
+            spaces.append(size - overlap / 2)
+            spaces.append(size + overlap / 2)
+        spaces.append(1.0)
+    for index, name in enumerate(names, start=-1):
+        if index == -1:
+            start = 0.0
+        else:
+            start = spaces[(index * 2) + 1]
+        first_peak = spaces[(index * 2) + 2]
+        second_peak = spaces[(index * 2) + 3]
+        if index == len(names) - 2:
+            end = 1.0
+        else:
+            end = spaces[(index * 2) + 4]
+        membership_functions.append(
+            TrapezoidalFunction(name, start, first_peak, second_peak, end)
+        )
+    if include_saturated:
+        max_name: str = "max-saturated"
+        min_name: str = "min-saturated"
+        if isinstance(include_saturated, list):
+            max_name = include_saturated[0]
+            min_name = include_saturated[1]
+        membership_functions.append(
+            MaxSaturatedFunction(max_name, scale_saturated)
+        )
+        membership_functions.append(
+            MinSaturatedFunction(min_name, scale_saturated)
+        )
+    return tuple(membership_functions)
 
 
 class FuzzyController(Controller):
@@ -1085,17 +1108,16 @@ class FuzzyController(Controller):
             for var in self.__rules
         }
 
+        # Calculate the degree of truth and activation of each rule;
+        # the weighted average of the activation of each rule.
         truth_sum: dict[str, float] = {
             var.name: 0.0 for var in self.__rules
         }
         activation_sum: dict[str, float] = truth_sum.copy()
-
-        # Calculate the degree of truth and activation of each rule;
-        # the weighted average of the activation of each rule.
         for var, rules in self.__rules.items():
-            for mem_func, output in rules.items():
+            for mem_func, output_weight in rules.items():
                 activation: RuleActivation = mem_func.get_activation(
-                    var_inputs[var.name], output
+                    var_inputs[var.name], output_weight
                 )
                 truth_sum[var.name] = truth_sum[var.name] + activation.truth
                 activation_sum[var.name] = (
@@ -1105,11 +1127,12 @@ class FuzzyController(Controller):
         # Calculate control output (defuzzification);
         # the sum over all variables of the sum of the activation of each rule
         # divided by the sum of the degree of truth of each rule.
-        control_output: float = sum(
-            (activation_sum[var.name] / truth_sum[var.name])
-            if truth_sum[var.name] != 0.0 else 0.0
+        var_outputs: dict[str, float] = {
+            var.name: (activation_sum[var.name] / truth_sum[var.name]
+                       if truth_sum[var.name] != 0.0 else 0.0)
             for var in self.__rules
-        )
+        }
+        control_output: float = sum(var_outputs.values())
         control_output = clamp(self.transform_output(control_output),
                                *self.output_limits)
 
@@ -1131,26 +1154,23 @@ if __name__ == "__main__":
     derivative = DerivativeFuzzyVariable("derivative", -10.0, 10.0, gain=0.0)
     integral = IntegralFuzzyVariable("integral", -10.0, 10.0, gain=1.0)
 
-    # tiny = TrapezoidalFunction("tiny", 0.0, 0.0, 0.1818, 0.2727)
-    # small = TrapezoidalFunction("small", 0.1818, 0.2727, 0.4545, 0.5454)
-    # big = TrapezoidalFunction("big", 0.4545, 0.5454, 0.7272, 0.8181)
-    # large = TrapezoidalFunction("large", 0.7272, 0.8181, 1.0, 1.0)
-
-    tiny, small, big, large = TrapezoidalFunction.create_set(
+    mem_funcs = create_membership_function_set(
         ["tiny", "small", "big", "large"],
-        [0.25, 0.25, 0.25, 0.25]
+        [0.30, 0.20, 0.20, 0.30],
+        overlap=0.10,
+        include_saturated=True
     )
-    for mem_func in [tiny, small, big, large]:
+    for mem_func in mem_funcs:
         print(mem_func.params)
     fig = MembershipFunction.plot_membership_functions(
-        [tiny, small, big, large]
+        mem_funcs
     )
     fig.show()
     input()
 
     controller = FuzzyController(
         [proportional, derivative, integral],
-        [tiny, small, big, large]
+        mem_funcs
     )
     controller.add_rule("proportional", "large", 1.0)
     controller.add_rule("proportional", "big", 0.5)
@@ -1160,12 +1180,33 @@ if __name__ == "__main__":
     controller.add_rule("derivative", "big", 0.5)
     controller.add_rule("derivative", "small", -0.5)
     controller.add_rule("derivative", "tiny", -1.0)
+    controller.add_rule("integral", "max-saturated", 2.0)
     controller.add_rule("integral", "large", 1.0)
     controller.add_rule("integral", "big", 0.5)
     controller.add_rule("integral", "small", -0.5)
     controller.add_rule("integral", "tiny", -1.0)
 
-    for i in range(100):
-        print(controller.control_output(1.0, 0.0, 0.1))
-        # print(controller.control_output(((2.0 / 100.0) * i) - 1.0, 0.0, 0.25))
+    times = []
+    inputs = []
+    setpoints = []
+    errors = []
+    outputs = []
+
+    for i in range(1000):
+        output = controller.control_output(1.0, 0.0, 0.1)
+        if i % 100 == 0:
+            print(f"Control Output [{i}]: {output}")
+        if times:
+            times.append(times[-1] + 0.1)
+        else:
+            times.append(0.1)
+        inputs.append(controller.latest_input)
+        setpoints.append(0.0)
+        errors.append(controller.latest_error)
+        outputs.append(controller.latest_output)
     controller.reset()
+
+    from control.controlutils import plot_control
+    fig, *_ = plot_control(times, inputs, setpoints, errors, outputs)
+    fig.show()
+    input()
