@@ -32,7 +32,7 @@ class MovingAverage(Generic[NT]):
         window: int,
         initial: NT | None = None,
         track_window: bool = True,
-        fast_track: bool = True,
+        fast_track: bool = False,
         under_full_zero: bool = True
     ) -> None:
         """
@@ -56,12 +56,12 @@ class MovingAverage(Generic[NT]):
         `initial: NT | None = None` - The initial value to use for the
         average. If `None`, the average will start at 0.
 
-        `track_window: bool = False` - Whether to track the data in the
+        `track_window: bool = True` - Whether to track the data in the
         window. If `False`, the data will be discarded after it is used to
         calculate the average. If `True`, the data will be stored in a
         `collections.deque` and can be accessed via the `data` property.
 
-        `fast_track: bool = True` - Whether to use the fast track method.
+        `fast_track: bool = False` - Whether to use the fast track method.
         If `track_window` is `True`; then if `fast_track` is `True`, instead
         of summing the data in the window, the total oldest value is
         substracted from the currrent running total and the new value is
@@ -176,35 +176,87 @@ class MovingAverage(Generic[NT]):
             self.__average = self.__total / self.__window
 
 
-# class EMA(object):
-#     """
-#     Exponential moving average: smoothing to give progressively lower
-#     weights to older values.
+@final
+class ExponentialMovingAverage:
+    """
+    Exponential moving average: smoothing to give progressively lower
+    weights to older values.
+    """
 
-#     Parameters
-#     ----------
-#     smoothing  : float, optional
-#         Smoothing factor in range [0, 1], [default: 0.3].
-#         Increase to give more weight to recent values.
-#         Ranges from 0 (yields old value) to 1 (yields new value).
-#     """
-#     def __init__(self, smoothing=0.3):
-#         self.alpha = smoothing
-#         self.last = 0
-#         self.calls = 0
+    __slots__ = {
+        "__smoothing": "The smoothing factor.",
+        "__total": "The current total of the moving average.",
+        "__appends": "The number of appends to the moving average."
+    }
 
-#     def __call__(self, x=None):
-#         """
-#         Parameters
-#         ----------
-#         x  : float
-#             New value to include in EMA.
-#         """
-#         beta = 1 - self.alpha
-#         if x is not None:
-#             self.last = self.alpha * x + beta * self.last
-#             self.calls += 1
-#         return self.last / (1 - beta ** self.calls) if self.calls else self.last
+    def __init__(
+        self,
+        initial_value: float = 0.0,
+        smoothing: float = 0.3
+    ) -> None:
+        """
+        Create a new exponential moving average.
+
+        Parameters
+        ----------
+        `initial_value: float = 0.0` - The initial value of the moving average.
+
+        `smoothing: float = 0.3` - Smoothing factor for the moving average.
+        Must be in the range [0.0, 1.0]. Higher values give more weight to
+        recent values and lower values give more weight to older values.
+        """
+        if not 0.0 <= smoothing <= 1.0:
+            raise ValueError(
+                "Smoothing must be in the range [0.0, 1.0]. "
+                f"Got; {smoothing} instead."
+            )
+        self.__smoothing: float = smoothing
+        self.__total: float = initial_value
+        self.__appends: int = 0
+
+    def __repr__(self) -> str:
+        """Return an instaniable string representation of the moving average."""
+        return f"{self.__class__.__name__}({self.average}, {self.__smoothing})"
+
+    def __str__(self) -> str:
+        """Return a human readable string representation of the moving average."""
+        return f"{self.__class__.__name__}: total={self.__total}, " \
+               f"average={self.average}, appends={self.__appends}"
+
+    @property
+    def smoothing(self) -> float:
+        """The smoothing factor of the moving average."""
+        return self.__smoothing
+
+    @property
+    def appends(self) -> int:
+        """The number of appends to the moving average."""
+        return self.__appends
+
+    @property
+    def average(self) -> float:
+        """The current value of the moving average."""
+        if self.__appends:
+            return (
+                self.__total
+                / (1.0 - ((1.0 - self.__smoothing)
+                          ** self.__appends)))
+        return self.__total
+
+    def add_value(self, value: float) -> float:
+        """
+        Add a new value to the moving average and return the new average.
+
+        Parameters
+        ----------
+        `value: float` - New value to add to the moving average.
+        """
+        self.__total = (
+            (self.__smoothing * value)
+            + ((1.0 - self.__smoothing) * self.__total)
+        )
+        self.__appends += 1
+        return self.average
 
 
 @final
