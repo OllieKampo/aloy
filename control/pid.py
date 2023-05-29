@@ -22,7 +22,7 @@ from control.controllers import Controller, clamp, calc_error
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 __all__ = (
     "PIDControllerGains",
@@ -251,11 +251,11 @@ class PIDController(Controller):
 
         Parameters
         ----------
-        `pg : {float | None}` - The proportional gain.
+        `pg: {float | None}` - The proportional gain.
 
-        `ig : {float | None}` - The integral gain.
+        `ig: {float | None}` - The integral gain.
 
-        `dg : {float | None}` - The derivative gain.
+        `dg: {float | None}` - The derivative gain.
         """
         if pg is not None:
             self.__pg = pg
