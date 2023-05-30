@@ -461,8 +461,7 @@ class JinxGuiWindow(observable.Observer):
                 self.__data.remove_observers(jwidget)
             if desired_view_state is not None:
                 jwidget = self.__views[desired_view_state]
-                qwidget = jwidget.qwidget
-                self.__stack.setCurrentWidget(qwidget)
+                self.__stack.setCurrentWidget(jwidget.qwidget)
                 self.__data.assign_observers(jwidget)
                 self.__data.notify(jwidget)
             else:
