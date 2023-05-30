@@ -1,29 +1,29 @@
-###########################################################################
-###########################################################################
-## Module defining GUI classes.                                          ##
-##                                                                       ##
-## Copyright (C)  2023  Oliver Michael Kamperis                          ##
-## Email: o.m.kamperis@gmail.com                                         ##
-##                                                                       ##
-## This program is free software: you can redistribute it and/or modify  ##
-## it under the terms of the GNU General Public License as published by  ##
-## the Free Software Foundation, either version 3 of the License, or     ##
-## any later version.                                                    ##
-##                                                                       ##
-## This program is distributed in the hope that it will be useful,       ##
-## but WITHOUT ANY WARRANTY; without even the implied warranty of        ##
-## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          ##
-## GNU General Public License for more details.                          ##
-##                                                                       ##
-## You should have received a copy of the GNU General Public License     ##
-## along with this program. If not, see <https://www.gnu.org/licenses/>. ##
-###########################################################################
-###########################################################################
+"""
+Module defining Jinx GUI classes for working with PyQt6.
 
-"""Module defining GUI classes."""
+For reference on PyQt6, see:
+https://doc.qt.io/qt-6/qt-intro.html
+https://doc.qt.io/qt-6/qtwidgets-index.html
+https://doc.qt.io/qt-6/widget-classes.html#the-widget-classes
+https://doc.qt.io/qt-6/qtexamplesandtutorials.html
+https://stackoverflow.com/questions/46361675/pyqt-enforcing-sizehint-dimensions-on-two-widget-app-with-layout-manager
+
+Copyright (C) 2023 Oliver Michael Kamperis.
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
 
 from abc import abstractmethod
-from typing import Any, Literal, NamedTuple
+from typing import Any, Literal, NamedTuple, Union
 from PyQt6 import QtWidgets
 from PyQt6 import QtCore
 from PyQt6.QtCore import QTimer  # pylint: disable=E0611
@@ -54,6 +54,29 @@ class JinxWidgetSize(NamedTuple):
     height: int
 
 
+class JinxGridShape(NamedTuple):
+    """Tuple representing the shape of a Jinx grid."""
+
+    rows: int
+    columns: int
+
+
+class JinxWidgetPadding(NamedTuple):
+    """Tuple representing the padding of a Jinx widget."""
+
+    horizontal: int
+    vertical: int
+
+
+class JinxWidgetMargins(NamedTuple):
+    """Tuple representing the margins of a Jinx widget."""
+
+    left: int
+    top: int
+    right: int
+    bottom: int
+
+
 def scale_size(
     size: tuple[int, int],
     scale: tuple[float, float]
@@ -68,7 +91,9 @@ def scale_size(
 def scale_size_for_grid(
     size: tuple[int, int],
     grid_shape: tuple[int, int],
-    padding: tuple[int, int] = (10, 10)
+    widget_shape: tuple[int, int] = (1, 1),
+    padding: tuple[int, int] = (10, 10),
+    margins: tuple[int, int, int, int] = (10, 10, 10, 10)
 ) -> JinxWidgetSize:
     """
     Scale a size to find the size of a grid cell.
@@ -77,22 +102,108 @@ def scale_size_for_grid(
     ----------
     `size: tuple[int, int]` - The size in pixels to be scaled.
 
-    `grid_size: tuple[int, int]` - The shape of the grid, i.e. the number
+    `grid_shape: tuple[int, int]` - The shape of the grid, i.e. the number
     of rows and columns.
 
+    `widget_shape: tuple[int, int]` - The shape of the widget, i.e. the
+    number of rows and columns it occupies.
+
     `padding: tuple[int, int] = (10, 10)` - The padding in pixels between
-    grid cells.
+    grid cells. The order is horizontal, vertical.
+
+    `margins: tuple[int, int, int, int] = (10, 10, 10, 10)` - The margins
+    in pixels around the grid. The order is left, top, right, bottom.
 
     Returns
     -------
     `tuple[int, int]` - The scaled size in pixels of a grid cell.
     """
-    scale = (1.0 / grid_shape[0], 1.0 / grid_shape[1])
+    scale = (widget_shape[0] / grid_shape[0], widget_shape[1] / grid_shape[1])
     size = (
-        size[0] - (padding[0] * (grid_shape[0] + 1)),
-        size[1] - (padding[1] * (grid_shape[1] + 1))
+        size[0] - (padding[0] * (grid_shape[0] - widget_shape[0])) - (margins[0] + margins[2]),
+        size[1] - (padding[1] * (grid_shape[1] - widget_shape[1])) - (margins[1] + margins[3])
     )
     return scale_size(size, scale)
+
+
+class GridScaler:
+    """A class for scaling widgets in a grid."""
+
+    __slots__ = {
+        "__size": "The size of the grid in pixels.",
+        "__grid_shape": "The shape of the grid, i.e. the number of rows and columns.",
+        "__padding": "The padding in pixels between grid cells. The order is horizontal, vertical.",
+        "__margins": "The margins in pixels around the grid. The order is left, top, right, bottom."
+    }
+
+    def __init__(
+        self,
+        size: tuple[int, int],
+        grid_shape: tuple[int, int],
+        padding: tuple[int, int] = (10, 10),
+        margins: tuple[int, int, int, int] = (10, 10, 10, 10)
+    ) -> None:
+        """
+        Create a new grid scaler object.
+
+        Parameters
+        ----------
+        `size: tuple[int, int]` - The size in pixels of the grid.
+
+        `grid_shape: tuple[int, int]` - The shape of the grid, i.e. the number
+        of rows and columns.
+
+        `padding: tuple[int, int] = (10, 10)` - The padding in pixels between
+        grid cells. The order is horizontal, vertical.
+
+        `margins: tuple[int, int, int, int] = (10, 10, 10, 10)` - The margins
+        in pixels around the grid. The order is left, top, right, bottom.
+        """
+        self.__size = JinxWidgetSize(*size)
+        self.__grid_shape = JinxGridShape(*grid_shape)
+        self.__padding = JinxWidgetPadding(*padding)
+        self.__margins = JinxWidgetMargins(*margins)
+
+    @property
+    def size(self) -> JinxWidgetSize:
+        """Get the size of the grid in pixels."""
+        return self.__size
+
+    @property
+    def grid_shape(self) -> JinxGridShape:
+        """Get the shape of the grid, i.e. the number of rows and columns."""
+        return self.__grid_shape
+
+    @property
+    def padding(self) -> JinxWidgetPadding:
+        """Get the padding in pixels between grid cells."""
+        return self.__padding
+
+    @property
+    def margins(self) -> JinxWidgetMargins:
+        """Get the margins in pixels around the grid."""
+        return self.__margins
+
+    def scale(self, widget_shape: tuple[int, int]) -> JinxWidgetSize:
+        """
+        Scale a size to find the size of a grid cell.
+
+        Parameters
+        ----------
+        `widget_shape: tuple[int, int]` - The shape of the widget, i.e. the
+        number of rows and columns it occupies.
+
+        Returns
+        -------
+        `tuple[int, int]` - The scaled size in pixels of a grid cell.
+        """
+        return scale_size_for_grid(
+            self.__size,
+            self.__grid_shape,
+            widget_shape,
+            self.__padding,
+            self.__margins
+        )
 
 
 class JinxGuiData(observable.Observable):
@@ -110,7 +221,7 @@ class JinxGuiData(observable.Observable):
     def __init__(
         self,
         name: str | None = None,
-        gui: "JinxGuiWindow" | None = None,
+        gui: Union["JinxGuiWindow", None] = None,
         data_dict: dict[str, Any] | None = None, /,
         clock: ClockThread | QTimer | None = None, *,
         debug: bool = False
@@ -159,7 +270,7 @@ class JinxGuiData(observable.Observable):
 
     @property
     @atomic_update("gui", method=True)
-    def connected_gui(self) -> "JinxGuiWindow" | None:
+    def connected_gui(self) -> Union["JinxGuiWindow", None]:
         """Get the connected gui."""
         return self.__connected_gui
 
