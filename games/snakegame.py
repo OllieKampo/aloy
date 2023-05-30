@@ -888,10 +888,12 @@ class SnakeGameOptionsJinxWidget(JinxObserverWidget):
         """Update the difficulty."""
         self.__data.set_data("difficulty", value)
 
+    @QtCore.pyqtSlot(int)
     def __set_snake_length(self, value: int) -> None:
         """Update the snake length."""
         self.__data.set_data("initial_snake_length", value)
 
+    @QtCore.pyqtSlot(int)
     def __set_food_per_snake_growth(self, value: int) -> None:
         """Update the food per snake growth."""
         self.__data.set_data("food_per_snake_growth", value)
@@ -900,6 +902,7 @@ class SnakeGameOptionsJinxWidget(JinxObserverWidget):
         """Update the speed."""
         self.__data.set_data("speed", 1.0 + ((value - 1.0) / 100.0))
 
+    @QtCore.pyqtSlot(int)
     def __set_food_per_level(self, value: int) -> None:
         """Update the food per level."""
         self.__data.set_data("food_per_level", value)
