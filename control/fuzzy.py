@@ -274,9 +274,9 @@ class RuleActivation(NamedTuple):
 
     Items
     -----
-    `truth : float` - The degree of truth of the rule.
+    `truth: float` - The degree of truth of the rule.
 
-    `activation : float` - The degree of activation of the rule.
+    `activation: float` - The degree of activation of the rule.
     This is the weighted output of the rule, given its truth.
     """
 
@@ -323,6 +323,7 @@ class MembershipFunction(metaclass=ABCMeta):
         """Get the hash of the membership function."""
         return hash(self.__name)
 
+    @final
     def get_activation(
         self,
         input_: float,
@@ -335,6 +336,17 @@ class MembershipFunction(metaclass=ABCMeta):
         The activation is equal to the degree of truth of the rule (the
         membership of the input value within this membership function)
         multiplied by the output weight of the rule.
+
+        Parameters
+        ----------
+        `input_: float` - The normalised input variable value.
+
+        `output: float` - The output weight of the rule.
+
+        Returns
+        -------
+        `RuleActivation` - The activation of the rule.
+        See `jinx.control.fuzzy.RuleActivation` for details.
         """
         truth: float = self.fuzzify(input_)
         return RuleActivation(truth, truth * output)
