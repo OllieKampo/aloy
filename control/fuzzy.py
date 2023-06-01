@@ -1348,7 +1348,8 @@ class FuzzyController(Controller):
 
 def main() -> None:
     proportional_var = FuzzyVariable("proportional", -10.0, 10.0, gain=1.0)
-    derivative_var = DerivativeFuzzyVariable("derivative", -10.0, 10.0, gain=0.0)
+    derivative_var = DerivativeFuzzyVariable("derivative", -10.0, 10.0,
+                                             gain=0.0)
     integral_var = IntegralFuzzyVariable("integral", -10.0, 10.0, gain=1.0)
 
     mem_funcs = create_membership_function_set(
@@ -1359,7 +1360,7 @@ def main() -> None:
     )
     for mem_func in mem_funcs:
         print(mem_func.params)
-    fig = MembershipFunction.plot_membership_functions(
+    fig = plot_membership_functions(
         mem_funcs
     )
     fig.show()
