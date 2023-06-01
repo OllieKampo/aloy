@@ -23,7 +23,7 @@ You should have received a copy of the GNU General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 
-from abc import ABCMeta, abstractmethod, abstractproperty
+from abc import ABCMeta, abstractmethod
 from collections import deque
 from typing import Callable, Iterable, NamedTuple, Sequence, final
 from matplotlib import figure, pyplot as plt
@@ -120,7 +120,7 @@ class FuzzyVariable:
 
     def reset(self) -> None:
         """Reset the variable."""
-        pass
+        return None
 
 
 class IntegralFuzzyVariable(FuzzyVariable):
@@ -285,7 +285,16 @@ class RuleActivation(NamedTuple):
 
 
 class MembershipFunction(metaclass=ABCMeta):
-    """Base class for fuzzy set membership functions."""
+    """
+    Base class for fuzzy set membership functions.
+
+    A membership function is a function that maps the value of an input
+    variable to a degree of membership of that value within a fuzzy set.
+    The degree of membership is a value between 0.0 and 1.0, where 0.0
+    represents no membership (false), 1.0 represents full membership
+    (true), and values between 0.0 and 1.0 represent partial membership
+    (partially true).
+    """
 
     __slots__ = {
         "__name": "The name of the membership function."
@@ -305,17 +314,22 @@ class MembershipFunction(metaclass=ABCMeta):
         """Get the name of the variable."""
         return self.__name
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def params(self) -> tuple[float, ...]:
         """Get the parameters of the membership function."""
         raise NotImplementedError
 
     def __repr__(self) -> str:
-        """Get an instantiable string representation of the membership function."""
+        """
+        Get an instantiable string representation of the membership function.
+        """
         return f"{self.__class__.__name__}({self.__name!r}, *{self.params!r})"
 
     def __str__(self) -> str:
-        """Get a huamn readable string representation of the membership function."""
+        """
+        Get a human readable string representation of the membership function.
+        """
         return f"{self.__class__.__name__} {self.__name!s}: {self.params!s}"
 
     @final
@@ -371,25 +385,6 @@ class MembershipFunction(metaclass=ABCMeta):
         This method must be implemented by subclasses.
         """
         ...
-
-    @staticmethod
-    def plot_membership_functions(
-        membership_functions: Iterable["MembershipFunction"]
-    ) -> figure.Figure:
-        """
-        Plot the given membership functions.
-
-        Parameters
-        ----------
-        `membership_functions: Iterable[MembershipFunction]` - The membership
-        functions to plot.
-        """
-        fig, ax = plt.subplots()
-        for membership_function in membership_functions:
-            x, y = membership_function.to_array()
-            ax.plot(x, y, label=membership_function.name)
-        ax.legend()
-        return fig
 
 
 @final
@@ -466,8 +461,8 @@ class TriangularFunction(MembershipFunction):
         self
     ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         """Convert the membership function to an array."""
-        x_points = np.array([0.0, self.__start, self.__peak, self.__peak, self.__end, 1.0])
-        y_points = np.array([0.0, 0.0, 1.0, 1.0, 0.0, 0.0])
+        x_points = np.array([0.0, self.__start, self.__peak, self.__end, 1.0])
+        y_points = np.array([0.0, 0.0, 1.0, 0.0, 0.0])
         return (x_points, y_points)
 
 
@@ -884,13 +879,72 @@ def create_membership_function_set(
     return tuple(membership_functions)
 
 
+def plot_membership_functions(
+    membership_functions: Iterable["MembershipFunction"]
+) -> figure.Figure:
+    """
+    Plot the given membership functions.
+
+    Parameters
+    ----------
+    `membership_functions: Iterable[MembershipFunction]` - The membership
+    functions to plot.
+    """
+    fig, ax = plt.subplots()
+    for membership_function in membership_functions:
+        x, y = membership_function.to_array()
+        ax.plot(x, y, label=membership_function.name)
+    ax.legend()
+    return fig
+
+
+class FuzzyControllerTerms(NamedTuple):
+    """
+    Fuzzy control output terms.
+
+    Items
+    -----
+    `rule_truths: dict[str, dict[str, float]]` - The truth values of the
+    rules' antecedents, maps: rule name -> membership function name -> truth.
+
+    `rule_activations: dict[str, dict[str, float]]` - The activations of the
+    rules' consequents, maps: rule name -> membership function name ->
+    activation.
+
+    `var_truth_sums: dict[str, float]` - The sum of the truth values of all
+    rules for each variable's membership function, maps: variable name -> sum
+    of truth values.
+
+    `var_activation_sums: dict[str, float]` - The sum of the activations of
+    all rules for each variable's membership function, maps: variable name ->
+    sum of activations.
+
+    `var_outputs: dict[str, float]` - The aggregate output of all rules for
+    each variable (the activation sum divided by the truth sum if the truth
+    sum is not 0.0, otherwise it is 0.0), maps: variable name -> output.
+    """
+
+    rule_truths: dict[str, dict[str, float]]
+    rule_activations: dict[str, dict[str, float]]
+    var_truth_sums: dict[str, float]
+    var_activation_sums: dict[str, float]
+    var_outputs: dict[str, float]
+
+
 class FuzzyController(Controller):
     """Class defining a fuzzy controller."""
 
     __slots__ = {
         "__variables": "Fuzzy variables in the controller.",
         "__mem_funcs": "Membership functions in the controller.",
-        "__rules": "Rules in the controller."
+        "__rules": "Rules in the controller.",
+        "__rule_truths": "Truth values of the rules' antecedents.",
+        "__rule_activations": "Activations of the rules' consequents.",
+        "__var_truth_sums": "Sum of the truth values of each variable's "
+                            "membership functions.",
+        "__var_activation_sums": "Sum of the activations of each variable's "
+                                 "membership functions.",
+        "__var_outputs": "Output values of each variable."
     }
 
     def __init__(
@@ -905,7 +959,50 @@ class FuzzyController(Controller):
         output_trans: Callable[[float], float] | None = None,
         initial_error: float | None = None
     ) -> None:
-        """Create a fuzzy controller."""
+        """
+        Create a fuzzy controller.
+
+        A fuzzy controller is a non-linear system controler that uses a
+        sub-set of fuzzy logic to calculate control outputs. The control
+        output is calculated by the following steps:
+
+        1. Calculate the truth value of each rule's antecedent.
+        2. Calculate the activation of each rule's consequent.
+        3. Calculate the sum of the truth values of each variable's
+                membership functions.
+        4. Calculate the sum of the activations of each variable's
+                membership functions.
+        5. Calculate the output of each variable (the activation sum divided
+                by the truth sum if the truth sum is not 0.0, otherwise it is
+                0.0).
+        6. Calculate the output of the controller (the sum of the outputs of
+                each variable).
+
+        Parameters
+        ----------
+        `variables: Iterable[FuzzyVariable]` - The fuzzy variables in the
+        controller. There must be at least one variable.
+
+        `mem_funcs: Iterable[MembershipFunction]` - The membership functions
+        in the controller. There must be at least one membership function.
+
+        `rules: Iterable[tuple[str, str, float]] | None` - The rules in the
+        controller. Each rule is a tuple of the form (variable name,
+        membership function name, output weight).
+
+        For other parameters, see `jinx.control.controllers.Controller`.
+
+        Notes
+        -----
+        Although a fuzzy controller is a non-linear controller, it can be
+        optimised for a given system and setpoint to provide an optimal
+        control output simply using proportional variables. However, fuzzy
+        controllers also support integral and derivative variables, the use
+        of which can improve the robustness of the controller, particularly
+        for handling different setpoints, and of physical properties of the
+        system being controlled (where the steady state error, rise times, and
+        settling times change significantly)..
+        """
         super().__init__(
             input_limits,
             output_limits,
@@ -926,14 +1023,18 @@ class FuzzyController(Controller):
             for rule in rules:
                 self.add_rule(*rule)
 
+        self.__rule_truths: dict[str, dict[str, float]] = {}
+        self.__rule_activations: dict[str, dict[str, float]] = {}
+        self.__var_truth_sums: dict[str, float] = {}
+        self.__var_activation_sums: dict[str, float] = {}
+        self.__var_outputs: dict[str, float] = {}
+
     def __str__(self) -> str:
-        """
-        Return a human-readable string representation of the fuzzy controller.
-        """
+        """Return a human-readable string representation of the controller."""
         return f"Fuzzy Controller: total rules = {len(self.__rules)}"
 
     def __repr__(self) -> str:
-        """Return a parseable string representation of the fuzzy controller."""
+        """Return a parseable string representation of the controller."""
         rules: list[tuple[str, str, float]] = [
             (var.name, mem_func.name, output)
             for var in self.__rules
@@ -950,6 +1051,37 @@ class FuzzyController(Controller):
             f"error_transform={self.input_transform}, "
             f"output_transform={self.output_transform}, "
             f"initial_error={self.initial_error})"
+        )
+
+    @property
+    def variables(self) -> dict[str, FuzzyVariable]:
+        """Return the variables in the controller."""
+        return self.__variables
+
+    @property
+    def mem_funcs(self) -> dict[str, MembershipFunction]:
+        """Return the membership functions in the controller."""
+        return self.__mem_funcs
+
+    @property
+    def rules(self) -> dict[FuzzyVariable, dict[MembershipFunction, float]]:
+        """Return the rules in the controller."""
+        return self.__rules
+
+    @property
+    def terms(self) -> FuzzyControllerTerms:
+        """
+        Return the fuzzy control terms of the latest control output.
+
+        `FuzzyControllerTerms` - The fuzzy controller terms.
+        See `jinx.control.fuzzy.FuzzyControllerTerms` for details.
+        """
+        return FuzzyControllerTerms(
+            self.__rule_truths,
+            self.__rule_activations,
+            self.__var_truth_sums,
+            self.__var_activation_sums,
+            self.__var_outputs
         )
 
     def add_variable(self, var: FuzzyVariable) -> None:
@@ -1104,6 +1236,32 @@ class FuzzyController(Controller):
         delta_time: float,
         abs_tol: float | None = None
     ) -> float:
+        """
+        Calculate and return the control output.
+
+        The output is the sum of the activation of each rule (the truth of the
+        rule multiplied by the output of the rule) divided by the sum of the
+        truth of each rule.
+
+        Parameters
+        ----------
+        `control_input: float` - The control input
+        (the measured value of the control variable).
+
+        `setpoint: float` - The control setpoint
+        (the desired value of the control variable).
+
+        `delta_time: float` - The time difference since the last call.
+
+        `abs_tol: {float | None} = None` - The absolute tolerance for the
+        time difference. If given and not None, if the time difference is
+        smaller than the given value, then the integral and derivative
+        errors are not updated to avoid precision errors.
+
+        Returns
+        -------
+        `float` - The control output.
+        """
         if delta_time < 0.0:
             raise ValueError("The time difference must be positive. "
                              f"Got; {delta_time}.")
@@ -1122,34 +1280,58 @@ class FuzzyController(Controller):
 
         # Calculate the degree of truth and activation of each rule;
         # the weighted average of the activation of each rule.
-        var_truths: dict[str, dict[str, float]] = {
+        rule_truths: dict[str, dict[str, float]] = {
             var.name: {
                 mem_func.name: 0.0
                 for mem_func in self.__rules[var]
             }
             for var in self.__rules
         }
-        var_activations: dict[str, dict[str, float]] = var_truths.copy()
+        rule_activations: dict[str, dict[str, float]] = {
+            var.name: {
+                mem_func.name: 0.0
+                for mem_func in self.__rules[var]
+            }
+            for var in self.__rules
+        }
         for var, rules in self.__rules.items():
             for mem_func, output_weight in rules.items():
                 activation: RuleActivation = mem_func.get_activation(
                     var_inputs[var.name],
                     output_weight
                 )
-                var_truths[var.name][mem_func.name] = activation.truth
-                var_activations[var.name][mem_func.name] = activation.activation
+                rule_truths[var.name][mem_func.name] = activation.truth
+                rule_activations[var.name][mem_func.name] = \
+                    activation.activation
+        var_truth_sums: dict[str, float] = {
+            var.name: sum(rule_truths[var.name].values())
+            for var in self.__rules
+        }
+        var_activation_sums: dict[str, float] = {
+            var.name: sum(rule_activations[var.name].values())
+            for var in self.__rules
+        }
 
-        # Calculate control output (defuzzification);
-        # the sum over all variables of the sum of the activation of each rule
-        # divided by the sum of the degree of truth of each rule.
+        # Calculate control output (defuzzification); the sum over all
+        # variables of the sum of the activation of each rule divided
+        # by the sum of the degree of truth of each rule.
         var_outputs: dict[str, float] = {
-            var.name: (sum(var_activations[var.name].values()) / truth_sum
-                       if (truth_sum := sum(var_truths[var.name].values())) != 0.0 else 0.0)
+            var.name: (
+                var_activation_sums[var.name] / var_truth_sums[var.name]
+                if var_truth_sums[var.name] != 0.0
+                else 0.0
+            )
             for var in self.__rules
         }
         control_output: float = sum(var_outputs.values())
         control_output = clamp(self.transform_output(control_output),
                                *self.output_limits)
+
+        self.__rule_truths = rule_truths
+        self.__rule_activations = rule_activations
+        self.__var_truth_sums = var_truth_sums
+        self.__var_activation_sums = var_activation_sums
+        self.__var_outputs = var_outputs
 
         self._latest_input = control_input    # type: ignore
         self._latest_error = control_error    # type: ignore
@@ -1164,10 +1346,10 @@ class FuzzyController(Controller):
             var.reset()
 
 
-if __name__ == "__main__":
-    proportional = FuzzyVariable("proportional", -10.0, 10.0, gain=1.0)
-    derivative = DerivativeFuzzyVariable("derivative", -10.0, 10.0, gain=0.0)
-    integral = IntegralFuzzyVariable("integral", -10.0, 10.0, gain=1.0)
+def main() -> None:
+    proportional_var = FuzzyVariable("proportional", -10.0, 10.0, gain=1.0)
+    derivative_var = DerivativeFuzzyVariable("derivative", -10.0, 10.0, gain=0.0)
+    integral_var = IntegralFuzzyVariable("integral", -10.0, 10.0, gain=1.0)
 
     mem_funcs = create_membership_function_set(
         ["tiny", "small", "big", "large"],
@@ -1184,7 +1366,7 @@ if __name__ == "__main__":
     input()
 
     controller = FuzzyController(
-        [proportional, derivative, integral],
+        [proportional_var, derivative_var, integral_var],
         mem_funcs
     )
     controller.add_rule("proportional", "large", 1.0)
@@ -1225,3 +1407,7 @@ if __name__ == "__main__":
     fig, *_ = plot_control(times, inputs, setpoints, errors, outputs)
     fig.show()
     input()
+
+
+if __name__ == "__main__":
+    main()
