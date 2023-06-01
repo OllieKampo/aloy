@@ -199,6 +199,7 @@ class SnakeGameLogic:
             for _ in range(self.initial_snake_length - 1):
                 directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
                 random.shuffle(directions)
+                unsatisfiable: bool = False
                 for direction in directions:
                     x += direction[0]
                     y += direction[1]
@@ -211,8 +212,12 @@ class SnakeGameLogic:
                             and position != self.food):
                         self.snake.append(position)
                         break
+                    elif direction == directions[-1]:
+                        unsatisfiable = True
                     else:
                         x, y = self.snake[-1]
+                if unsatisfiable:
+                    break
             if len(self.snake) != self.initial_snake_length:
                 continue
             # Stop the snake from hitting itself immediately
