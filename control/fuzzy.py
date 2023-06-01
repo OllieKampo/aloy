@@ -1122,26 +1122,29 @@ class FuzzyController(Controller):
 
         # Calculate the degree of truth and activation of each rule;
         # the weighted average of the activation of each rule.
-        truth_sum: dict[str, float] = {
-            var.name: 0.0 for var in self.__rules
+        var_truths: dict[str, dict[str, float]] = {
+            var.name: {
+                mem_func.name: 0.0
+                for mem_func in self.__rules[var]
+            }
+            for var in self.__rules
         }
-        activation_sum: dict[str, float] = truth_sum.copy()
+        var_activations: dict[str, dict[str, float]] = var_truths.copy()
         for var, rules in self.__rules.items():
             for mem_func, output_weight in rules.items():
                 activation: RuleActivation = mem_func.get_activation(
-                    var_inputs[var.name], output_weight
+                    var_inputs[var.name],
+                    output_weight
                 )
-                truth_sum[var.name] = truth_sum[var.name] + activation.truth
-                activation_sum[var.name] = (
-                    activation_sum[var.name] + activation.activation
-                )
+                var_truths[var.name][mem_func.name] = activation.truth
+                var_activations[var.name][mem_func.name] = activation.activation
 
         # Calculate control output (defuzzification);
         # the sum over all variables of the sum of the activation of each rule
         # divided by the sum of the degree of truth of each rule.
         var_outputs: dict[str, float] = {
-            var.name: (activation_sum[var.name] / truth_sum[var.name]
-                       if truth_sum[var.name] != 0.0 else 0.0)
+            var.name: (sum(var_activations[var.name].values()) / truth_sum
+                       if (truth_sum := sum(var_truths[var.name].values())) != 0.0 else 0.0)
             for var in self.__rules
         }
         control_output: float = sum(var_outputs.values())
