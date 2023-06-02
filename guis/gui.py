@@ -120,8 +120,12 @@ def scale_size_for_grid(
     """
     scale = (widget_shape[0] / grid_shape[0], widget_shape[1] / grid_shape[1])
     size = (
-        size[0] - (padding[0] * (grid_shape[0] - widget_shape[0])) - (margins[0] + margins[2]),
-        size[1] - (padding[1] * (grid_shape[1] - widget_shape[1])) - (margins[1] + margins[3])
+        size[0]
+        - (padding[0] * (grid_shape[0] - widget_shape[0]))
+        - (margins[0] + margins[2]),
+        size[1]
+        - (padding[1] * (grid_shape[1] - widget_shape[1]))
+        - (margins[1] + margins[3])
     )
     return scale_size(size, scale)
 
@@ -131,9 +135,11 @@ class GridScaler:
 
     __slots__ = {
         "__size": "The size of the grid in pixels.",
-        "__grid_shape": "The shape of the grid, i.e. the number of rows and columns.",
-        "__padding": "The padding in pixels between grid cells. The order is horizontal, vertical.",
-        "__margins": "The margins in pixels around the grid. The order is left, top, right, bottom."
+        "__grid_shape": "The shape of the grid (rows, columns).",
+        "__padding": "The padding in pixels between grid cells "
+                     "(horizontal, vertical).",
+        "__margins": "The margins in pixels around the grid "
+                     "(left, top, right, bottom)."
     }
 
     def __init__(
@@ -214,7 +220,6 @@ class JinxGuiData(observable.Observable):
         "__connected_gui": "The gui object connected to this data object.",
         "__view_states": "The list of view states.",
         "__desired_view_state": "The currently desired view state.",
-        "__view_states": "The list of view states.",
         "__data": "Arbitrary data associated with the gui."
     }
 
@@ -511,6 +516,21 @@ class JinxGuiWindow(observable.Observer):
         self.__data.notify_all()
 
     @property
+    def qwindow(self) -> QtWidgets.QMainWindow:
+        """Get the main window."""
+        return self.__qwindow
+
+    @property
+    def data(self) -> JinxGuiData:
+        """Get the Jinx gui data for the window."""
+        return self.__data
+
+    @property
+    def view_states(self) -> list[str]:
+        """Get the view states of the window."""
+        return list(self.__views.keys())
+
+    @property
     def current_view_state(self) -> str | None:
         """Get the current view state of the window."""
         return self.__current_view_state
@@ -533,7 +553,6 @@ class JinxGuiWindow(observable.Observer):
             self.__combo_box.addItem(name)
         else:
             self.view_added.emit(name)
-        self.__data.add_view_state(name)
         if self.__current_view_state is None:
             self.__data.assign_observers(widget)
             self.__current_view_state = name
@@ -553,7 +572,6 @@ class JinxGuiWindow(observable.Observer):
             self.__combo_box.removeItem(self.__combo_box.findText(name))
         else:
             self.view_removed.emit(name)
-        self.__data.remove_view_state(name)
         if self.__current_view_state == name:
             self.__data.remove_observers(self.__views[name])
             self.__data.desired_view_state = None
@@ -576,5 +594,6 @@ class JinxGuiWindow(observable.Observer):
                 self.__data.assign_observers(jwidget)
                 self.__data.notify(jwidget)
             else:
+                self.__current_view_state = None
                 self.__stack.setCurrentWidget(self.__default_qwidget)
             self.__current_view_state = desired_view_state
