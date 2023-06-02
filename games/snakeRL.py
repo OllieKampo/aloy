@@ -13,27 +13,16 @@ import torch.optim as optim
 import torch.nn.functional as F
 import random
 import math
-import time
-import pandas as pd
-import matplotlib
 import matplotlib.pyplot as plt
-import seaborn as sns
 from PyQt6 import QtWidgets
 from PyQt6.QtCore import QTimer
 
 from games.snakegame import SnakeGameJinxWidget, SnakeGameLogic
 from guis.gui import JinxGuiData, JinxGuiWindow
-from learning.convolutional import calc_conv_output_shape_from, size_of_flat_layer
+from learning.convolutional import calc_conv_output_shape, calc_conv_output_shape_from, size_of_flat_layer
 from moremath.mathutils import exp_decay_between
-from moremath.vectors import vector_add, vector_distance_torus_wrapped
+from moremath.vectors import vector_distance_torus_wrapped
 from learning.reinforcement.tools import ReplayMemory, Transition
-from datahandling.runningstats import MovingAverage
-
-
-# set up matplotlib
-is_ipython = "inline" in matplotlib.get_backend()
-if is_ipython:
-    from IPython import display
 
 
 class SnakeGameEnv(gym.Env[np.ndarray, tuple[int, int]]):
@@ -109,6 +98,7 @@ class SnakeGameEnv(gym.Env[np.ndarray, tuple[int, int]]):
         }
         return observation, reward, terminated, truncated, info
 
+    # pylint: disable=unused-argument
     def reset(
         self, *,
         seed: int | None = None,
@@ -187,27 +177,39 @@ class DQN(nn.Module):
 
 def select_action(
     policy_net: DQN,
+    env: gym.Env,
     state: torch.Tensor,
     steps_done: int,
     eps_start: float,
     eps_end: float,
-    eps_decay: float
+    eps_decay: float,
+    device: torch.device
 ) -> torch.Tensor:
+    """Select an action to perform."""
     sample = random.random()
-    eps_threshold = eps_end + (eps_start - eps_end) * math.exp(-1.0 * (steps_done / eps_decay))
-    ## With random probability, choose exploitatively, the best currently known action.
+    eps_threshold = (
+        eps_end
+        + (eps_start - eps_end)
+        * math.exp(-1.0 * (steps_done / eps_decay))
+    )
+    # With random probability, choose exploitatively, the best currently known
+    # action.
     if sample > eps_threshold:
         with torch.no_grad():
             # t.max(1) will return the largest column value of each row.
             # second column on max result is index of where max element was
             # found, so we pick action with the larger expected reward.
             return policy_net(state).max(1)[1].view(1, 1)
-    ## Otherwise, randomly choose an action exploratorively
+    # Otherwise, randomly choose an action exploratorively
     else:
-        return torch.tensor([[snake_env.action_space.sample()]], device=device, dtype=torch.long)
+        return torch.tensor(
+            [[env.action_space.sample()]],
+            device=device,
+            dtype=torch.long
+        )
 
 
-def plot_output(show_result=False):
+def plot_output(episode_scores, show_result=False):
     plt.figure(1)
     scores_t = torch.tensor(episode_scores, dtype=torch.float)
     if show_result:
@@ -268,17 +270,21 @@ def optimize_model(
     # Compute V(s_{t+1}) for all next states.
     # Expected values of actions for non_final_next_states are computed based
     # on the "older" target_net; selecting their best reward with max(1)[0].
-    # This is merged based on the mask, such that we'll have either the expected
-    # state value or 0 in case the state was final.
+    # This is merged based on the mask, such that we'll have either the
+    # expected state value or 0 in case the state was final.
     next_state_values = torch.zeros(batch_size, device=device)
     with torch.no_grad():
-        next_state_values[non_final_mask] = target_net(non_final_next_states).max(1)[0]
-    # Compute the expected Q values
+        next_state_values[non_final_mask] = target_net(
+            non_final_next_states).max(1)[0]
+    # Compute the expected Q values.
     expected_state_action_values = (next_state_values * gamma) + reward_batch
 
     # Compute Huber loss
     criterion = nn.SmoothL1Loss()
-    loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
+    loss = criterion(
+        state_action_values,
+        expected_state_action_values.unsqueeze(1)
+    )
 
     # Optimize the model
     optimizer.zero_grad()
@@ -300,8 +306,11 @@ def qtrain(
     eps_start: float,
     eps_end: float,
     eps_decay: float,
-    tau: float
+    tau: float,
+    save: bool,
+    save_path: str
 ) -> None:
+    """Train a DQN agent."""
     plt.ion()
 
     target_net.load_state_dict(policy_net.state_dict())
@@ -314,25 +323,34 @@ def qtrain(
     for _ in range(num_episodes):
         # Initialize the environment and get it's state
         state, info = env.reset()
-        state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+        state = torch.tensor(state, dtype=torch.float32, device=device)
+        state = state.unsqueeze(0)
+
         for t in count():
             action = select_action(
                 policy_net,
+                env,
                 state,
                 steps_done,
                 eps_start,
                 eps_end,
-                eps_decay
+                eps_decay,
+                device
             )
             steps_done += 1
-            observation, reward, terminated, truncated, info = env.step(action.item())
+            observation, reward, terminated, truncated, info = \
+                env.step(action.item())
             reward = torch.tensor([reward], device=device)
             done = terminated or truncated
 
             if terminated:
                 next_state = None
             else:
-                next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
+                next_state = torch.tensor(
+                    observation,
+                    dtype=torch.float32,
+                    device=device
+                ).unsqueeze(0)
 
             # Store the transition in memory
             memory.push(state, action, next_state, reward)
@@ -356,24 +374,26 @@ def qtrain(
             target_net_state_dict = target_net.state_dict()
             policy_net_state_dict = policy_net.state_dict()
             for key in policy_net_state_dict:
-                target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
+                target_net_state_dict[key] = (
+                    (policy_net_state_dict[key] * tau)
+                    + (target_net_state_dict[key] * (1 - tau))
+                )
             target_net.load_state_dict(target_net_state_dict)
 
             if done:
                 episode_scores.append(info["score"])
                 episode_durations.append(t + 1)
-                plot_output()
+                plot_output(episode_scores)
                 break
 
     print("Complete")
-    plot_output(show_result=True)
+    plot_output(episode_scores, show_result=True)
     plt.ioff()
     plt.show()
 
     # Save the model
     if save:
-        if not os.path.exists("models"):
-            os.mkdir("models")
+        os.makedirs(save_path, exist_ok=True)
         torch.save(policy_net, "models/policy_net.pth")
 
 
@@ -384,8 +404,10 @@ def render(args: argparse.Namespace) -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     policy_net = torch.load("models/policy_net.pth")
-    policy_net.layer1_out_shape = calc_output_shape((10, 10), 2, 1, 0, 1)
-    policy_net.layer1_flat_size = size_of_flat_layer(policy_net.layer1_out_shape, 5)
+    policy_net.layer1_out_shape = calc_conv_output_shape(
+        (10, 10), 2, 1, 0, 1)
+    policy_net.layer1_flat_size = size_of_flat_layer(
+        policy_net.layer1_out_shape, 5)
     print("policy_net.layer1_out_shape", policy_net.layer1_out_shape)
     print("policy_net.layer1_flat_size", policy_net.layer1_flat_size)
 
@@ -400,8 +422,11 @@ def render(args: argparse.Namespace) -> None:
     snake_qwidget = QtWidgets.QWidget()
     snake_game_logic = SnakeGameLogic((10, 10))
     snake_game_jwidget = SnakeGameJinxWidget(
-        snake_qwidget, width, height,
-        snake_game_logic=snake_game_logic, manual_update=True, debug=debug
+        snake_qwidget,
+        size=(width, height),
+        snake_game_logic=snake_game_logic,
+        manual_update=True,
+        debug=debug
     )
     snake_game_logic.restart()
     print(snake_game_logic.grid_size)
@@ -414,7 +439,7 @@ def render(args: argparse.Namespace) -> None:
     # jgui.add_view("Snake Game Performance", snake_game_options_jwidget)
     jdata.desired_view_state = "Snake Game"
 
-    def select_action(state: torch.Tensor) -> torch.Tensor:
+    def best_action(state: torch.Tensor) -> torch.Tensor:
         with torch.no_grad():
             return policy_net(state).max(1)[1].view(1, 1)
 
@@ -424,7 +449,7 @@ def render(args: argparse.Namespace) -> None:
 
         state = snake_game_logic.get_state()
         state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
-        action = select_action(state)
+        action = best_action(state)
         snake_game_jwidget.manual_update_game(action.item())
 
     qtimer = QTimer()
@@ -438,17 +463,40 @@ def render(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    # BATCH_SIZE is the number of transitions sampled from the replay buffer
+    # GAMMA is the discount factor
+    # EPS_START is the starting value of epsilon
+    # EPS_END is the final value of epsilon
+    # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
+    # TAU is the update rate of the target network
+    # LR is the learning rate of the AdamW optimizer
     parser.add_argument("--load", action="store_true", help="Load the model")
     parser.add_argument("--render", action="store_true", help="Render the environment")
     parser.add_argument("--fps", type=int, default=10, help="Frames per second")
     parser.add_argument("-wi", "--width", type=int, default=200)
     parser.add_argument("-he", "--height", type=int, default=200)
     parser.add_argument("--debug", action="store_true")
-
     parser.add_argument("--train", action="store_true", help="Train the model")
     parser.add_argument("--save", action="store_true", help="Save the model")
     parser.add_argument("--num_episodes", type=int, default=10000, help="Number of episodes to run")
     parser.add_argument("--max_steps", type=int, default=1000, help="Maximum number of steps per episode")
+    parser.add_argument("--batch_size", type=int, default=256, help="Batch size")
+    parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor")
+    parser.add_argument("--eps_start", type=float, default=0.95, help="Starting epsilon value")
+    parser.add_argument("--eps_end", type=float, default=0.05, help="Ending epsilon value")
+    parser.add_argument("--eps_decay", type=int, default=10000, help="Number of episodes to decay epsilon")
+    parser.add_argument("--tau", type=float, default=0.005, help="Tau value for soft update of target network")
+    parser.add_argument("--save", action="store_true", help="Save the model")
+    parser.add_argument("--save_path", type=str, default="models/", help="Path to save the model")
+    parser.add_argument("--target_update", type=int, default=10, help="Number of episodes to update target network")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--memory_size", type=int, default=10000, help="Size of the replay memory")
+    parser.add_argument("--memory_min", type=int, default=1000, help="Minimum number of transitions to start training")
+    parser.add_argument("--memory_batch", type=int, default=128, help="Batch size for replay memory")
+    parser.add_argument("--memory_alpha", type=float, default=0.6, help="Alpha value for prioritized replay memory")
+    parser.add_argument("--memory_beta", type=float, default=0.4, help="Beta value for prioritized replay memory")
+    parser.add_argument("--memory_beta_end", type=float, default=1.0, help="Ending beta value for prioritized replay memory")
+    parser.add_argument("--memory_beta_decay", type=int, default=200, help="Number of episodes to decay beta")
     # parser.add_argument("--record", action="store_true", help="Record the environment")
     # parser.add_argument("--record_fps", type=int, default=10, help="Frames per second for recording")
     # parser.add_argument("--record_path", type=str, default="recordings", help="Path to save the recordings")
@@ -464,22 +512,7 @@ def main() -> None:
     policy_net = DQN(*state.shape, n_actions).to(device)
     target_net = DQN(*state.shape, n_actions).to(device)
 
-    optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
-
-    # BATCH_SIZE is the number of transitions sampled from the replay buffer
-    # GAMMA is the discount factor
-    # EPS_START is the starting value of epsilon
-    # EPS_END is the final value of epsilon
-    # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
-    # TAU is the update rate of the target network
-    # LR is the learning rate of the AdamW optimizer
-    # BATCH_SIZE = 256
-    # GAMMA = 0.99
-    # EPS_START = 0.95
-    # EPS_END = 0.05
-    # EPS_DECAY = 10000
-    # TAU = 0.005
-    # LR = 1e-4
+    optimizer = optim.AdamW(policy_net.parameters(), lr=args.lr, amsgrad=True)
 
     if args.render:
         render(args)
@@ -490,7 +523,15 @@ def main() -> None:
             target_net,
             optimizer,
             device,
-            args.num_episodes
+            args.num_episodes,
+            args.batch_size,
+            args.gamma,
+            args.eps_start,
+            args.eps_end,
+            args.eps_decay,
+            args.tau,
+            args.save,
+            args.save_path
         )
 
 
