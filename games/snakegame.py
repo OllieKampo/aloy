@@ -288,7 +288,7 @@ class SnakeGameLogic:
         if self.difficulty == "easy":
             return
         elif self.difficulty == "medium":
-            upper = self.score // 2 * self.food_per_level
+            upper = self.score // (2 * self.food_per_level)
             lower = 0
         elif self.difficulty == "hard":
             upper = self.score // self.food_per_level
@@ -864,7 +864,7 @@ class SnakeGameOptionsJinxWidget(JinxObserverWidget):
             self.__set_food_time_limit)
         layout.addWidget(self.__food_time_limit_slider)
         self.__layout.addLayout(layout, row, column)
-    
+
     def __create_walls_option(self, row: int, column: int) -> None:
         """Create the option to change the walls."""
         layout = QtWidgets.QHBoxLayout()
@@ -893,12 +893,12 @@ class SnakeGameOptionsJinxWidget(JinxObserverWidget):
         """Update the difficulty."""
         self.__data.set_data("difficulty", value)
 
-    @QtCore.pyqtSlot(int)
+    # @QtCore.pyqtSlot(int)
     def __set_snake_length(self, value: int) -> None:
         """Update the snake length."""
         self.__data.set_data("initial_snake_length", value)
 
-    @QtCore.pyqtSlot(int)
+    # @QtCore.pyqtSlot(int)
     def __set_food_per_snake_growth(self, value: int) -> None:
         """Update the food per snake growth."""
         self.__data.set_data("food_per_snake_growth", value)
@@ -907,7 +907,7 @@ class SnakeGameOptionsJinxWidget(JinxObserverWidget):
         """Update the speed."""
         self.__data.set_data("speed", 1.0 + ((value - 1.0) / 100.0))
 
-    @QtCore.pyqtSlot(int)
+    # @QtCore.pyqtSlot(int)
     def __set_food_per_level(self, value: int) -> None:
         """Update the food per level."""
         self.__data.set_data("food_per_level", value)
