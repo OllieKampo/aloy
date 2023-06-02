@@ -24,7 +24,7 @@ import time
 import types
 from typing import (
     Callable, Final, Iterable, Iterator, KeysView, Literal, Mapping,
-    NamedTuple, Optional, SupportsFloat, TypeAlias, TypeVar, final
+    NamedTuple, Optional, SupportsFloat, TypeAlias, TypeVar, final, overload
 )
 import statistics
 
@@ -916,6 +916,24 @@ class MultiVariateController:
         """Get a controller for a given input and output mapping."""
         return self.__modules[output_name][input_name]
 
+    def get_controllers_for_input(
+        self,
+        input_name: str, /
+    ) -> Mapping[str, Controller]:
+        """Get all controllers for a given input variable."""
+        output_names = self.__input_output_mapping[input_name]
+        return {
+            output_name: self.__modules[output_name][input_name]
+            for output_name in output_names
+        }
+
+    def get_controllers_for_output(
+        self,
+        output_name: str, /
+    ) -> Mapping[str, Controller]:
+        """Get all controllers for a given output variable."""
+        return self.__modules[output_name]
+
     def add_controller(
         self,
         input_name: str,
@@ -1360,13 +1378,37 @@ class ControlTick(NamedTuple):
 
     `output: float` - The control output of the control tick.
 
-    `delta_time: float` - The time difference (in seconds)
-    between the last and previous ticks.
+    `delta_time: float` - The time difference (in seconds) between the last
+    and previous ticks.
     """
 
     ticks: int
     error: float
     output: float
+    delta_time: float
+
+
+class MultiVariateControlTick(NamedTuple):
+    """
+    Named tuple defining a multivariate control tick from a system controller.
+
+    Items
+    -----
+    `ticks: int` - The number of ticks since the last reset.
+
+    `errors: dict[str, float]` - The control errors of the control tick,
+    where the keys are the names of the input variables.
+
+    `outputs: dict[str, float]` - The control outputs of the control tick,
+    where the keys are the names of the output variables.
+
+    `delta_time: float` - The time difference (in seconds) between the last
+    and previous ticks.
+    """
+
+    ticks: int
+    errors: dict[str, float]
+    outputs: dict[str, float]
     delta_time: float
 
 
@@ -1382,22 +1424,24 @@ class SystemController:
 
     __slots__ = {
         "__controller": "The underlying controller.",
+        "__is_multivariate": "Whether the controller is multivariate.",
         "__system": "The controlled system.",
-        "__input_var_name": "The name of the input variable "
-                            "to get from the controlled system.",
-        "__output_var_name": "The name of the output variable "
-                             "to set to the controlled system.",
+        "__input_var_names": "The name of the input variable "
+                             "to get from the controlled system.",
+        "__output_var_names": "The name of the output variable "
+                              "to set to the controlled system.",
         "__timer": "The controller timer used to calculate "
                    "time differences between ticks.",
         "__ticks": "The number of ticks since the last reset."
     }
 
+    @overload
     def __init__(
         self,
         controller: Controller,
         system: ControlledSystem,
-        input_var_name: str | None = None,
-        output_var_name: str | None = None,
+        input_var_names: str | None,
+        output_var_names: str | None,
         get_input_limits: bool = False,
         get_output_limits: bool = False
     ) -> None:
@@ -1412,9 +1456,9 @@ class SystemController:
 
         Parameters
         ----------
-        `controller : Controller` - The controller to use.
+        `controller: Controller` - The controller to encapsulate.
 
-        `system : ControlledSystem` - The system to control.
+        `system: ControlledSystem` - The system to control.
         Must implement the `get_control_input(...)`, `get_setpoint(...)`
         and `set_control_output(...)` methods of the `ControlledSystem` mixin.
 
@@ -1430,12 +1474,163 @@ class SystemController:
         `get_output_limits: bool = False` - Whether to get the output limits
         from the controlled system and set them to the controller.
         """
-        self.__controller: Controller = controller
+        ...
+
+    @overload
+    def __init__(
+        self,
+        controller: MultiVariateController,
+        system: ControlledSystem,
+        input_var_names: Iterable[str],
+        output_var_names: Iterable[str],
+        get_input_limits: bool = False,
+        get_output_limits: bool = False
+    ) -> None:
+        """
+        Create a system controller from a multivariate controller and a
+        controlled system.
+
+        In contrast to the standard controller, a system controller also takes
+        a controlled system as input. The control input is taken from, and
+        control output set to, the control system, every time the controller
+        is 'ticked', handling time dependent calculations automatically.
+        Time differences are calculated by an internal timer.
+
+        Parameters
+        ----------
+        `controller: MultiVariateController` - The controller to encapsulate.
+
+        `system: ControlledSystem` - The system to control.
+        Must implement the `get_control_input(...)`, `get_setpoint(...)`
+        and `set_control_output(...)` methods of the `ControlledSystem` mixin.
+
+        `input_var_names: Iterable[str]` - The names of the input
+        variables to get from the controlled system.
+
+        `output_var_names: Iterable[str]` - The names of the output
+        variables to set to the controlled system.
+
+        `get_input_limits: bool = False` - Whether to get the input limits
+        from the controlled system and set them to the controller.
+
+        `get_output_limits: bool = False` - Whether to get the output limits
+        from the controlled system and set them to the controller.
+        """
+        ...
+
+    def __init__(
+        self,
+        controller: Controller | MultiVariateController,
+        system: ControlledSystem,
+        input_var_names: str | Iterable[str] | None = None,
+        output_var_names: str | Iterable[str] | None = None,
+        get_input_limits: bool = False,
+        get_output_limits: bool = False
+    ) -> None:
+        self.__controller: Controller | MultiVariateController = controller
+        self.__is_multivariate: bool = isinstance(
+            controller,
+            MultiVariateController
+        )
         self.__system: ControlledSystem = system
-        self.__input_var_name: str | None = input_var_name
-        self.__output_var_name: str | None = output_var_name
+        self.__input_var_names: str | Iterable[str] | None = None
+        self.__output_var_names: str | Iterable[str] | None = None
+        if self.__is_multivariate:
+            self.__set_vars_multi(
+                input_var_names,
+                output_var_names,
+                get_input_limits,
+                get_output_limits
+            )
+        else:
+            self.__set_vars_single(
+                input_var_names,
+                output_var_names,
+                get_input_limits,
+                get_output_limits
+            )
         self.__timer: ControllerTimer = ControllerTimer()
         self.__ticks: int = 0
+
+    def __set_vars_multi(
+        self,
+        input_var_names: Iterable[str] | None,
+        output_var_names: Iterable[str] | None,
+        get_input_limits: bool,
+        get_output_limits: bool
+    ) -> None:
+        """
+        Set the input and output variable names for a multivariate
+        controller.
+
+        Parameters
+        ----------
+        `input_var_names: Iterable[str]` - The names of the input variables to
+        get from the controlled system.
+
+        `output_var_names: Iterable[str]` - The names of the output variables
+        to set to the controlled system.
+
+        `get_input_limits: bool` - Whether to get the input limits from the
+        controlled system and set them to the controller.
+
+        `get_output_limits: bool` - Whether to get the output limits from the
+        controlled system and set them to the controller.
+        """
+        if input_var_names is None:
+            raise ValueError(
+                "Input variable names must be specified for multivariate "
+                "controllers."
+            )
+        if output_var_names is None:
+            raise ValueError(
+                "Output variable names must be specified for multivariate "
+                "controllers."
+            )
+        self.__input_var_names = tuple(input_var_names)
+        self.__output_var_names = tuple(output_var_names)
+        if get_input_limits:
+            for input_name in self.__input_var_names:
+                limits = self.__system.get_input_limits(input_name)
+                controllers = self.__controller.get_controllers_for_input(
+                    input_name)
+                for controller in controllers.values():
+                    controller.input_limits = limits
+        if get_output_limits:
+            for output_name in self.__output_var_names:
+                limits = self.__system.get_output_limits(output_name)
+                controllers = self.__controller.get_controllers_for_output(
+                    output_name)
+                for controller in controllers.values():
+                    controller.output_limits = limits
+
+    def __set_vars_single(
+        self,
+        input_var_name: str | None,
+        output_var_name: str | None,
+        get_input_limits: bool,
+        get_output_limits: bool
+    ) -> None:
+        """
+        Set the input and output variable names for a single variate
+        controller.
+
+        Parameters
+        ----------
+        `input_var_name: {str | None}` - The name of the input variable
+        to get from the controlled system.
+
+        `output_var_name: {str | None}` - The name of the output variable
+        to set to the controlled system.
+
+        `get_input_limits: bool` - Whether to get the input limits
+        from the controlled system and set them to the controller.
+
+        `get_output_limits: bool` - Whether to get the output limits
+        from the controlled system and set them to the controller.
+        """
+        self.__input_var_names = input_var_name
+        self.__output_var_names = output_var_name
 
         if get_input_limits:
             self.__controller.input_limits = \
@@ -1508,8 +1703,8 @@ class SystemController:
     def __repr__(self) -> str:
         """Get the string representation of the system controller instance."""
         return f"{self.__class__.__name__}({self.__controller!r}, " \
-               f"{self.__system!r}, {self.__input_var_name!r}" \
-               f"{self.__output_var_name!r})"
+               f"{self.__system!r}, {self.__input_var_names!r}" \
+               f"{self.__output_var_names!r})"
 
     @property
     def controller(self) -> Controller:
@@ -1517,19 +1712,28 @@ class SystemController:
         return self.__controller
 
     @property
+    def is_multivariate(self) -> bool:
+        """Get whether this controller is multivariate."""
+        return self.__is_multivariate
+
+    @property
     def system(self) -> ControlledSystem:
         """Get the controlled system."""
         return self.__system
 
     @property
-    def input_var_name(self) -> str | None:
-        """Get the name of the input variable taken from controlled system."""
-        return self.__input_var_name
+    def input_var_names(self) -> list[str] | str | None:
+        """
+        Get the names of the input variables taken from controlled system.
+        """
+        return self.__input_var_names
 
     @property
-    def output_var_name(self) -> str | None:
-        """Get the name of the output variable set to the controlled system."""
-        return self.__output_var_name
+    def output_var_names(self) -> list[str] | str | None:
+        """
+        Get the names of the output variables set to the controlled system.
+        """
+        return self.__output_var_names
 
     @property
     def ticks(self) -> int:
@@ -1543,11 +1747,68 @@ class SystemController:
         """Get the time in seconds since the controller was last ticked."""
         return self.__timer.time_since_last(time_factor)
 
-    def tick(
+    def __multivariate_tick(
         self,
         time_factor: float = 1.0,
         abs_tol: float | None = None
     ) -> ControlTick:
+        controller: MultiVariateController = self.__controller
+        system: ControlledSystem = self.__system
+        input_var_names: list[str] = self.__input_var_names
+        output_var_names: list[str] = self.__output_var_names
+
+        control_inputs: dict[str, float] = {}
+        setpoints: dict[str, float] = {}
+        for input_var_name in input_var_names:
+            control_input: float = system.get_control_input(input_var_name)
+            setpoint: float = system.get_setpoint(input_var_name)
+            control_inputs[input_var_name] = control_input
+            setpoints[input_var_name] = setpoint
+        delta_time: float = self.__timer.get_delta_time(time_factor)
+
+        outputs: dict[str, float] = controller.control_output(
+            control_inputs, setpoints, delta_time, abs_tol)
+        for output_var_name in output_var_names:
+            system.set_control_output(
+                outputs[output_var_name], delta_time, output_var_name)
+
+        return MultiVariateControlTick(
+            self.__ticks,
+            controller.latest_errors,
+            controller.latest_outputs,
+            delta_time
+        )
+
+    def __singlevariate_tick(
+        self,
+        time_factor: float = 1.0,
+        abs_tol: float | None = None
+    ) -> ControlTick:
+        controller: Controller = self.__controller
+        system: ControlledSystem = self.__system
+        input_var_name: str | None = self.__input_var_names
+        output_var_name: str | None = self.__output_var_names
+
+        control_input: float = system.get_control_input(input_var_name)
+        setpoint: float = system.get_setpoint(input_var_name)
+        delta_time: float = self.__timer.get_delta_time(time_factor)
+
+        output: float = controller.control_output(
+            control_input, setpoint, delta_time, abs_tol)
+        system.set_control_output(output, delta_time, output_var_name)
+
+        return ControlTick(
+            self.__ticks,
+            controller.latest_error,  # type: ignore
+            output,
+            delta_time
+        )
+
+    def tick(
+        self,
+        time_factor: float = 1.0,
+        abs_tol: float | None = None
+    ) -> ControlTick | MultiVariateControlTick:
         """
         Tick the controller.
 
@@ -1567,35 +1828,14 @@ class SystemController:
 
         Returns
         -------
-        `ControlTick(tick: int, output: float, delta_time: float)` - The tick
-        number, the control output, and the time in seconds since the last
-        tick (multiplied by the time factor).
+        `ControlTick | MultiVariateControlTick` - The control tick containing
+        the tick number, the control error(s), and the control output(s), and
+        the time in seconds since the last tick (multiplied by time factor).
         """
         self.__ticks += 1
-
-        controller = self.__controller
-        system = self.__system
-        input_var_name = self.__input_var_name
-        output_var_name = self.__output_var_name
-
-        control_input: float = system.get_control_input(input_var_name)
-        setpoint: float = system.get_setpoint(input_var_name)
-        delta_time: float = self.__timer.get_delta_time(time_factor)
-
-        output: float = clamp(
-            controller.control_output(
-                control_input, setpoint, delta_time, abs_tol
-            ),
-            *system.get_output_limits(output_var_name)
-        )
-        system.set_control_output(output, delta_time, output_var_name)
-
-        return ControlTick(
-            self.__ticks,
-            controller.latest_error,  # type: ignore
-            output,
-            delta_time
-        )
+        if self.__is_multivariate:
+            return self.__multivariate_tick(time_factor, abs_tol)
+        return self.__singlevariate_tick(time_factor, abs_tol)
 
     def reset(self) -> None:
         """Reset the controller state."""
@@ -1604,10 +1844,28 @@ class SystemController:
         self.__controller.reset()
 
 
-# Signature: (iterations, error, output, delta_time, total_time) -> bool
-Condition: TypeAlias = Callable[[int, float | None, float, float, float], bool]
-# Signature: (iterations, error, output, delta_time, total_time) -> None
-DataCallback: TypeAlias = Callable[[int, float, float, float, float], None]
+# Signature: (iterations, error(s), output(s), delta_time, total_time) -> bool
+Condition: TypeAlias = Callable[
+    [
+        int,
+        float | dict[str, float] | None,
+        float | dict[str, float],
+        float,
+        float
+    ],
+    bool
+]
+# Signature: (iterations, error(s), output(s), delta_time, total_time) -> None
+DataCallback: TypeAlias = Callable[
+    [
+        int,
+        float | dict[str, float],
+        float | dict[str, float],
+        float,
+        float
+    ],
+    None
+]
 
 
 @final
@@ -1872,9 +2130,18 @@ class AutoSystemController:
         time differences. The tick rate is multiplied by this value to get the
         tick rate relative to the time factor.
 
-        `data_callback: (int, float, float, float, float) -> None = None` - A
-        callable to callback control data to. The function parameters are:
-        `(iteration, error, output, delta time, total time)`.
+        `data_callback:
+            (int,
+             float | dict[str, float],
+             float | dict[str, float],
+             float,
+             float
+            ) -> None = None` - A callable to callback control data to.
+        The function parameters are:
+        `(iteration, error(s), output(s), delta time, total time)`.
+        For multivariate controllers, the errors and outputs are dictionaries
+        whose keys are input and output variable names respectively and whose
+        values are the corresponding error or output values.
 
         `reset: bool = True` - Whether to also reset the controller state when
         the context is exited.
@@ -1914,9 +2181,18 @@ class AutoSystemController:
         time differences. The tick rate is multiplied by this value to get the
         tick rate relative to the time factor.
 
-        `data_callback: (int, float, float, float, float) -> None = None` - A
-        callable to callback control data to. The function parameters are:
-        `(iteration, error, output, delta time, total time)`.
+        `data_callback:
+            (int,
+             float | dict[str, float],
+             float | dict[str, float],
+             float,
+             float
+            ) -> None = None` - A callable to callback control data to.
+        The function parameters are:
+        `(iteration, error(s), output(s), delta time, total time)`.
+        For multivariate controllers, the errors and outputs are dictionaries
+        whose keys are input and output variable names respectively and whose
+        values are the corresponding error or output values.
 
         Raises
         ------
@@ -1960,9 +2236,18 @@ class AutoSystemController:
         time differences. The tick rate is multiplied by this value to get the
         tick rate relative to the time factor.
 
-        `data_callback: (int, float, float, float, float) -> None = None` - A
-        callable to callback control data to. The function parameters are:
-        `(iteration, error, output, delta time, total time)`.
+        `data_callback:
+            (int,
+             float | dict[str, float],
+             float | dict[str, float],
+             float,
+             float
+            ) -> None = None` - A callable to callback control data to.
+        The function parameters are:
+        `(iteration, error(s), output(s), delta time, total time)`.
+        For multivariate controllers, the errors and outputs are dictionaries
+        whose keys are input and output variable names respectively and whose
+        values are the corresponding error or output values.
 
         Raises
         ------
@@ -2006,6 +2291,8 @@ class AutoSystemController:
             )
             self.__start()
 
+# Signature: (iterations, error(s), output(s), delta_time, total_time) -> bool
+
     def run_while(
         self,
         condition: Condition,
@@ -2018,10 +2305,18 @@ class AutoSystemController:
 
         Parameters
         ----------
-        `condition: (int, float, float, float) -> bool` - The
-        condition to test. The function signature is
-        `(iterations, error, output, delta time, total time) -> bool`,
-        the controller will stop when the condition returns `False`.
+        `condition:
+            (int,
+             float | dict[str, float],
+             float | dict[str, float],
+             float,
+             float
+            ) -> bool` - The condition to test. The controller will stop when
+        the condition returns `False`. The function parameters are:
+        `(iterations, error(s), output(s), delta time, total time) -> bool`.
+        For multivariate controllers, the errors and outputs are dictionaries
+        whose keys are input and output variable names respectively and whose
+        values are the corresponding error or output values.
 
         `tick_rate: int = 10` - The tick rate of the controller (in ticks per
         second). This is approximate, the actual tick rate may vary, the only
@@ -2031,9 +2326,18 @@ class AutoSystemController:
         time differences. The tick rate is multiplied by this value to get the
         tick rate relative to the time factor.
 
-        `data_callback: (int, float, float, float, float) -> None = None` - A
-        callable to callback control data to. The function parameters are:
-        `(iteration, error, output, delta time, total time)`.
+        `data_callback:
+            (int,
+             float | dict[str, float],
+             float | dict[str, float],
+             float,
+             float
+            ) -> None = None` - A callable to callback control data to.
+        The function parameters are:
+        `(iteration, error(s), output(s), delta time, total time)`.
+        For multivariate controllers, the errors and outputs are dictionaries
+        whose keys are input and output variable names respectively and whose
+        values are the corresponding error or output values.
 
         Raises
         ------
