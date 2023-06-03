@@ -229,11 +229,11 @@ class SnakeGameLogic:
         direction = self.__direction.get_obj()
 
         # Get the current head of the snake
-        x, y = self.snake[0]
+        cur_x, cur_y = self.__snake[0]
 
         # Get the new head of the snake
-        new_x = (x + direction[0]) % self.grid_size[0]
-        new_y = (y + direction[1]) % self.grid_size[1]
+        new_x = (cur_x + direction[0]) % self.grid_size[0]
+        new_y = (cur_y + direction[1]) % self.grid_size[1]
         new_head = (new_x, new_y)
 
         # Check if the snake has hit itself or an obstacle
@@ -464,7 +464,7 @@ class SnakeGameLogic:
         """
         obs = np.zeros(self.grid_size, dtype=np.int8)
         obs[self.food] = 1
-        obs[tuple(segment for segment in zip(*self.snake[1:]))] = 2
+        obs[tuple(segment for segment in zip(*self.__snake[1:]))] = 2
         obs[self.snake[0]] = 3
         if self.obstacles:
             obs[tuple(obstacle for obstacle in zip(*self.obstacles))] = 4
@@ -561,14 +561,16 @@ class SnakeGameJinxWidget(JinxObserverWidget):
         # Food time limit display
         self.__food_time_limit_display = QtWidgets.QProgressBar()
         self.__food_time_limit_display.setStyleSheet(
-            "QProgressBar {"
-                "border: 1px solid black;"
-                "border-radius: 5px;"
-                "background-color: white;"
-            "}"
-            "QProgressBar::chunk {"
-                "background-color: red;"
-            "}"
+            """
+            QProgressBar {
+                border: 1px solid black;
+                border-radius: 5px;
+                background-color: white;
+            }
+            QProgressBar::chunk {
+                background-color: red;
+            }
+            """
         )
         self.__food_time_limit_display.setFixedHeight(10)
         self.__food_time_limit_display.setRange(0, 100)
