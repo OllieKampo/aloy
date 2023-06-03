@@ -23,16 +23,15 @@
 """Module defining a snake game."""
 
 import random
+import sys
 from itertools import count
 from math import copysign
-import sys
-from PyQt6 import QtWidgets
-from PyQt6 import QtCore
-from PyQt6 import QtGui
+
 import numpy as np
+from PyQt6 import QtCore, QtGui, QtWidgets
+
 from concurrency.atomic import AtomicObject
 from guis.gui import JinxGuiData, JinxGuiWindow, JinxObserverWidget
-
 from moremath.vectors import (vector_add, vector_distance, vector_modulo,
                               vector_multiply)
 
@@ -926,7 +925,7 @@ class SnakeGameOptionsJinxWidget(JinxObserverWidget):
 
     def update_observer(self, observable_: JinxGuiData) -> None:
         """Update the observer."""
-        pass
+        return None
 
 
 def play_snake_game(

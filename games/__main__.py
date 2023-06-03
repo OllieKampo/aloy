@@ -58,6 +58,7 @@ class GameRegistration(NamedTuple):
     module: str
     name: str
     description: str
+    competitive: bool
     parameters: list[GameParam]
     package: str = "games"
 
@@ -70,6 +71,7 @@ def register_game(
     module: str,
     name: str,
     description: str,
+    competitive: bool = False,
     parameters: Iterable[GameParam] | None = None,
     package: str = "games"
 ) -> None:
@@ -86,6 +88,10 @@ def register_game(
 
     `description: str` - A description of the game. This will be displayed
     when the user lists the available games.
+
+    `competitive: bool = False` - Whether the game is competitive. If the game
+    is competitive, the game launcher will ask the user if they want to play
+    against the computer or another player.
 
     `parameters: dict[str, GameParam] | None = None` - A dictionary of
     parameters for the game. The keys are the names of the parameters, and the
@@ -129,6 +135,7 @@ def register_game(
         module=module,
         name=name,
         description=description,
+        competitive=competitive,
         parameters=parameters,
         package=package
     )
@@ -137,15 +144,61 @@ def register_game(
 register_game(
     play_snake_game,
     "snakegame",
-    "snake",
+    "Snake",
     "Play the snake game."
 )
 
 # register_game(
-#     None,
+#     play_tetris_game,
 #     "tetrisgame",
-#     "tetris",
+#     "Tetris",
 #     "Play the tetris game."
+# )
+
+# register_game(
+#     play_pacman_game,
+#     "pacmangame",
+#     "Pacman",
+#     "Play the pacman game."
+# )
+
+# register_game(
+#     play_blockbreaker_game,
+#     "blockbreakergame",
+#     "Block Breaker",
+#     "Play the block breaker game."
+# )
+
+# register_game(
+#     play_pong_game,
+#     "ponggame",
+#     "Pong",
+#     "Play the pong game.",
+#     competitive=True
+# )
+
+# register_game(
+#     play_connect_four_game,
+#     "connectfourgame",
+#     "Connect Four",
+#     "Play the connect four game.",
+#     competitive=True
+# )
+
+# register_game(
+#     play_chess_game,
+#     "chessgame",
+#     "Chess",
+#     "Play the chess game.",
+#     competitive=True
+# )
+
+# register_game(
+#     play_go_game,
+#     "gogame",
+#     "Go",
+#     "Play the go game.",
+#     competitive=True
 # )
 
 
