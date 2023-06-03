@@ -26,10 +26,12 @@ import random
 import sys
 from itertools import count
 from math import copysign
+import time
 
 import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
 
+from datastructures.views import ListView
 from concurrency.atomic import AtomicObject
 from guis.gui import JinxGuiData, JinxGuiWindow, JinxObserverWidget
 from moremath.vectors import (vector_add, vector_distance, vector_modulo,
@@ -59,8 +61,8 @@ _DEFAULT_DIFFICULTY: str = "medium"
 _DEFAULT_SHOW_PATH: bool = False
 _DEFAULT_WALLS: bool = False
 _DEFAULT_SPEED: int = 1
-_DEFAULT_FOOD_TIME_LIMIT: int = 10  # seconds
-_DEFAULT_FOOD_PER_LEVEL: int = 10
+_DEFAULT_FOOD_TIME_LIMIT: int = 20  # seconds
+_DEFAULT_FOOD_PER_LEVEL: int = 5
 _DEFAULT_FOOD_PER_SNAKE_GROWTH: int = 1
 _DEFAULT_INITIAL_SNAKE_LENGTH: int = 4
 
@@ -74,18 +76,21 @@ class SnakeGameLogic:
         "__weakref__",
 
         # Actions
-        "direction",
+        "__direction",
 
         # Game state
-        "grid_size",
-        "score",
-        "level",
-        "seconds_per_move",
-        "game_over",
-        "paused",
-        "snake",
-        "food",
-        "obstacles",
+        "__grid_size",
+        "__score",
+        "__level",
+        "__seconds_per_move",
+        "__game_over",
+        "__paused",
+        "__snake",
+        "__food",
+        "__obstacles",
+        "__manual_update",
+        "__last_food_time",
+        "__pause_time",
 
         # Game options
         "difficulty",
@@ -100,7 +105,8 @@ class SnakeGameLogic:
 
     def __init__(
         self,
-        cells_grid_size: tuple[int, int]
+        cells_grid_size: tuple[int, int],
+        manual_update: bool = False
     ) -> None:
         """
         Create a new snake game logic object.
@@ -109,6 +115,8 @@ class SnakeGameLogic:
         ----------
         `cells_grid_size: tuple[int, int]` - The size of the grid in cells.
         This is the number of cells in the x and y directions.
+
+        `manual_update: bool = False` - TODO
         """
         if not isinstance(cells_grid_size, tuple):
             raise TypeError("The grid size must be a tuple. "
@@ -121,19 +129,22 @@ class SnakeGameLogic:
                              f"Got; {cells_grid_size}.")
 
         # Actions
-        self.direction: AtomicObject[tuple[int, int]]
-        self.direction = AtomicObject(_INITIAL_DIRECTION)
+        self.__direction: AtomicObject[tuple[int, int]]
+        self.__direction = AtomicObject(_INITIAL_DIRECTION)
 
         # Game state
-        self.grid_size: tuple[int, int] = cells_grid_size
-        self.score: int = _INITIAL_SCORE
-        self.level: int = _INITIAL_LEVEL
-        self.seconds_per_move: float = _INITIAL_SECONDS_PER_MOVE
-        self.game_over: bool = False
-        self.paused: bool = False
-        self.snake: list[tuple[int, int]] = []
-        self.food: tuple[int, int] | None = None
-        self.obstacles: list[tuple[int, int]] = []
+        self.__grid_size: tuple[int, int] = cells_grid_size
+        self.__score: int = _INITIAL_SCORE
+        self.__level: int = _INITIAL_LEVEL
+        self.__seconds_per_move: float = _INITIAL_SECONDS_PER_MOVE
+        self.__game_over: bool = False
+        self.__paused: bool = False
+        self.__snake: list[tuple[int, int]] = []
+        self.__food: tuple[int, int] | None = None
+        self.__obstacles: list[tuple[int, int]] = []
+        self.__manual_update: bool = manual_update
+        self.__last_food_time: float = 0.0
+        self.__pause_time: float = 0.0
 
         # Game options
         self.difficulty: str = _DEFAULT_DIFFICULTY
@@ -145,12 +156,77 @@ class SnakeGameLogic:
         self.food_per_snake_growth: int = _DEFAULT_FOOD_PER_SNAKE_GROWTH
         self.initial_snake_length: int = _DEFAULT_INITIAL_SNAKE_LENGTH
 
+    @property
+    def direction(self) -> AtomicObject[tuple[int, int]]:
+        """Get the direction of the snake."""
+        return self.__direction
+
+    @property
+    def grid_size(self) -> tuple[int, int]:
+        """Get the grid size."""
+        return self.__grid_size
+
+    @property
+    def score(self) -> int:
+        """Get the current score."""
+        return self.__score
+
+    @property
+    def level(self) -> int:
+        """Get the current level."""
+        return self.__level
+
+    @property
+    def seconds_per_move(self) -> float:
+        """Get the number of seconds per move."""
+        return self.__seconds_per_move
+
+    @property
+    def game_over(self) -> bool:
+        """Get whether the game is over."""
+        return self.__game_over
+
+    @property
+    def paused(self) -> bool:
+        """Get whether the game is paused."""
+        return self.__paused
+
+    @paused.setter
+    def paused(self, paused: bool) -> None:
+        if not self.__manual_update:
+            if not self.__paused and paused:
+                self.__pause_time = time.perf_counter()
+            if self.__paused and not paused:
+                self.__last_food_time += (
+                    time.perf_counter() - self.__pause_time)
+        self.__paused = paused
+
+    @property
+    def snake(self) -> ListView[tuple[int, int]]:
+        """Get the snake positions, the head is the last element."""
+        return ListView(self.__snake)
+
+    @property
+    def food(self) -> tuple[int, int] | None:
+        """Get the food position."""
+        return self.__food
+
+    @property
+    def obstacles(self) -> ListView[tuple[int, int]]:
+        """Get the obstacle positions."""
+        return ListView(self.__obstacles)
+
+    @property
+    def time_since_last_food(self) -> float:
+        """Get the time since the last food was eaten."""
+        return time.perf_counter() - self.__last_food_time
+
     def move_snake(self) -> None:
         """Move the snake in the current direction."""
-        if self.game_over or self.paused:
+        if self.__game_over or self.__paused:
             return
 
-        direction = self.direction.get_obj()
+        direction = self.__direction.get_obj()
 
         # Get the current head of the snake
         x, y = self.snake[0]
@@ -161,28 +237,34 @@ class SnakeGameLogic:
         new_head = (new_x, new_y)
 
         # Check if the snake has hit itself or an obstacle
-        if new_head in self.snake or new_head in self.obstacles:
+        if new_head in self.__snake or new_head in self.__obstacles:
             self.game_over = True
             return
 
+        # Check if the good time limit has been exceeded
+        if (self.time_since_last_food > self.food_time_limit):
+            self._random_food()
+            self.__last_food_time = time.perf_counter()
+
         # Check if the snake has eaten the food
-        if new_head == self.food:
-            self.score += 1
-            if self.score % self.food_per_level == 0:
-                self.level += 1
+        if new_head == self.__food:
+            self.__score += 1
+            if self.__score % self.food_per_level == 0:
+                self.__level += 1
             self._random_food()
             self._random_obstacles()
-            if self.score % self.food_per_snake_growth == 0:
-                self.seconds_per_move = max(
+            self.__last_food_time = time.perf_counter()
+            if self.__score % self.food_per_snake_growth == 0:
+                self.__seconds_per_move = max(
                     0.1, self.seconds_per_move - 0.005
                 )
             else:
-                self.snake.pop()
+                self.__snake.pop()
         else:
-            self.snake.pop()
+            self.__snake.pop()
 
         # Add the new head to the snake
-        self.snake.insert(0, new_head)
+        self.__snake.insert(0, new_head)
 
     def _random_start(self) -> None:
         """Start the snake at a random location."""
@@ -191,9 +273,9 @@ class SnakeGameLogic:
             # Place the snake's head at a random location
             x = random.randint(0, self.grid_size[0] - 1)
             y = random.randint(0, self.grid_size[1] - 1)
-            if (x, y) in self.obstacles or (x, y) == self.food:
+            if (x, y) in self.__obstacles or (x, y) == self.__food:
                 continue
-            self.snake = [(x, y)]
+            self.__snake = [(x, y)]
             # Randomly add segments to the snake's tail
             for _ in range(self.initial_snake_length - 1):
                 directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
@@ -202,65 +284,65 @@ class SnakeGameLogic:
                 for direction in directions:
                     x += direction[0]
                     y += direction[1]
-                    x = x % self.grid_size[0]
-                    y = y % self.grid_size[1]
+                    x = x % self.__grid_size[0]
+                    y = y % self.__grid_size[1]
                     position = (x, y)
                     # Do not put segments on top of each other
-                    if (position not in self.snake
-                            and position not in self.obstacles
-                            and position != self.food):
-                        self.snake.append(position)
+                    if (position not in self.__snake
+                            and position not in self.__obstacles
+                            and position != self.__food):
+                        self.__snake.append(position)
                         break
                     elif direction == directions[-1]:
                         unsatisfiable = True
                     else:
-                        x, y = self.snake[-1]
+                        x, y = self.__snake[-1]
                 if unsatisfiable:
                     break
-            if len(self.snake) != self.initial_snake_length:
+            if len(self.__snake) != self.initial_snake_length:
                 continue
             # Stop the snake from hitting itself immediately
             directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
             random.shuffle(directions)
             for direction in directions:
-                next_cell = tuple(vector_add(self.snake[0], direction))
-                if next_cell not in self.snake:
-                    with self.direction:
-                        self.direction.set_obj(direction)
+                next_cell = tuple(vector_add(self.__snake[0], direction))
+                if next_cell not in self.__snake:
+                    with self.__direction:
+                        self.__direction.set_obj(direction)
                     valid = True
                     break
 
     def _random_food(self) -> None:
         """Place food at a random location."""
-        limit: int = ((self.grid_size[0] * self.grid_size[1])
+        limit: int = ((self.__grid_size[0] * self.__grid_size[1])
                       // _CELL_SIZE) ** 1.5
         for i in count(start=1):
             food = (
-                random.randint(0, self.grid_size[0] - 1),
-                random.randint(0, self.grid_size[1] - 1),
+                random.randint(0, self.__grid_size[0] - 1),
+                random.randint(0, self.__grid_size[1] - 1),
             )
             # Food must not be in the snake,
             if (self.difficulty == "easy"
-                    and food not in self.snake):
-                self.food = food
+                    and food not in self.__snake):
+                self.__food = food
                 break
             # and must not be in the snake or obstacles,
             elif (self.difficulty == "medium"
-                    and food not in self.snake
-                    and food not in self.obstacles):
-                self.food = food
+                    and food not in self.__snake
+                    and food not in self.__obstacles):
+                self.__food = food
                 break
             # and must be at least 10 cells away from the snake's head.
             elif (self.difficulty == "hard"
-                    and food not in self.snake
-                    and food not in self.obstacles
-                    and (not self.snake
+                    and food not in self.__snake
+                    and food not in self.__obstacles
+                    and (not self.__snake
                          or vector_distance(
-                             self.snake[0],
+                             self.__snake[0],
                              food,
                              manhattan=True
                          ) > 10)):
-                self.food = food
+                self.__food = food
                 break
             if i > limit:
                 raise RuntimeError("Unable to find valid food location "
@@ -268,19 +350,19 @@ class SnakeGameLogic:
 
     def _random_obstacles(self) -> None:
         """Place obstacles at random locations."""
-        self.obstacles = []
+        self.__obstacles = []
         if self.walls:
-            self.obstacles.extend(
+            self.__obstacles.extend(
                 [(x, 0) for x in range(self.grid_size[0])]
             )
-            self.obstacles.extend(
+            self.__obstacles.extend(
                 [(x, self.grid_size[1] - 1)
                  for x in range(self.grid_size[0])]
             )
-            self.obstacles.extend(
+            self.__obstacles.extend(
                 [(0, y) for y in range(self.grid_size[1])]
             )
-            self.obstacles.extend(
+            self.__obstacles.extend(
                 [(self.grid_size[0] - 1, y)
                  for y in range(self.grid_size[1])]
             )
@@ -311,7 +393,7 @@ class SnakeGameLogic:
                         and obstacle not in self.__adjacent(self.snake[0])
                         and obstacle not in self.__infront(self.snake[0], 4)
                         and obstacle != self.food):
-                    self.obstacles.append(obstacle)
+                    self.__obstacles.append(obstacle)
                     break
 
     def __adjacent(self, point: tuple[int, int]) -> list[tuple[int, int]]:
@@ -351,13 +433,15 @@ class SnakeGameLogic:
         """Reset the game state."""
         with self.direction as direction:
             direction.set_obj(_INITIAL_DIRECTION)
-        self.score = _INITIAL_SCORE
-        self.seconds_per_move = _INITIAL_SECONDS_PER_MOVE
-        self.game_over = False
-        self.paused = False
-        self.snake = []
-        self.food = None
-        self.obstacles = []
+        self.__score = _INITIAL_SCORE
+        self.__seconds_per_move = _INITIAL_SECONDS_PER_MOVE
+        self.__game_over = False
+        self.__paused = False
+        self.__snake = []
+        self.__food = None
+        self.__obstacles = []
+        self.__last_food_time = 0.0
+        self.__pause_time = 0.0
 
     def restart(self) -> None:
         """Reset the game."""
@@ -365,6 +449,8 @@ class SnakeGameLogic:
         self._random_obstacles()
         self._random_food()
         self._random_start()
+        if not self.__manual_update:
+            self.__last_food_time = time.perf_counter()
 
     def get_state(self) -> np.ndarray:
         """
@@ -465,7 +551,31 @@ class SnakeGameJinxWidget(JinxObserverWidget):
         self.__restart_button.clicked.connect(self._logic.restart)
         self.__layout.addWidget(self.__restart_button, 0, 2)
 
-        # Add a scene to draw the snake and food on
+        # Food time limit label
+        self.__food_time_limit_label = QtWidgets.QLabel(
+            f"Food time limit: {self._logic.food_time_limit:.2f}"
+        )
+        self.__food_time_limit_label.setStyleSheet("color: white;")
+        self.__layout.addWidget(self.__food_time_limit_label, 1, 0)
+
+        # Food time limit display
+        self.__food_time_limit_display = QtWidgets.QProgressBar()
+        self.__food_time_limit_display.setStyleSheet(
+            "QProgressBar {"
+                "border: 1px solid black;"
+                "border-radius: 5px;"
+                "background-color: white;"
+            "}"
+            "QProgressBar::chunk {"
+                "background-color: red;"
+            "}"
+        )
+        self.__food_time_limit_display.setFixedHeight(10)
+        self.__food_time_limit_display.setRange(0, 100)
+        self.__food_time_limit_display.setValue(100)
+        self.__layout.addWidget(self.__food_time_limit_display, 1, 1, 1, 2)
+
+        # Add a graphics scene to draw the snake and food on
         self.__display_widget = QtWidgets.QWidget()
         self.__display_widget.setStyleSheet("background-color: black;")
         self.__display_widget.setFixedSize(width, height)
@@ -482,7 +592,7 @@ class SnakeGameJinxWidget(JinxObserverWidget):
         self.__view.setVerticalScrollBarPolicy(
             QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.__display_layout.addWidget(self.__view, 0, 0, 1, 1)
-        self.__layout.addWidget(self.__display_widget, 1, 0, 1, 3)
+        self.__layout.addWidget(self.__display_widget, 2, 0, 1, 3)
 
         # Set up the key press event
         if not manual_update:
@@ -544,11 +654,25 @@ class SnakeGameJinxWidget(JinxObserverWidget):
                 self._logic.direction.set_obj((-1, 0))
             elif event.key() == QtCore.Qt.Key.Key_D:  # type: ignore
                 self._logic.direction.set_obj((1, 0))
+            elif event.key() == QtCore.Qt.Key.Key_R:  # type: ignore
+                self._logic.restart()
             elif event.key() == QtCore.Qt.Key.Key_Space:  # type: ignore
                 self._logic.paused = not self._logic.paused
 
     def manual_update_game(self, action: str | int) -> None:
-        """Update the game manually."""
+        """
+        Update the game manually.
+
+        This can be used to simulate a game with an autonomous agent.
+
+        Valid actions are:
+            - "up" | "w" | 0
+            - "down" | "s" | 1
+            - "left" | "a" | 2
+            - "right" | "d" | 3
+            - "restart" | "r"
+            - "pause" | "p"
+        """
         if not self.__manual_update:
             raise RuntimeError("Cannot manually update the game.")
         with self._logic.direction:
@@ -593,6 +717,8 @@ class SnakeGameJinxWidget(JinxObserverWidget):
         self.__draw_food()
         self.__draw_obstacles()
         self.__update_score()
+        if not self.__manual_update:
+            self.__update_food_timer()
         if self.debug:
             self.__draw_debug()
         if self._logic.game_over:
@@ -727,6 +853,16 @@ class SnakeGameJinxWidget(JinxObserverWidget):
     def __update_score(self) -> None:
         self.__score_label.setText(f"Score: {self._logic.score}")
         self.__level_label.setText(f"Level: {self._logic.score // 10 + 1}")
+
+    def __update_food_timer(self) -> None:
+        self.__food_time_limit_label.setText(
+            f"Food Time Limit: {self._logic.food_time_limit}"
+        )
+        if not self._logic.paused:
+            self.__food_time_limit_display.setValue(
+                int(100 * (self._logic.time_since_last_food
+                           / self._logic.food_time_limit))
+            )
 
 
 # pylint: disable=W0201
