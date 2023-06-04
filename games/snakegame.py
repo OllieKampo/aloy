@@ -60,7 +60,7 @@ _INITIAL_SECONDS_PER_MOVE: float = 0.40
 _DEFAULT_DIFFICULTY: str = "medium"
 _DEFAULT_SHOW_PATH: bool = False
 _DEFAULT_WALLS: bool = False
-_DEFAULT_SPEED: int = 1
+_DEFAULT_SPEED: float = 1.0
 _DEFAULT_FOOD_TIME_LIMIT: int = 20  # seconds
 _DEFAULT_FOOD_PER_LEVEL: int = 5
 _DEFAULT_FOOD_PER_SNAKE_GROWTH: int = 1
@@ -150,7 +150,7 @@ class SnakeGameLogic:
         self.difficulty: str = _DEFAULT_DIFFICULTY
         self.show_path: bool = _DEFAULT_SHOW_PATH
         self.walls: bool = _DEFAULT_WALLS
-        self.speed: int = _DEFAULT_SPEED
+        self.speed: float = _DEFAULT_SPEED
         self.food_time_limit: int = _DEFAULT_FOOD_TIME_LIMIT
         self.food_per_level: int = _DEFAULT_FOOD_PER_LEVEL
         self.food_per_snake_growth: int = _DEFAULT_FOOD_PER_SNAKE_GROWTH
@@ -238,11 +238,11 @@ class SnakeGameLogic:
 
         # Check if the snake has hit itself or an obstacle
         if new_head in self.__snake or new_head in self.__obstacles:
-            self.game_over = True
+            self.__game_over = True
             return
 
         # Check if the good time limit has been exceeded
-        if (self.time_since_last_food > self.food_time_limit):
+        if (self.time_since_last_food > (self.food_time_limit / self.speed)):
             self._random_food()
             self.__last_food_time = time.perf_counter()
 
@@ -552,8 +552,9 @@ class SnakeGameJinxWidget(JinxObserverWidget):
         self.__layout.addWidget(self.__restart_button, 0, 2)
 
         # Food time limit label
+        time_ = self._logic.food_time_limit / self._logic.speed
         self.__food_time_limit_label = QtWidgets.QLabel(
-            f"Food time limit: {self._logic.food_time_limit:.2f}"
+            f"Food time limit: {time_:.2f}s"
         )
         self.__food_time_limit_label.setStyleSheet("color: white;")
         self.__layout.addWidget(self.__food_time_limit_label, 1, 0)
@@ -572,7 +573,7 @@ class SnakeGameJinxWidget(JinxObserverWidget):
             }
             """
         )
-        self.__food_time_limit_display.setFixedHeight(10)
+        self.__food_time_limit_display.setFixedHeight(20)
         self.__food_time_limit_display.setRange(0, 100)
         self.__food_time_limit_display.setValue(100)
         self.__layout.addWidget(self.__food_time_limit_display, 1, 1, 1, 2)
@@ -854,16 +855,18 @@ class SnakeGameJinxWidget(JinxObserverWidget):
 
     def __update_score(self) -> None:
         self.__score_label.setText(f"Score: {self._logic.score}")
-        self.__level_label.setText(f"Level: {self._logic.score // 10 + 1}")
+        self.__level_label.setText(f"Level: {self._logic.level}")
 
     def __update_food_timer(self) -> None:
+        time_ = self._logic.food_time_limit / self._logic.speed
         self.__food_time_limit_label.setText(
-            f"Food Time Limit: {self._logic.food_time_limit}"
+            f"Food Time Limit: {time_:.2f}s"
         )
-        if not self._logic.paused:
+        if not self._logic.game_over and not self._logic.paused:
             self.__food_time_limit_display.setValue(
-                int(100 * (self._logic.time_since_last_food
-                           / self._logic.food_time_limit))
+                int(100
+                    * (self._logic.time_since_last_food
+                       / time_))
             )
 
 
@@ -955,10 +958,10 @@ class SnakeGameOptionsJinxWidget(JinxObserverWidget):
         layout.addWidget(label)
         self.__speed_slider = QtWidgets.QSlider()
         self.__speed_slider.setGeometry(50, 50, 100, 50)
-        self.__speed_slider.setMinimum(1)
+        self.__speed_slider.setMinimum(0)
         self.__speed_slider.setMaximum(100)
         self.__speed_slider.setTickInterval(1)
-        self.__speed_slider.setValue(_DEFAULT_SPEED)
+        self.__speed_slider.setValue(0)
         self.__speed_slider.setTickPosition(
             QtWidgets.QSlider.TickPosition.TicksBelow)
         self.__speed_slider.setOrientation(QtCore.Qt.Orientation.Horizontal)
@@ -989,8 +992,8 @@ class SnakeGameOptionsJinxWidget(JinxObserverWidget):
         layout.addWidget(label)
         self.__food_time_limit_slider = QtWidgets.QSlider()
         self.__food_time_limit_slider.setGeometry(50, 50, 100, 50)
-        self.__food_time_limit_slider.setMinimum(1)
-        self.__food_time_limit_slider.setMaximum(20)
+        self.__food_time_limit_slider.setMinimum(10)
+        self.__food_time_limit_slider.setMaximum(30)
         self.__food_time_limit_slider.setTickInterval(1)
         self.__food_time_limit_slider.setValue(_DEFAULT_FOOD_TIME_LIMIT)
         self.__food_time_limit_slider.setTickPosition(
@@ -1042,7 +1045,7 @@ class SnakeGameOptionsJinxWidget(JinxObserverWidget):
 
     def __set_speed(self, value: int) -> None:
         """Update the speed."""
-        self.__data.set_data("speed", 1.0 + ((value - 1.0) / 100.0))
+        self.__data.set_data("speed", _DEFAULT_SPEED + (value / 100.0))
 
     # @QtCore.pyqtSlot(int)
     def __set_food_per_level(self, value: int) -> None:
