@@ -95,6 +95,8 @@ class EstopInterface(JinxObserverWidget):
         )
         self.__layout.addWidget(self.__estop_button, 0, 0, 1, 3)
 
+        self.__has_estop_control: bool = False
+
         widget_size = scale_size_for_grid(
             self.size,
             (3, 5),
@@ -103,7 +105,10 @@ class EstopInterface(JinxObserverWidget):
             margins
         )
         self.__estop_control_text = QtWidgets.QLabel()
-        self.__estop_control_text.setText("You have E-Stop Control")
+        if self.__has_estop_control:
+            self.__estop_control_text.setText("You have E-Stop Control")
+        else:
+            self.__estop_control_text.setText("You do not have E-Stop Control")
         self.__estop_control_text.setAlignment(
             QtCore.Qt.AlignmentFlag.AlignCenter
         )
@@ -118,9 +123,19 @@ class EstopInterface(JinxObserverWidget):
             margins
         )
         self.__release_button = QtWidgets.QPushButton()
-        self.__release_button.setText("Release E-Stop")
+        if self.__has_estop_control:
+            self.__release_button.setText("Release E-Stop")
+        else:
+            self.__release_button.setText("Acquire E-Stop Control")
         self.__release_button.setObjectName("release_button")
         self.__release_button.setFixedSize(*widget_size)
+        self.__release_button.setStyleSheet(
+            "QPushButton#release_button {"
+            "   font-weight: bold;"
+            "   background-color: green;"
+            "}"
+        )
+        self.__release_button.clicked.connect(self.__release_button_clicked)
         self.__layout.addWidget(self.__release_button, 1, 2, 1, 1)
 
         widget_size = scale_size_for_grid(
@@ -134,6 +149,8 @@ class EstopInterface(JinxObserverWidget):
         self.__clock_label.setText("Time Elapsed:")
         self.__clock_label.setFixedSize(*widget_size)
         self.__layout.addWidget(self.__clock_label, 2, 0, 1, 1)
+
+        self.__power_on: bool = False
 
         widget_size = scale_size_for_grid(
             self.size,
@@ -150,12 +167,17 @@ class EstopInterface(JinxObserverWidget):
         # self.__clock_display.setFrameStyle(
         #     QtWidgets.QLCDNumber.FrameStyle.NoFrame
         # )
+        time_ = QtCore.QTime(0, 0, 0)
+        self.__clock_display.display(
+            time_.toString("hh:mm:ss")
+        )
         self.__clock_display.setFixedSize(*widget_size)
         self.__layout.addWidget(self.__clock_display, 2, 1, 1, 2)
 
         self.__timer = QtCore.QTimer()
         self.__timer.timeout.connect(self.__update_clock)
-        self.__timer.start(1000)
+        if self.__power_on:
+            self.__timer.start(1000)
 
         widget_size = scale_size_for_grid(
             self.size,
@@ -172,12 +194,13 @@ class EstopInterface(JinxObserverWidget):
         self.__on_button = QtWidgets.QRadioButton()
         self.__on_button.setText("On")
         self.__on_button.setFixedSize(*widget_size)
+        self.__on_button.setChecked(self.__power_on)
         self.__layout.addWidget(self.__on_button, 3, 1, 1, 1)
 
         self.__off_button = QtWidgets.QRadioButton()
         self.__off_button.setText("Off")
         self.__off_button.setFixedSize(*widget_size)
-        self.__off_button.setChecked(True)
+        self.__off_button.setChecked(not self.__power_on)
         self.__layout.addWidget(self.__off_button, 3, 2, 1, 1)
 
         self.__on_off_button_group = QtWidgets.QButtonGroup()
@@ -222,16 +245,13 @@ class EstopInterface(JinxObserverWidget):
         )
         self.__motor_power_action_combo.addItems(
             [
-                "Cut Immediately",
-                "Stop, Sit, and Cut"
+                "Immediate Stop",
+                "Safe Stop"
             ]
         )
         self.__motor_power_action_combo.setCurrentIndex(1)
         self.__motor_power_action_combo.setFixedSize(*widget_size)
         self.__layout.addWidget(self.__motor_power_action_combo, 4, 1, 1, 2)
-
-        # self.__layout.setRowStretch(0, 1)
-        # self.__layout.setColumnStretch(0, 1)
 
         self.qwidget.setLayout(self.__layout)
 
@@ -244,14 +264,28 @@ class EstopInterface(JinxObserverWidget):
             time_.toString("hh:mm:ss")
         )
 
+    def __release_button_clicked(self) -> None:
+        """Handle the released button being clicked."""
+        self.__has_estop_control = not self.__has_estop_control
+        if self.__has_estop_control:
+            # self.__data.command_handler.acquire_estop_control()
+            self.__estop_control_text.setText("You have E-Stop Control")
+            self.__release_button.setText("Release E-Stop")
+        else:
+            # self.__data.command_handler.release_estop_control()
+            self.__estop_control_text.setText("You do not have E-Stop Control")
+            self.__release_button.setText("Acquire E-Stop Control")
+
     def __on_off_button_clicked(self, button: QtWidgets.QRadioButton) -> None:
         """Handle the on/off button being clicked."""
         if button.text() == "On":
             self.__start_time = QtCore.QTime.currentTime()
             self.__update_clock()
             self.__timer.start()
+            self.__power_on = True
         else:
             self.__timer.stop()
+            self.__power_on = False
 
     def update_observer(self, observable_: JinxGuiData) -> None:
         pass
