@@ -202,7 +202,7 @@ register_game(
 # )
 
 
-def run_game_launcher(stdscr) -> str:
+def run_game_launcher(stdscr: curses._CursesWindow) -> str | None:
     """Run a game launcher with curses."""
     # stdscr: curses.window = curses.initscr()
 
@@ -225,11 +225,19 @@ def run_game_launcher(stdscr) -> str:
     stdscr.refresh()
 
     stdscr.addstr(6, 5, "Available Games:", curses.A_BOLD)
-    for i, (game_name, game_registration) in enumerate(__registered_games__.items()):
+    for i, (game_name, game_reg) in enumerate(__registered_games__.items()):
         if i == 0:
-            stdscr.addstr(8 + i, 7, f"{game_name}: {game_registration.description}", curses.color_pair(2))
+            stdscr.addstr(
+                8 + i, 7,
+                f"{game_name}: {game_reg.description}",
+                curses.color_pair(2)
+            )
         else:
-            stdscr.addstr(8 + i, 7, f"{game_name}: {game_registration.description}", curses.A_NORMAL)
+            stdscr.addstr(
+                8 + i, 7, 
+                f"{game_name}: {game_reg.description}",
+                curses.A_NORMAL
+            )
     title_window.refresh()
     stdscr.refresh()
 
@@ -247,10 +255,19 @@ def run_game_launcher(stdscr) -> str:
         elif char == curses.KEY_ENTER or char == 10 or char == 13:
             break
         if index != previous_index:
-            game_name, game_registration = list(__registered_games__.items())[previous_index]
-            stdscr.addstr(8 + previous_index, 7, f"{game_name}: {game_registration.description}", curses.A_NORMAL)
-            game_name, game_registration = list(__registered_games__.items())[index]
-            stdscr.addstr(8 + index, 7, f"{game_name}: {game_registration.description}", curses.color_pair(2))
+            game_items_list = list(__registered_games__.items())
+            game_name, game_reg = game_items_list[previous_index]
+            stdscr.addstr(
+                8 + previous_index, 7,
+                f"{game_name}: {game_reg.description}",
+                curses.A_NORMAL
+            )
+            game_name, game_reg = game_items_list[index]
+            stdscr.addstr(
+                8 + index, 7,
+                f"{game_name}: {game_reg.description}",
+                curses.color_pair(2)
+            )
         char = stdscr.getch()
         title_window.refresh()
 

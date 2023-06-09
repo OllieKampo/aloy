@@ -479,7 +479,7 @@ class JinxGuiWindow(observable.Observer):
         """
         super().__init__(name, debug=debug)
 
-        self.__qwindow: QtWidgets.QWidget = qwindow
+        self.__qwindow: QtWidgets.QMainWindow = qwindow
         if name is not None and set_title:
             self.__qwindow.setWindowTitle(name)
         if size is not None and resize:
