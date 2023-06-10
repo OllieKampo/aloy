@@ -26,6 +26,7 @@ from abc import abstractmethod
 from typing import Any, Literal, NamedTuple, Union
 from PyQt6 import QtWidgets
 from PyQt6 import QtCore
+from PyQt6 import QtGui
 from PyQt6.QtCore import QTimer  # pylint: disable=E0611
 from concurrency.clocks import ClockThread
 from concurrency.synchronization import atomic_update
@@ -406,6 +407,53 @@ class JinxObserverWidget(observable.Observer):
         return super().update_observer(observable_)
 
 
+# _DEFAULT_WIDGET_STYLE_SHEET = """
+# QLabel {
+#     color: #009988;
+#     background-color: #88a588;
+#     border: 1px solid #000000;
+#     border-radius: 0px;
+#     padding: 0px;
+#     margin: 0px;
+#     font-size: 12px;
+#     font-family: Arial;
+#     font-weight: normal;
+#     font-style: normal;
+#     text-align: left;
+#     text-decoration: none;
+#     text-transform: none;
+#     text-indent: 0px;
+#     text-overflow: clip;
+#     text-shadow: none;
+#     word-wrap: normal;
+#     word-break: normal;
+#     vertical-align: baseline;
+#     white-space: normal;
+#     line-height: normal;
+#     letter-spacing: normal;
+#     cursor: arrow;
+# }
+# """
+
+
+def paint_cross(
+    widget: QtWidgets.QWidget,
+    color: QtGui.QColor
+) -> None:
+    """Paint a cross on the given widget."""
+    pixmap = QtGui.QPixmap(widget.size())
+    pixmap.fill(QtCore.Qt.GlobalColor.transparent)
+    painter = QtGui.QPainter(pixmap)
+    painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+    pen = QtGui.QPen(color, 1)
+    pen.setCosmetic(True)
+    painter.setPen(pen)
+    painter.drawLine(0, 0, widget.width(), widget.height())
+    painter.drawLine(widget.width(), 0, 0, widget.height())
+    painter.end()
+    widget.setPixmap(pixmap)
+
+
 class JinxGuiWindow(observable.Observer):
     """
     A class defining a PyQt6 window used by Jinx.
@@ -424,6 +472,7 @@ class JinxGuiWindow(observable.Observer):
 
     __slots__ = {
         "__weakref__": "Weak reference to the object.",
+        "__qapp": "The main application.",
         "__qwindow": "The main window.",
         "__main_qwidget": "The main widget.",
         "__vbox": "The main vertical box layout.",
@@ -439,10 +488,11 @@ class JinxGuiWindow(observable.Observer):
 
     def __init__(
         self,
-        qwindow: QtWidgets.QMainWindow,
-        data: JinxGuiData,
+        qapp: QtWidgets.QApplication | None = None,
+        qwindow: QtWidgets.QMainWindow | None = None,
+        data: JinxGuiData | None = None,
         name: str | None = None,
-        size: tuple[int, int] | None = None, /,
+        size: tuple[int, int] | None = None, *,
         kind: Literal["tabbed", "combo"] | None = "tabbed",
         set_title: bool = True,
         resize: bool = True,
@@ -456,15 +506,22 @@ class JinxGuiWindow(observable.Observer):
 
         Parameters
         ----------
-        `qwindow: QtWidgets.QMainWindow` - The main window.
+        `qapp: QtWidgets.QApplication | None = None` - The main application.
 
-        `data: JinxGuiData` - The Jinx gui data for the window.
+        `qwindow: QtWidgets.QMainWindow | None = None` - The main window.
+        If not given or None, a new main window is created.
 
-        `name: str | None = None` - The name of the object. If None, the
-        class name and id of the object are used.
+        `data: JinxGuiData | None = None` - The Jinx gui data for the
+        window. If not given or None, a new Jinx gui data object is
+        created.
+
+        `name: str | None = None` - The name of the window. If not given or
+        None, then the class name and id of the object are used. The
+        attributes `observer_name` and `window_name` are set to this value.
 
         `size: tuple[int, int] | None = None` - The size of the window in
-        pixels (width, height). If None, the size of the window is not set.
+        pixels (width, height). If not given or None, the size of the window
+        is not set.
 
         `tabbed: bool = True` - Whether the views are tabbed or to use a
         combo box drop-down menu to select the views.
@@ -479,9 +536,23 @@ class JinxGuiWindow(observable.Observer):
         """
         super().__init__(name, debug=debug)
 
-        self.__qwindow: QtWidgets.QMainWindow = qwindow
-        if name is not None and set_title:
-            self.__qwindow.setWindowTitle(name)
+        self.__qapp: QtWidgets.QApplication
+        if qapp is None:
+            self.__qapp = QtWidgets.QApplication.instance()  # type: ignore
+            print(self.__qapp)
+            if self.__qapp is None:
+                self.__qapp = QtWidgets.QApplication([])
+        else:
+            self.__qapp = qapp
+
+        self.__qwindow: QtWidgets.QMainWindow
+        if qwindow is None:
+            self.__qwindow = QtWidgets.QMainWindow()
+        else:
+            self.__qwindow = qwindow
+
+        if set_title:
+            self.__qwindow.setWindowTitle(self.window_name)
         if size is not None and resize:
             self.__qwindow.resize(*size)
         self.__main_qwidget = QtWidgets.QWidget()
@@ -505,15 +576,56 @@ class JinxGuiWindow(observable.Observer):
         self.__vbox.addWidget(self.__stack)
         self.__main_qwidget.setLayout(self.__vbox)
 
-        self.__data: JinxGuiData = data
-        self.__data.connect_gui(self)
+        self.__data: JinxGuiData
+        if data is None:
+            self.__data = JinxGuiData(
+                f"Gui Data for {self.window_name}",
+                self,
+                debug=debug
+            )
+        else:
+            self.__data = data
+            self.__data.connect_gui(self)
         self.__data.assign_observers(self)
 
         self.__views: dict[str, JinxObserverWidget] = {}
         self.__current_view_state: str | None = None
-        self.__default_qwidget = QtWidgets.QWidget()
+        # The default widget is used when no views are added to the window.
+        # Red text with black background and a green cross.
+        # Text centered in the middle of the widget.
+        self.__default_qwidget = QtWidgets.QLabel()
+        self.__default_qwidget.setStyleSheet(
+            "QLabel { color: red; background-color: black; }"
+        )
+        self.__default_qwidget.setAlignment(
+            QtCore.Qt.AlignmentFlag.AlignCenter
+        )
+        paint_cross(self.__default_qwidget, QtGui.QColor("green"))
+        self.__default_qwidget.setText(
+            "No views have been added to this window."
+        )
+        self.__default_qwidget.paintEvent = self.__default_paint_event
+        self.__stack.addWidget(self.__default_qwidget)
+        self.__stack.setCurrentWidget(self.__default_qwidget)
 
         self.__data.notify_all()
+
+    def __default_paint_event(
+        self,
+        event: QtGui.QPaintEvent
+    ) -> None:
+        """Paint the default widget."""
+        painter = QtGui.QPainter(self.__default_qwidget)
+        painter.setPen(QtGui.QPen(QtGui.QColor("green")))
+        painter.drawLine(0, 0, self.__default_qwidget.width(),
+                         self.__default_qwidget.height())
+        painter.drawLine(0, self.__default_qwidget.height(),
+                         self.__default_qwidget.width(), 0)
+
+    @property
+    def qapp(self) -> QtWidgets.QApplication:
+        """Get the main application."""
+        return self.__qapp
 
     @property
     def qwindow(self) -> QtWidgets.QMainWindow:
@@ -524,6 +636,16 @@ class JinxGuiWindow(observable.Observer):
     def data(self) -> JinxGuiData:
         """Get the Jinx gui data for the window."""
         return self.__data
+
+    @property
+    def window_name(self) -> str:
+        """Get the name of the object."""
+        return self.observer_name
+
+    @property
+    def kind(self) -> str | None:
+        """Get the kind of the window."""
+        return self.__kind
 
     @property
     def view_states(self) -> list[str]:
