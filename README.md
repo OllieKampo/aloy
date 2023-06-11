@@ -21,7 +21,7 @@ The content of this repository is currently under development. Eventually, the a
 - General deep game tree and MCTS API,
 - Snake game with GUI and RL,
 - Tetris game with GUI, curses, and RL,
-    - Inspiration for GUI https://github.com/PascalPons/connect4 and https://github.com/janbodnar/PyQt6-Tutorial-Examples, https://doc.qt.io/qt-6/qtwidgets-widgets-tetrix-example.html, and https://gitpress.io/u/1155/pyqt-example-tetrix,
+    - Inspiration for GUI https://github.com/janbodnar/PyQt6-Tutorial-Examples, https://doc.qt.io/qt-6/qtwidgets-widgets-tetrix-example.html, and https://gitpress.io/u/1155/pyqt-example-tetrix,
     - Inspiration for curses https://github.com/cSquaerd/CursaTetra, https://github.com/orodley/curses-tetris/blob/master/main.py, https://codereview.stackexchange.com/questions/249326/python-3-curses-terminal-tetris, https://gitlab.com/mkhCurses/tetris-curses-python, https://github.com/adrienmalin/Terminis/tree/master.
 - Pacman game with GUI and RL,
 - Connect four game with GUI and deep game trees;
