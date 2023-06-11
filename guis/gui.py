@@ -23,7 +23,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 
 from abc import abstractmethod
-from typing import Any, Literal, NamedTuple, Union
+from typing import Any, ClassVar, Literal, NamedTuple, Union
 from PyQt6 import QtWidgets
 from PyQt6 import QtCore
 from PyQt6 import QtGui
@@ -407,53 +407,6 @@ class JinxObserverWidget(observable.Observer):
         return super().update_observer(observable_)
 
 
-# _DEFAULT_WIDGET_STYLE_SHEET = """
-# QLabel {
-#     color: #009988;
-#     background-color: #88a588;
-#     border: 1px solid #000000;
-#     border-radius: 0px;
-#     padding: 0px;
-#     margin: 0px;
-#     font-size: 12px;
-#     font-family: Arial;
-#     font-weight: normal;
-#     font-style: normal;
-#     text-align: left;
-#     text-decoration: none;
-#     text-transform: none;
-#     text-indent: 0px;
-#     text-overflow: clip;
-#     text-shadow: none;
-#     word-wrap: normal;
-#     word-break: normal;
-#     vertical-align: baseline;
-#     white-space: normal;
-#     line-height: normal;
-#     letter-spacing: normal;
-#     cursor: arrow;
-# }
-# """
-
-
-def paint_cross(
-    widget: QtWidgets.QWidget,
-    color: QtGui.QColor
-) -> None:
-    """Paint a cross on the given widget."""
-    pixmap = QtGui.QPixmap(widget.size())
-    pixmap.fill(QtCore.Qt.GlobalColor.transparent)
-    painter = QtGui.QPainter(pixmap)
-    painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
-    pen = QtGui.QPen(color, 1)
-    pen.setCosmetic(True)
-    painter.setPen(pen)
-    painter.drawLine(0, 0, widget.width(), widget.height())
-    painter.drawLine(widget.width(), 0, 0, widget.height())
-    painter.end()
-    widget.setPixmap(pixmap)
-
-
 class JinxGuiWindow(observable.Observer):
     """
     A class defining a PyQt6 window used by Jinx.
@@ -466,9 +419,9 @@ class JinxGuiWindow(observable.Observer):
     allow the custom interface to be updated.
     """
 
-    view_changed = QtCore.pyqtSignal(str)
-    view_added = QtCore.pyqtSignal(str)
-    view_removed = QtCore.pyqtSignal(str)
+    view_changed: ClassVar[QtCore.pyqtSignal] = QtCore.pyqtSignal(str)
+    view_added: ClassVar[QtCore.pyqtSignal] = QtCore.pyqtSignal(str)
+    view_removed: ClassVar[QtCore.pyqtSignal] = QtCore.pyqtSignal(str)
 
     __slots__ = {
         "__weakref__": "Weak reference to the object.",
@@ -539,7 +492,6 @@ class JinxGuiWindow(observable.Observer):
         self.__qapp: QtWidgets.QApplication
         if qapp is None:
             self.__qapp = QtWidgets.QApplication.instance()  # type: ignore
-            print(self.__qapp)
             if self.__qapp is None:
                 self.__qapp = QtWidgets.QApplication([])
         else:
@@ -590,25 +542,43 @@ class JinxGuiWindow(observable.Observer):
 
         self.__views: dict[str, JinxObserverWidget] = {}
         self.__current_view_state: str | None = None
-        # The default widget is used when no views are added to the window.
-        # Red text with black background and a green cross.
-        # Text centered in the middle of the widget.
         self.__default_qwidget = QtWidgets.QLabel()
         self.__default_qwidget.setStyleSheet(
-            "QLabel { color: red; background-color: black; }"
+            "QLabel { background-color: black; }"
         )
         self.__default_qwidget.setAlignment(
             QtCore.Qt.AlignmentFlag.AlignCenter
         )
-        paint_cross(self.__default_qwidget, QtGui.QColor("green"))
         self.__default_qwidget.setText(
             "No views have been added to this window."
         )
-        self.__default_qwidget.paintEvent = self.__default_paint_event
+        self.__default_qwidget.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Expanding
+        )
+        self.__default_qwidget.sizeHint = \
+            self.__default_size_hint  # type: ignore
+        self.__default_qwidget.paintEvent = \
+            self.__default_paint_event  # type: ignore
         self.__stack.addWidget(self.__default_qwidget)
         self.__stack.setCurrentWidget(self.__default_qwidget)
 
         self.__data.notify_all()
+
+    def __default_size_hint(
+        self
+    ) -> QtCore.QSize:
+        """
+        Return the default size hint.
+
+        The size hint is a reasonable size for the widget,
+        no minimum size hint is provided, as the minimum size
+        is handled by the  text size in the default widget.
+        """
+        return QtCore.QSize(
+            int(self.__qwindow.width() * 0.9),
+            int(self.__qwindow.height() * 0.9)
+        )
 
     def __default_paint_event(
         self,
@@ -616,11 +586,27 @@ class JinxGuiWindow(observable.Observer):
     ) -> None:
         """Paint the default widget."""
         painter = QtGui.QPainter(self.__default_qwidget)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
         painter.setPen(QtGui.QPen(QtGui.QColor("green")))
         painter.drawLine(0, 0, self.__default_qwidget.width(),
                          self.__default_qwidget.height())
         painter.drawLine(0, self.__default_qwidget.height(),
                          self.__default_qwidget.width(), 0)
+        painter.setPen(QtGui.QPen(QtGui.QColor("red")))
+        # Paint the widget size in the top left corner.
+        painter.drawText(
+            self.__default_qwidget.rect(),
+            QtCore.Qt.AlignmentFlag.AlignLeft
+            | QtCore.Qt.AlignmentFlag.AlignTop,
+            f"size={self.__default_qwidget.width()}x"
+            f"{self.__default_qwidget.height()}"
+        )
+        painter.drawText(
+            self.__default_qwidget.rect(),
+            self.__default_qwidget.alignment(),
+            self.__default_qwidget.text()
+        )
+        painter.end()
 
     @property
     def qapp(self) -> QtWidgets.QApplication:
