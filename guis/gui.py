@@ -24,10 +24,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 from abc import abstractmethod
 from typing import Any, ClassVar, Literal, NamedTuple, Union
-from PyQt6 import QtWidgets
-from PyQt6 import QtCore
-from PyQt6 import QtGui
-from PyQt6.QtCore import QTimer  # pylint: disable=E0611
+from PySide6 import QtWidgets
+from PySide6 import QtCore
+from PySide6 import QtGui
+from PySide6.QtCore import QTimer  # pylint: disable=E0611
 from concurrency.clocks import ClockThread
 from concurrency.synchronization import atomic_update
 
@@ -228,7 +228,7 @@ class JinxGuiData(observable.Observable):
         self,
         name: str | None = None,
         gui: Union["JinxGuiWindow", None] = None,
-        data_dict: dict[str, Any] | None = None, /,
+        data_dict: dict[str, Any] | None = None,
         clock: ClockThread | QTimer | None = None, *,
         debug: bool = False
     ) -> None:
@@ -284,9 +284,9 @@ class JinxGuiData(observable.Observable):
     @observable.notifies_observers()
     def update_view_states(self) -> None:
         """Update the view states of the connected gui."""
-        if self.connected_gui is None:
+        if self.__connected_gui is None:
             raise RuntimeError("Gui data object not connected to a gui.")
-        self.__view_states = self.connected_gui.view_states
+        self.__view_states = self.__connected_gui.view_states
 
     @property
     @atomic_update("view_states", method=True)
@@ -419,9 +419,9 @@ class JinxGuiWindow(observable.Observer):
     allow the custom interface to be updated.
     """
 
-    view_changed: ClassVar[QtCore.pyqtSignal] = QtCore.pyqtSignal(str)
-    view_added: ClassVar[QtCore.pyqtSignal] = QtCore.pyqtSignal(str)
-    view_removed: ClassVar[QtCore.pyqtSignal] = QtCore.pyqtSignal(str)
+    view_changed: ClassVar[QtCore.Signal] = QtCore.Signal(str)
+    view_added: ClassVar[QtCore.Signal] = QtCore.Signal(str)
+    view_removed: ClassVar[QtCore.Signal] = QtCore.Signal(str)
 
     __slots__ = {
         "__weakref__": "Weak reference to the object.",
@@ -654,6 +654,8 @@ class JinxGuiWindow(observable.Observer):
     def add_view(self, name: str, widget: JinxObserverWidget) -> None:
         """Add a new view state to the window."""
         self.__views[name] = widget
+        self.__data.update_view_states()
+
         self.__stack.addWidget(widget.qwidget)
         if self.__kind == "tabbed":
             self.__tab_bar.addTab(name)
@@ -661,16 +663,18 @@ class JinxGuiWindow(observable.Observer):
             self.__combo_box.addItem(name)
         else:
             self.view_added.emit(name)
+
         if self.__current_view_state is None:
-            self.__data.assign_observers(widget)
-            self.__current_view_state = name
             self.__data.desired_view_state = name
-        self.__data.update_view_states()
 
     def remove_view(self, name: str) -> None:
         """Remove a view state from the window."""
-        self.__stack.removeWidget(self.__views[name].widget)
-        self.__views.pop(name)
+        if name not in self.__views or name is None:
+            return
+        jwidget = self.__views.pop(name)
+        self.__data.update_view_states()
+
+        self.__stack.removeWidget(jwidget.qwidget)
         if self.__kind == "tabbed":
             for index in range(self.__tab_bar.count()):
                 if self.__tab_bar.tabText(index) == name:
@@ -680,10 +684,12 @@ class JinxGuiWindow(observable.Observer):
             self.__combo_box.removeItem(self.__combo_box.findText(name))
         else:
             self.view_removed.emit(name)
+
         if self.__current_view_state == name:
-            self.__data.remove_observers(self.__views[name])
-            self.__data.desired_view_state = None
-        self.__data.update_view_states()
+            if self.__views:
+                self.__data.desired_view_state = next(iter(self.__views))
+            else:
+                self.__data.desired_view_state = None
 
     def update_observer(self, observable_: JinxGuiData) -> None:
         """Update the observer."""

@@ -202,7 +202,7 @@ register_game(
 # )
 
 
-def run_game_launcher(stdscr: curses._CursesWindow) -> str | None:
+def run_game_launcher(stdscr: curses.window) -> str | None:
     """Run a game launcher with curses."""
     # stdscr: curses.window = curses.initscr()
 

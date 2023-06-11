@@ -29,7 +29,7 @@ from math import copysign
 import time
 
 import numpy as np
-from PyQt6 import QtCore, QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from datastructures.views import ListView
 from concurrency.atomic import AtomicObject
@@ -79,6 +79,7 @@ class SnakeGameLogic:
         "__direction",
 
         # Game state
+        "__playing",
         "__grid_size",
         "__score",
         "__level",
@@ -93,6 +94,7 @@ class SnakeGameLogic:
         "__pause_time",
 
         # Game options
+        "__new_grid_size",
         "difficulty",
         "show_path",
         "walls",
@@ -133,6 +135,7 @@ class SnakeGameLogic:
         self.__direction = AtomicObject(_INITIAL_DIRECTION)
 
         # Game state
+        self.__playing: bool = False
         self.__grid_size: tuple[int, int] = cells_grid_size
         self.__score: int = _INITIAL_SCORE
         self.__level: int = _INITIAL_LEVEL
@@ -147,6 +150,7 @@ class SnakeGameLogic:
         self.__pause_time: float = 0.0
 
         # Game options
+        self.__new_grid_size: tuple[int, int] | None = None
         self.difficulty: str = _DEFAULT_DIFFICULTY
         self.show_path: bool = _DEFAULT_SHOW_PATH
         self.walls: bool = _DEFAULT_WALLS
@@ -162,9 +166,43 @@ class SnakeGameLogic:
         return self.__direction
 
     @property
+    def playing(self) -> bool:
+        """
+        Get whether the game is being played.
+
+        This is `True` if the snake has moved at least once since the game
+        was last reset. Otherwise, this is `False` if the game was just reset,
+        and the snake has not yet moved.
+        """
+        return self.__playing
+
+    @property
     def grid_size(self) -> tuple[int, int]:
         """Get the grid size."""
         return self.__grid_size
+
+    @grid_size.setter
+    def grid_size(self, grid_size: tuple[int, int]) -> None:
+        """
+        Set the grid size.
+
+        If the game is currently being played, then the grid size will be
+        changed after the game has been reset. Otherwise, the grid size will
+        be changed immediately.
+        """
+        if not isinstance(grid_size, tuple):
+            raise TypeError("The grid size must be a tuple. "
+                            f"Got; {type(grid_size)!r}.")
+        if len(grid_size) != 2:
+            raise ValueError("The grid size must be a tuple of length 2. "
+                             f"Got; {len(grid_size)}.")
+        if any(size <= 0 for size in grid_size):
+            raise ValueError("The grid size must be positive. "
+                             f"Got; {grid_size}.")
+        if self.__playing:
+            self.__new_grid_size = grid_size
+        else:
+            self.__grid_size = grid_size
 
     @property
     def score(self) -> int:
@@ -223,6 +261,9 @@ class SnakeGameLogic:
 
     def move_snake(self) -> None:
         """Move the snake in the current direction."""
+        if not self.__playing:
+            self.__playing = True
+
         if self.__game_over or self.__paused:
             return
 
@@ -431,6 +472,10 @@ class SnakeGameLogic:
 
     def _reset_game_state(self) -> None:
         """Reset the game state."""
+        self.__playing = False
+        if self.__new_grid_size is not None:
+            self.__grid_size = self.__new_grid_size
+            self.__new_grid_size = None
         with self.direction as direction:
             direction.set_obj(_INITIAL_DIRECTION)
         self.__score = _INITIAL_SCORE
@@ -1083,8 +1128,17 @@ def play_snake_game(
     qwindow.resize(width, height)
 
     qtimer = QtCore.QTimer()
-    jdata = JinxGuiData("Snake GUI Data", clock=qtimer, debug=debug)
-    jgui = JinxGuiWindow(qwindow, jdata, "Snake GUI Window", debug=debug)
+    jdata = JinxGuiData(
+        name="Snake GUI Data",
+        clock=qtimer,
+        debug=debug
+    )
+    jgui = JinxGuiWindow(
+        qapp, qwindow, jdata,
+        name="Snake GUI Window",
+        size=(width, height),
+        debug=debug
+    )
 
     snake_qwidget = QtWidgets.QWidget()
     snake_game_jwidget = SnakeGameJinxWidget(

@@ -3,12 +3,10 @@ Module containing Jinx PyQt6 widgets defining interfaces for teleoperate
 control of robots.
 """
 
-from abc import abstractmethod
-from PyQt6 import QtWidgets
-from PyQt6 import QtCore
-from PyQt6 import QtGui
+from PySide6 import QtWidgets
+from PySide6 import QtCore
 
-from guis.gui import JinxGuiData, JinxObserverWidget, JinxWidgetSize, scale_size, scale_size_for_grid
+from guis.gui import JinxGuiData, JinxObserverWidget, JinxWidgetSize, scale_size_for_grid
 
 
 class LabelledArrowButton(QtWidgets.QToolButton):
@@ -257,11 +255,11 @@ class EstopInterface(JinxObserverWidget):
 
     def __update_clock(self) -> None:
         """Update the clock display."""
-        time_ = QtCore.QTime.currentTime()
-        time_ = self.__start_time.secsTo(time_)
-        time_ = QtCore.QTime(0, 0, 0).addSecs(time_)
+        qtime = QtCore.QTime.currentTime()
+        stime = self.__start_time.secsTo(qtime)
+        qtime = QtCore.QTime(0, 0, 0).addSecs(stime)
         self.__clock_display.display(
-            time_.toString("hh:mm:ss")
+            qtime.toString("hh:mm:ss")
         )
 
     def __release_button_clicked(self) -> None:
@@ -338,50 +336,52 @@ class DirectionalControlInterface(JinxObserverWidget):
         self.__forward_button = QtWidgets.QPushButton()
         self.__forward_button.setText("Forward")
         self.__forward_button.setObjectName("forward_button")
-        self.__connect_slots_and_set_size(
-            self.__forward_button, widget_size
-        )
+        self.__set_size(self.__forward_button, widget_size)
         self.__layout.addWidget(self.__forward_button, 0, 1)
 
         self.__left_button = QtWidgets.QPushButton()
         self.__left_button.setText("Left")
         self.__left_button.setObjectName("left_button")
-        self.__connect_slots_and_set_size(
-            self.__left_button, widget_size
-        )
+        self.__set_size(self.__left_button, widget_size)
         self.__layout.addWidget(self.__left_button, 1, 0)
 
         self.__right_button = QtWidgets.QPushButton()
         self.__right_button.setText("Right")
         self.__right_button.setObjectName("right_button")
-        self.__connect_slots_and_set_size(
-            self.__right_button, widget_size
-        )
+        self.__set_size(self.__right_button, widget_size)
         self.__layout.addWidget(self.__right_button, 1, 2)
 
         self.__backward_button = QtWidgets.QPushButton()
         self.__backward_button.setText("Backward")
         self.__backward_button.setObjectName("backward_button")
-        self.__connect_slots_and_set_size(
-            self.__backward_button, widget_size
-        )
+        self.__set_size(self.__backward_button, widget_size)
         self.__layout.addWidget(self.__backward_button, 1, 1)
 
         self.__turn_left_button = QtWidgets.QPushButton()
         self.__turn_left_button.setText("Turn Left")
         self.__turn_left_button.setObjectName("turn_left_button")
-        self.__connect_slots_and_set_size(
-            self.__turn_left_button, widget_size
-        )
+        self.__set_size(self.__turn_left_button, widget_size)
         self.__layout.addWidget(self.__turn_left_button, 0, 0)
 
         self.__turn_right_button = QtWidgets.QPushButton()
         self.__turn_right_button.setText("Turn Right")
         self.__turn_right_button.setObjectName("turn_right_button")
-        self.__connect_slots_and_set_size(
-            self.__turn_right_button, widget_size
-        )
+        self.__set_size(self.__turn_right_button, widget_size)
         self.__layout.addWidget(self.__turn_right_button, 0, 2)
+
+        self.__directional_buttons = QtWidgets.QButtonGroup()
+        self.__directional_buttons.addButton(self.__forward_button)
+        self.__directional_buttons.addButton(self.__left_button)
+        self.__directional_buttons.addButton(self.__right_button)
+        self.__directional_buttons.addButton(self.__backward_button)
+        self.__directional_buttons.addButton(self.__turn_left_button)
+        self.__directional_buttons.addButton(self.__turn_right_button)
+        self.__directional_buttons.buttonPressed.connect(
+            self.directional_button_pressed
+        )
+        self.__directional_buttons.buttonReleased.connect(
+            self.directional_button_released
+        )
 
         # self.__speed_label = QtWidgets.QLabel()
         # self.__speed_label.setText("Speed:")
@@ -444,10 +444,8 @@ class DirectionalControlInterface(JinxObserverWidget):
         # self.__layout.setColumnStretch(1, 1)
         # self.__layout.setColumnStretch(2, 1)
 
-    def __connect_slots_and_set_size(self, button: QtWidgets.QPushButton, size: JinxWidgetSize) -> None:
+    def __set_size(self, button: QtWidgets.QPushButton, size: JinxWidgetSize) -> None:
         """Connect slots and set the size of the button."""
-        button.pressed.connect(self.button_pressed)
-        button.released.connect(self.button_released)
         button.sizeHint = lambda: QtCore.QSize(size.width, size.height)
         button.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Expanding,
@@ -457,15 +455,12 @@ class DirectionalControlInterface(JinxObserverWidget):
     def update_observer(self, observable_: JinxGuiData) -> None:
         pass
 
-    # @abstractmethod
-    def button_pressed(self) -> None:
+    def directional_button_pressed(self, button: QtWidgets.QPushButton) -> None:
         """Called when a button is pressed."""
-        button = self.qwidget.sender()
         print(f"Pressed: {button.objectName()!s}")
 
-    def button_released(self) -> None:
+    def directional_button_released(self, button: QtWidgets.QPushButton) -> None:
         """Called when a button is released."""
-        button = self.qwidget.sender()
         print(f"Released: {button.objectName()!s}")
 
 

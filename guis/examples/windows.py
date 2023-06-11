@@ -1,6 +1,17 @@
-from PyQt6.QtWidgets import QMainWindow, QToolBar, QPushButton, QStatusBar, QApplication
-from PyQt6.QtCore import QSize
-from PyQt6.QtGui import QAction, QActionGroup
+"""
+Module defining some example and tests of windows with menus, tool-bars and
+status-bars.
+"""
+
+from PySide6.QtWidgets import (  # pylint: disable=E0611
+    QMainWindow,
+    QToolBar,
+    QPushButton,
+    QStatusBar,
+    QApplication
+)
+from PySide6.QtCore import QSize  # pylint: disable=E0611
+from PySide6.QtGui import QAction, QActionGroup  # pylint: disable=E0611
 
 from guis.gui import JinxGuiWindow
 

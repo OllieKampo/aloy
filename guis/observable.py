@@ -27,7 +27,7 @@ import functools
 import logging
 from typing import Callable, Concatenate, ParamSpec, TypeVar, final
 import threading
-from PyQt6.QtCore import QTimer  # pylint: disable=E0611
+from PySide6.QtCore import QTimer  # pylint: disable=E0611
 
 from concurrency.clocks import ClockThread
 

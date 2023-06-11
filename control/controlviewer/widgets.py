@@ -4,9 +4,9 @@ import itertools
 import random
 import sys
 from collections import deque
-from PyQt6 import QtWidgets, QtCore, QtGui
+from PySide6 import QtWidgets, QtCore, QtGui
 
-from guis.gui import JinxObserverWidget
+from guis.gui import JinxGuiData, JinxObserverWidget
 
 
 class PositionGraph(JinxObserverWidget):
@@ -128,8 +128,8 @@ class PositionGraph(JinxObserverWidget):
         self.__layout = QtWidgets.QGridLayout()
         self.__layout.setContentsMargins(0, 0, 0, 0)
         self.__layout.setSpacing(0)
-        self.widget.setLayout(self.__layout)
-        self.widget.setSizePolicy(
+        self.qwidget.setLayout(self.__layout)
+        self.qwidget.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Fixed,
             QtWidgets.QSizePolicy.Policy.Fixed
         )
@@ -299,6 +299,16 @@ class PositionGraph(JinxObserverWidget):
                 int(self.size.width * 0.525), y,
                 pen
             )
+
+    def clear_graph(self) -> None:
+        """Clear the graph."""
+        self.__history_x.clear()
+        self.__history_y.clear()
+        self.__scene.clear()
+        self.__paint_display()
+
+    def update_observer(self, observable_: JinxGuiData) -> None:
+        pass
 
 
 if __name__ == "__main__":
