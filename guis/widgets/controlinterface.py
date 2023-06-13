@@ -6,7 +6,13 @@ control of robots.
 from PySide6 import QtWidgets
 from PySide6 import QtCore
 
-from guis.gui import JinxGuiData, JinxObserverWidget, JinxWidgetSize, scale_size_for_grid
+from guis.gui import (
+    JinxGuiData,
+    JinxObserverWidget,
+    JinxWidgetSize,
+    scale_size,
+    scale_size_for_grid
+)
 
 
 class LabelledArrowButton(QtWidgets.QToolButton):
@@ -95,10 +101,12 @@ class EstopInterface(JinxObserverWidget):
 
         self.__has_estop_control: bool = False
 
+        estop_control_layout = QtWidgets.QHBoxLayout()
+
         widget_size = scale_size_for_grid(
             self.size,
-            (3, 5),
-            (2, 1),
+            (2, 5),
+            (1, 1),
             padding,
             margins
         )
@@ -106,16 +114,16 @@ class EstopInterface(JinxObserverWidget):
         if self.__has_estop_control:
             self.__estop_control_text.setText("You have E-Stop Control")
         else:
-            self.__estop_control_text.setText("You do not have E-Stop Control")
+            self.__estop_control_text.setText("You don't have E-Stop Control")
         self.__estop_control_text.setAlignment(
             QtCore.Qt.AlignmentFlag.AlignCenter
         )
         self.__estop_control_text.setFixedSize(*widget_size)
-        self.__layout.addWidget(self.__estop_control_text, 1, 0, 1, 2)
+        estop_control_layout.addWidget(self.__estop_control_text)
 
         widget_size = scale_size_for_grid(
             self.size,
-            (3, 5),
+            (2, 5),
             (1, 1),
             padding,
             margins
@@ -134,7 +142,9 @@ class EstopInterface(JinxObserverWidget):
             "}"
         )
         self.__release_button.clicked.connect(self.__release_button_clicked)
-        self.__layout.addWidget(self.__release_button, 1, 2, 1, 1)
+        estop_control_layout.addWidget(self.__release_button)
+
+        self.__layout.addLayout(estop_control_layout, 1, 0, 1, 3)
 
         widget_size = scale_size_for_grid(
             self.size,
@@ -162,9 +172,6 @@ class EstopInterface(JinxObserverWidget):
         self.__clock_display.setSegmentStyle(
             QtWidgets.QLCDNumber.SegmentStyle.Filled
         )
-        # self.__clock_display.setFrameStyle(
-        #     QtWidgets.QLCDNumber.FrameStyle.NoFrame
-        # )
         time_ = QtCore.QTime(0, 0, 0)
         self.__clock_display.display(
             time_.toString("hh:mm:ss")
@@ -271,7 +278,7 @@ class EstopInterface(JinxObserverWidget):
             self.__release_button.setText("Release E-Stop")
         else:
             # self.__data.command_handler.release_estop_control()
-            self.__estop_control_text.setText("You do not have E-Stop Control")
+            self.__estop_control_text.setText("You don't have E-Stop Control")
             self.__release_button.setText("Acquire E-Stop Control")
 
     def __on_off_button_clicked(self, button: QtWidgets.QRadioButton) -> None:
@@ -324,10 +331,11 @@ class DirectionalControlInterface(JinxObserverWidget):
         padding = (10, 10)
         margins = (10, 10, 10, 10)
         widget_size = scale_size_for_grid(
-            # scale_size(self.size, (0.9, 0.8)),
+            self.size,
             (3, 2),
             (1, 1),
-            padding
+            padding,
+            margins
         )
         self.__layout.setContentsMargins(*margins)
         self.__layout.setHorizontalSpacing(padding[0])
@@ -383,68 +391,33 @@ class DirectionalControlInterface(JinxObserverWidget):
             self.directional_button_released
         )
 
-        # self.__speed_label = QtWidgets.QLabel()
-        # self.__speed_label.setText("Speed:")
-        # self.__layout.addWidget(self.__speed_label, 2, 0)
+        widget_size = scale_size(widget_size, (2.0, 0.20))
+        self.__speed_slider = QtWidgets.QSlider(
+            QtCore.Qt.Orientation.Horizontal
+        )
+        self.__speed_slider.setMinimum(0)
+        self.__speed_slider.setMaximum(100)
+        self.__speed_slider.setValue(50)
+        self.__speed_slider.setTickPosition(
+            QtWidgets.QSlider.TickPosition.TicksBelow
+        )
+        self.__speed_slider.setTickInterval(10)
+        self.__speed_slider.setSingleStep(1)
+        self.__speed_slider.setPageStep(10)
+        self.__set_size(self.__speed_slider, widget_size)
+        self.__speed_slider.valueChanged.connect(self.speed_slider_changed)
+        self.__layout.addWidget(self.__speed_slider, 2, 1, 1, 2)
 
-        # self.__speed_slider = QtWidgets.QSlider(
-        #     QtCore.Qt.Orientation.Horizontal
-        # )
-        # self.__speed_slider.setMinimum(0)
-        # self.__speed_slider.setMaximum(100)
-        # self.__speed_slider.setValue(50)
-        # self.__speed_slider.setTickPosition(
-        #     QtWidgets.QSlider.TickPosition.TicksBelow
-        # )
-        # self.__speed_slider.setTickInterval(10)
-        # self.__speed_slider.setSingleStep(1)
-        # self.__speed_slider.setPageStep(10)
-        # self.__layout.addWidget(self.__speed_slider, 2, 1, 1, 2)
+        self.__speed_label = QtWidgets.QLabel()
+        self.__speed_label.setText(f"Speed: {self.__speed_slider.value()!s}%")
+        self.__set_size(self.__speed_label, widget_size)
+        self.__layout.addWidget(self.__speed_label, 2, 0, 1, 1)
 
-        # self.__step_height_label = QtWidgets.QLabel()
-        # self.__step_height_label.setText("Step Height:")
-        # self.__layout.addWidget(self.__step_height_label, 3, 0)
-
-        # self.__step_height_slider = QtWidgets.QSlider(
-        #     QtCore.Qt.Orientation.Horizontal
-        # )
-        # self.__step_height_slider.setMinimum(0)
-        # self.__step_height_slider.setMaximum(100)
-        # self.__step_height_slider.setValue(50)
-        # self.__step_height_slider.setTickPosition(
-        #     QtWidgets.QSlider.TickPosition.TicksBelow
-        # )
-        # self.__step_height_slider.setTickInterval(10)
-        # self.__step_height_slider.setSingleStep(1)
-        # self.__step_height_slider.setPageStep(10)
-        # self.__layout.addWidget(self.__step_height_slider, 3, 1, 1, 2)
-
-        # self.__walk_height_label = QtWidgets.QLabel()
-        # self.__walk_height_label.setText("Walk Height:")
-        # self.__layout.addWidget(self.__walk_height_label, 4, 0)
-
-        # self.__walk_height_slider = QtWidgets.QSlider(
-        #     QtCore.Qt.Orientation.Horizontal
-        # )
-        # self.__walk_height_slider.setMinimum(0)
-        # self.__walk_height_slider.setMaximum(100)
-        # self.__walk_height_slider.setValue(50)
-        # self.__walk_height_slider.setTickPosition(
-        #     QtWidgets.QSlider.TickPosition.TicksBelow
-        # )
-        # self.__walk_height_slider.setTickInterval(10)
-        # self.__walk_height_slider.setSingleStep(1)
-        # self.__walk_height_slider.setPageStep(10)
-        # self.__layout.addWidget(self.__walk_height_slider, 4, 1, 1, 2)
-
-        # self.__layout.setRowStretch(0, 1)
-        # self.__layout.setRowStretch(1, 1)
-        # self.__layout.setRowStretch(2, 1)
-        # self.__layout.setColumnStretch(0, 1)
-        # self.__layout.setColumnStretch(1, 1)
-        # self.__layout.setColumnStretch(2, 1)
-
-    def __set_size(self, button: QtWidgets.QPushButton, size: JinxWidgetSize) -> None:
+    def __set_size(
+        self,
+        button: QtWidgets.QWidget,
+        size: JinxWidgetSize
+    ) -> None:
         """Connect slots and set the size of the button."""
         button.sizeHint = lambda: QtCore.QSize(size.width, size.height)
         button.setSizePolicy(
@@ -453,37 +426,57 @@ class DirectionalControlInterface(JinxObserverWidget):
         )
 
     def update_observer(self, observable_: JinxGuiData) -> None:
+        """Update the observer with the latest data."""
         pass
 
-    def directional_button_pressed(self, button: QtWidgets.QPushButton) -> None:
+    def directional_button_pressed(
+        self,
+        button: QtWidgets.QPushButton
+    ) -> None:
         """Called when a button is pressed."""
         print(f"Pressed: {button.objectName()!s}")
 
-    def directional_button_released(self, button: QtWidgets.QPushButton) -> None:
+    def directional_button_released(
+        self,
+        button: QtWidgets.QPushButton
+    ) -> None:
         """Called when a button is released."""
         print(f"Released: {button.objectName()!s}")
+
+    def speed_slider_changed(self, value: int) -> None:
+        """Called when the speed slider is changed."""
+        self.__speed_label.setText(f"Speed: {value!s}%")
+        print(f"Speed set to: {value!s}")
 
 
 if __name__ == "__main__":
     qapp = QtWidgets.QApplication([])
     qwindow = QtWidgets.QMainWindow()
     qwindow.setWindowTitle("Control Interface")
-    qwindow.resize(400, 500)
+    qwindow.resize(425, 500)
 
     estop_qwidget = QtWidgets.QWidget()
-    estop_jwidget = EstopInterface(estop_qwidget, "E-Stop Interface", (400, 233))
+    estop_jwidget = EstopInterface(
+        estop_qwidget,
+        "E-Stop Interface",
+        (425, 233)
+    )
 
     control_qwidget = QtWidgets.QWidget()
-    control_jwidget = DirectionalControlInterface(control_qwidget, "Control Interface", (400, 266))
+    control_jwidget = DirectionalControlInterface(
+        control_qwidget,
+        "Control Interface",
+        (425, 266)
+    )
 
-    conbined_qwidget = QtWidgets.QWidget()
+    combined_qwidget = QtWidgets.QWidget()
     combined_layout = QtWidgets.QVBoxLayout()
     combined_layout.addWidget(estop_qwidget)
     combined_layout.addWidget(control_qwidget)
     combined_layout.setSpacing(0)
-    conbined_qwidget.setLayout(combined_layout)
+    combined_qwidget.setLayout(combined_layout)
 
-    qwindow.setCentralWidget(conbined_qwidget)
+    qwindow.setCentralWidget(combined_qwidget)
 
     qwindow.show()
     qapp.exec()
