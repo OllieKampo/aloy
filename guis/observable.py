@@ -1,26 +1,30 @@
-###########################################################################
-###########################################################################
-## Module defining obversable-observer pattern interface.                ##
-##                                                                       ##
-## Copyright (C)  2023  Oliver Michael Kamperis                          ##
-## Email: o.m.kamperis@gmail.com                                         ##
-##                                                                       ##
-## This program is free software: you can redistribute it and/or modify  ##
-## it under the terms of the GNU General Public License as published by  ##
-## the Free Software Foundation, either version 3 of the License, or     ##
-## any later version.                                                    ##
-##                                                                       ##
-## This program is distributed in the hope that it will be useful,       ##
-## but WITHOUT ANY WARRANTY; without even the implied warranty of        ##
-## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          ##
-## GNU General Public License for more details.                          ##
-##                                                                       ##
-## You should have received a copy of the GNU General Public License     ##
-## along with this program. If not, see <https://www.gnu.org/licenses/>. ##
-###########################################################################
-###########################################################################
+# Copyright (C) 2023 Oliver Michael Kamperis
+# Email: o.m.kamperis@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+# more details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
 
-"""Module defining obversable-observer pattern interface."""
+"""
+Module defining obversable-observer pattern interface.
+
+The observable-observer pattern is a design pattern in which an object, called
+the observable, maintains a list of its dependents, called observers, and
+updates them automatically when its state changes.
+
+The observable-observer pattern is unlike the publisher-subscriber pattern in
+that observers do not subscribe to specific events or topics. Instead, they
+observe the whole observable, are notified when the observable changes in any
+way, and it is up to the observer to decide how to update itself accordingly.
+"""
 
 from abc import abstractmethod, ABCMeta
 import functools
@@ -56,8 +60,7 @@ class Observable(metaclass=ABCMeta):
     changes. When an observer is notified, it is scheduled to be 'updated'
     automatically by the observable, on a seperate thread. An observer or any
     other object (called an updater), can then change the observable's state,
-    causing the other observers to be notified, and therefore propagate
-    that change to update the other observers in a thread-safe manner.
+    causing the other observers to be updated in a thread-safe manner.
 
     The central idea of this pattern, is that observers or updaters only need
     to know about the observable, and do not need to know about each other.
@@ -76,9 +79,9 @@ class Observable(metaclass=ABCMeta):
     __slots__ = {
         "__name": "The name of the observable.",
         "__observers": "The observers of this observable.",
-        "__changed": "The observers that have been notified "
-                     "since the last update.",
-        "__clock": "The clock that updates the observers.",
+        "__changed": "The observers that have been notified the the state of "
+                     "the observable has changed since the last update.",
+        "__clock": "The clock or timer that updates the observers.",
         "__lock": "Lock ensuring atomic updates to the observable.",
         "__debug": "Whether to log debug messages."
     }
