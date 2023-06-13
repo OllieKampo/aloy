@@ -8,7 +8,10 @@ from PySide6.QtWidgets import (  # pylint: disable=E0611
     QToolBar,
     QPushButton,
     QStatusBar,
-    QApplication
+    QApplication,
+    QMessageBox,
+    QErrorMessage,
+    QLineEdit
 )
 from PySide6.QtCore import QSize  # pylint: disable=E0611
 from PySide6.QtGui import QAction, QActionGroup  # pylint: disable=E0611
@@ -29,8 +32,10 @@ class TestWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction("New")
         file_menu.addAction("Open")
-        file_menu.addAction("Save")
-        file_menu.addAction("Save as...")
+        save_action = file_menu.addAction("Save")
+        save_action.triggered.connect(self.create_save_message_box)
+        save_as_action = file_menu.addAction("Save as...")
+        save_as_action.triggered.connect(self.create_save_as_message_box)
         file_menu.addSeparator()
         exit_action = file_menu.addAction("Exit")
         exit_action.triggered.connect(self.exit_app)
@@ -90,11 +95,9 @@ class TestWindow(QMainWindow):
         # Three grouped actions
         grouped_action1 = QAction("Grouped action 1", self)
         grouped_action2 = QAction("Grouped action 2", self)
-        grouped_action3 = QAction("Grouped action 3", self)
         action_group = QActionGroup(self)
         action_group.addAction(grouped_action1)
         action_group.addAction(grouped_action2)
-        action_group.addAction(grouped_action3)
         action_group.triggered.connect(self.toolbar_button_group_clicked)
         toolbar.addActions(action_group.actions())
         for action in action_group.actions():
@@ -103,7 +106,15 @@ class TestWindow(QMainWindow):
         toolbar.addSeparator()
 
         # Add a standard button to the tool-bar
-        toolbar.addWidget(QPushButton("Standard Button"))
+        toolbar.addWidget(QPushButton("Message", self, clicked=self.create_message_box))
+        toolbar.addWidget(QPushButton("Critical message", self, clicked=self.create_critical_message_box))
+        toolbar.addSeparator()
+
+        # Create an error message box
+        # https://doc.qt.io/qtforpython-6/PySide6/QtWidgets/QErrorMessage.html
+        self.__error_message_box = QErrorMessage()
+        self.__error_message_box.setWindowTitle("Error message")
+        toolbar.addWidget(QPushButton("Error message", self, clicked=self.show_error_message_box))
 
         # Add a status-bar at the bottom of the window
         status_bar = QStatusBar()
@@ -123,6 +134,101 @@ class TestWindow(QMainWindow):
             f"Message from {action.objectName()}",
             3000
         )
+
+    def create_message_box(self) -> None:
+        # Create a message box.
+        # https://doc.qt.io/qtforpython-6/PySide6/QtWidgets/QMessageBox.html
+        message_box = QMessageBox()
+        message_box.setWindowTitle("Message box")
+        message_box.setText("This is a message box")
+        message_box.setInformativeText("This is some informative text")
+        message_box.setDetailedText("This is some detailed text")
+        message_box.setIcon(QMessageBox.Icon.Information)
+        message_box.setStandardButtons(
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
+        )
+        # Add a custom button
+        # https://doc.qt.io/qtforpython-6/PySide6/QtWidgets/QMessageBox.html#advanced-usage
+        message_box.addButton("Custom button", QMessageBox.ButtonRole.ActionRole)
+        message_box.setDefaultButton(QMessageBox.StandardButton.Ok)
+        message_box.setEscapeButton(QMessageBox.StandardButton.Cancel)
+        return_ = message_box.exec()
+        if return_ == QMessageBox.StandardButton.Ok:
+            self.statusBar().showMessage("Ok clicked", 3000)
+            print("Ok clicked")
+        elif return_ == QMessageBox.StandardButton.Cancel:
+            self.statusBar().showMessage("Cancel clicked", 3000)
+            print("Cancel clicked")
+
+    def create_save_message_box(self) -> None:
+        # Create a save message box
+        message_box = QMessageBox()
+        message_box.setText("The document has been modified.")
+        message_box.setInformativeText("Do you want to save your changes?")
+        message_box.setIcon(QMessageBox.Icon.Question)
+        message_box.setStandardButtons(
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel
+        )
+        message_box.setDefaultButton(QMessageBox.StandardButton.Save)
+        return_ = message_box.exec()
+        if return_ == QMessageBox.StandardButton.Save:
+            self.statusBar().showMessage("Save clicked", 3000)
+            print("Save clicked")
+        elif return_ == QMessageBox.StandardButton.Discard:
+            self.statusBar().showMessage("Discard clicked", 3000)
+            print("Discard clicked")
+        elif return_ == QMessageBox.StandardButton.Cancel:
+            self.statusBar().showMessage("Cancel clicked", 3000)
+            print("Cancel clicked")
+
+    def create_save_as_message_box(self) -> None:
+        # Create a save as message box
+        message_box = QMessageBox()
+        message_box.setText("The document has been modified.")
+        message_box.setInformativeText("Choose a name and directory for the document.")
+        # Add a line edit to the message box
+        line_edit = QLineEdit(message_box)
+        line_edit.setPlaceholderText("File name")
+        message_box.layout().addWidget(line_edit, 1, 1, 1, 1)
+        message_box.setIcon(QMessageBox.Icon.Question)
+        message_box.setStandardButtons(
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel
+        )
+        message_box.setDefaultButton(QMessageBox.StandardButton.Save)
+        return_ = message_box.exec()
+        if return_ == QMessageBox.StandardButton.Save:
+            self.statusBar().showMessage("Save clicked", 3000)
+            print("Save clicked")
+        elif return_ == QMessageBox.StandardButton.Discard:
+            self.statusBar().showMessage("Discard clicked", 3000)
+            print("Discard clicked")
+        elif return_ == QMessageBox.StandardButton.Cancel:
+            self.statusBar().showMessage("Cancel clicked", 3000)
+            print("Cancel clicked")
+
+    def create_critical_message_box(self) -> None:
+        # Create a critical message box using the static functions API.
+        # https://doc.qt.io/qtforpython-6/PySide6/QtWidgets/QMessageBox.html#the-static-functions-api
+        return_ = QMessageBox.critical(
+            self,
+            "Critical message box",
+            "This is a critical message box",
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Ok
+        )
+        if return_ == QMessageBox.StandardButton.Ok:
+            self.statusBar().showMessage("Ok clicked", 3000)
+            print("Ok clicked")
+        elif return_ == QMessageBox.StandardButton.Cancel:
+            self.statusBar().showMessage("Cancel clicked", 3000)
+            print("Cancel clicked")
+
+    def show_error_message_box(self) -> None:
+        self.__error_message_box.showMessage("This is an error message box")
 
 
 if __name__ == "__main__":
