@@ -1,143 +1,200 @@
-import curses
-from random import randint
+###########################################################################
+###########################################################################
+## Module defining a tetris game.                                        ##
+##                                                                       ##
+## Copyright (C)  2023  Oliver Michael Kamperis                          ##
+## Email: o.m.kamperis@gmail.com                                         ##
+##                                                                       ##
+## This program is free software: you can redistribute it and/or modify  ##
+## it under the terms of the GNU General Public License as published by  ##
+## the Free Software Foundation, either version 3 of the License, or     ##
+## any later version.                                                    ##
+##                                                                       ##
+## This program is distributed in the hope that it will be useful,       ##
+## but WITHOUT ANY WARRANTY; without even the implied warranty of        ##
+## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          ##
+## GNU General Public License for more details.                          ##
+##                                                                       ##
+## You should have received a copy of the GNU General Public License     ##
+## along with this program. If not, see <https://www.gnu.org/licenses/>. ##
+###########################################################################
+###########################################################################
 
-# Initialize the screen
-stdscr = curses.initscr()
-curses.curs_set(0)  # Hide the cursor
-stdscr.nodelay(1)  # Non-blocking input
-stdscr.timeout(100)  # Set refresh rate to 100 milliseconds
+"""Module defining a tetris game."""
 
-# Set up the game board
-board_width = 10
-board_height = 20
-board = [[' ' for _ in range(board_width)] for _ in range(board_height)]
+import enum
 
-# Tetromino shapes and their respective colors
-tetrominos = [
-    [['I'],
-     ['I'],
-     ['I'],
-     ['I']],
+from datastructures.mappings import frozendict
 
-    [['O', 'O'],
-     ['O', 'O']],
+@enum.unique
+class PieceShape(enum.Enum):
+    """Enumeration of the different tetris piece shapes."""
 
-    [['J', ' '],
-     ['J', 'J'],
-     ['J', ' ']],
-
-    [[' ', 'L'],
-     ['L', 'L'],
-     [' ', 'L']],
-
-    [['T', 'T', 'T'],
-     [' ', 'T', ' ']],
-
-    [['Z', 'Z', ' '],
-     [' ', 'Z', 'Z']],
-
-    [[' ', 'S', 'S'],
-     ['S', 'S', ' ']]
-]
-
-tetromino_colors = [curses.COLOR_CYAN, curses.COLOR_YELLOW, curses.COLOR_BLUE,
-                    curses.COLOR_MAGENTA, curses.COLOR_GREEN, curses.COLOR_RED,
-                    curses.COLOR_WHITE]
-
-index = randint(0, len(tetrominos) - 1)
-
-# Set up game variables
-current_piece = tetrominos[index]
-current_piece_color = tetromino_colors[index]
-current_piece_x = board_width // 2 - 1
-current_piece_y = 0
-
-score = 0
+    ZShape = "Z"
+    SShape = "S"
+    LineShape = "Line"
+    TShape = "T"
+    SquareShape = "Square"
+    LShape = "L"
+    MirroredLShape = "Mirrored L"
 
 
-# Function to draw the game board
-def draw_board() -> None:
-    stdscr: curses.window = curses.initscr()
-    stdscr.clear()
-    stdscr.border(0)
-    for y, row in enumerate(board):
-        for x, char in enumerate(row):
-            stdscr.addch(y + 1, x + 1, char)
-    stdscr.addstr(board_height + 2, 2, f"Score: {score}")
+@enum.unique
+class PieceColor(enum.Enum):
+    """Enumeration of the different piece colors."""
+
+    Red = "Red"
+    Green = "Green"
+    Blue = "Blue"
+    Yellow = "Yellow"
+    Magenta = "Magenta"
+    Cyan = "Cyan"
+    Orange = "Orange"
+    White = "White"
 
 
-def is_valid_position(piece: list[str], x: int, y: int) -> bool:
-    """Check if a position is valid for the current piece."""
-    for row in range(len(piece)):
-        for col in range(len(piece[row])):
-            if (
-                piece[row][col] != ' ' and
-                (board[y + row][x + col] != ' ' or
-                 y + row >= board_height or
-                 x + col < 0 or x + col >= board_width)
-            ):
-                return False
-    return True
+@enum.unique
+class Rotation(enum.Enum):
+    """Enumeration of the different Rotations."""
+
+    Left = "Left"
+    Right = "Right"
+    Up = "Up"
+    Down = "Down"
 
 
-# Function to rotate a piece
-def rotate_piece(piece):
-    return list(zip(*reversed(piece)))
+class TetrisGameLogic:
+    """
+    Internal logic of the tetris game.
+    """
 
-# Function to place the current piece on the board
-def place_piece():
-    global current_piece, current_piece_color, current_piece_x, current_piece_y, score
+    __slots__ = (
+        "__weakref__",
 
-    for row in range(len(current_piece)):
-        for col in range(len(current_piece[row])):
-            if current_piece[row][col] != ' ':
-                board[current_piece_y + row][current_piece_x + col] = current_piece[row][col]
+        # Actions
+        "__direction",
 
-    # Check for completed rows
-    for row in range(board_height):
-        if all(cell != ' ' for cell in board[row]):
-            score += 1
-            del board[row]
-            board.insert(0, [' '] * board_width)
+        # Game state
+        "__playing",
+        "__grid_size",
+        "__score",
+        "__level",
+        "__lines_filled",
+        "__pieces_used",
+    )
 
-    # Reset current piece
-    index = randint(0, len(tetrominos) - 1)
-    current_piece = tetrominos[index]
-    current_piece_color = tetromino_colors[index]
-    current_piece_x = board_width // 2 - 1
-    current_piece_y = 0
+    def __init__(
+        self,
+        cells_grid_size: tuple[int, int],
+        manual_udpate: bool = False
+    ) -> None:
+        """Initialize the tetris game logic."""
+        self.__direction = None
+        self.__playing = False
+        self.__grid_size = cells_grid_size
+        self.__score: int = 0
+        self.__level = 1
+        self.__lines_filled: dict[str, int] = {
+            "Total": 0,
+            "Single": 0,
+            "Double": 0,
+            "Triple": 0,
+            "Tetris": 0
+        }
+        self.__pieces_used: dict[str, int] = {
+            "Total": 0
+        }
+        self.__pieces_used.update({
+            piece_shape.value: 0
+            for piece_shape in PieceShape
+        })
 
 
-# Main game loop
-while True:
-    # Get user input
-    key = stdscr.getch()
+class TetrisPiece:
+    """Class representing a tetris piece."""
 
-    if key == ord('q'):
-        break  # Exit the game
+    PIECE_RELATIVE_POSITIONS = frozendict({
+        PieceShape.ZShape: frozendict({
+            Rotation.Up: ((0, 0), (0, 1), (1, 1), (1, 2)),
+            Rotation.Right: ((0, 1), (1, 1), (1, 0), (2, 0)),
+            Rotation.Down: ((0, 0), (0, 1), (1, 1), (1, 2)),
+            Rotation.Left: ((0, 1), (1, 1), (1, 0), (2, 0))
+        }),
+        PieceShape.SShape: frozendict({
+            Rotation.Up: ((0, 1), (0, 2), (1, 0), (1, 1)),
+            Rotation.Right: ((0, 0), (1, 0), (1, 1), (2, 1)),
+            Rotation.Down: ((0, 1), (0, 2), (1, 0), (1, 1)),
+            Rotation.Left: ((0, 0), (1, 0), (1, 1), (2, 1))
+        }),
+        PieceShape.LineShape: frozendict({
+            Rotation.Up: ((0, 0), (0, 1), (0, 2), (0, 3)),
+            Rotation.Right: ((0, 0), (1, 0), (2, 0), (3, 0)),
+            Rotation.Down: ((0, 0), (0, 1), (0, 2), (0, 3)),
+            Rotation.Left: ((0, 0), (1, 0), (2, 0), (3, 0))
+        }),
+        PieceShape.TShape: frozendict({
+            Rotation.Up: ((0, 0), (0, 1), (0, 2), (1, 1)),
+            Rotation.Right: ((0, 1), (1, 1), (2, 1), (1, 0)),
+            Rotation.Down: ((0, 1), (1, 0), (1, 1), (1, 2)),
+            Rotation.Left: ((0, 1), (1, 1), (2, 1), (1, 2))
+        }),
+        PieceShape.SquareShape: frozendict({
+            Rotation.Up: ((0, 0), (0, 1), (1, 0), (1, 1)),
+            Rotation.Right: ((0, 0), (0, 1), (1, 0), (1, 1)),
+            Rotation.Down: ((0, 0), (0, 1), (1, 0), (1, 1)),
+            Rotation.Left: ((0, 0), (0, 1), (1, 0), (1, 1))
+        }),
+        PieceShape.LShape: frozendict({
+            Rotation.Up: ((0, 0), (0, 1), (0, 2), (1, 2)),
+            Rotation.Right: ((0, 1), (1, 1), (2, 1), (2, 0)),
+            Rotation.Down: ((0, 0), (1, 0), (1, 1), (1, 2)),
+            Rotation.Left: ((0, 0), (0, 1), (1, 0), (2, 0))
+        }),
+        PieceShape.MirroredLShape: frozendict({
+            Rotation.Up: ((0, 2), (1, 0), (1, 1), (1, 2)),
+            Rotation.Right: ((0, 0), (0, 1), (1, 1), (2, 1)),
+            Rotation.Down: ((0, 0), (0, 1), (0, 2), (1, 0)),
+            Rotation.Left: ((0, 0), (1, 0), (2, 0), (2, 1))
+        })
+    })
 
-    if key == curses.KEY_LEFT and is_valid_position(current_piece, current_piece_x - 1, current_piece_y):
-        current_piece_x -= 1
+    PIECE_COLOURS = frozendict({
+        PieceShape.ZShape: PieceColor.Red,
+        PieceShape.SShape: PieceColor.Green,
+        PieceShape.LineShape: PieceColor.Blue,
+        PieceShape.TShape: PieceColor.Yellow,
+        PieceShape.SquareShape: PieceColor.Magenta,
+        PieceShape.LShape: PieceColor.Cyan,
+        PieceShape.MirroredLShape: PieceColor.Orange
+    })
 
-    if key == curses.KEY_RIGHT and is_valid_position(current_piece, current_piece_x + 1, current_piece_y):
-        current_piece_x += 1
+    def __init__(self, shape: PieceShape) -> None:
+        """Create a new tetris piece."""
+        self.__shape: PieceShape = shape
+        self.__colour: PieceColor = self.PIECE_COLOURS[shape]
+        self.__rotation: Rotation = Rotation.Up
+        self.__relative_position: tuple[tuple[int, int], ...] = \
+            self.PIECE_RELATIVE_POSITIONS[shape][self.__rotation]
 
-    if key == curses.KEY_DOWN and is_valid_position(current_piece, current_piece_x, current_piece_y + 1):
-        current_piece_y += 1
+    @property
+    def shape(self) -> str:
+        """Get the shape of the piece."""
+        return self.__shape
 
-    if key == ord(' '):
-        rotated_piece = rotate_piece(current_piece)
-        if is_valid_position(rotated_piece, current_piece_x, current_piece_y):
-            current_piece = rotated_piece
+    @property
+    def colour(self) -> str:
+        """Get the colour of the piece."""
+        return self.__colour
 
-    # Move the current piece down
-    if is_valid_position(current_piece, current_piece_x, current_piece_y + 1):
-        current_piece_y += 1
-    else:
-        place_piece()
+    @property
+    def rotation(self) -> int:
+        """Get the rotation of the piece."""
+        return self.__rotation
 
-    # Draw the game board
-    draw_board()
+    def rotate(self) -> None:
+        """Rotate the piece."""
+        self.__rotation = (self.__rotation + 1) % 4
 
-# Clean up and exit
-curses.endwin()
+    def __str__(self) -> str:
+        """Get a string representation of the piece."""
+        return f"{self.__shape} {self.__colour} {self.__rotation}"

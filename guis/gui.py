@@ -58,8 +58,8 @@ class JinxWidgetSize(NamedTuple):
 class JinxGridShape(NamedTuple):
     """Tuple representing the shape of a Jinx grid."""
 
-    rows: int
     columns: int
+    rows: int
 
 
 class JinxWidgetPadding(NamedTuple):
@@ -103,17 +103,15 @@ def scale_size_for_grid(
     ----------
     `size: tuple[int, int]` - The size in pixels to be scaled.
 
-    `grid_shape: tuple[int, int]` - The shape of the grid, i.e. the number
-    of rows and columns.
+    `grid_shape: tuple[int, int]` - The shape of the grid; columns, rows.
 
-    `widget_shape: tuple[int, int]` - The shape of the widget, i.e. the
-    number of rows and columns it occupies.
+    `widget_shape: tuple[int, int]` - The shape of the widget; columns, rows.
 
     `padding: tuple[int, int] = (10, 10)` - The padding in pixels between
-    grid cells. The order is horizontal, vertical.
+    grid cells; horizontal, vertical.
 
     `margins: tuple[int, int, int, int] = (10, 10, 10, 10)` - The margins
-    in pixels around the grid. The order is left, top, right, bottom.
+    in pixels around the grid; left, top, right, bottom.
 
     Returns
     -------
@@ -191,9 +189,9 @@ class GridScaler:
         """Get the margins in pixels around the grid."""
         return self.__margins
 
-    def scale(self, widget_shape: tuple[int, int]) -> JinxWidgetSize:
+    def get_size(self, widget_shape: tuple[int, int]) -> JinxWidgetSize:
         """
-        Scale a size to find the size of a grid cell.
+        Get the size of a widget of the given shape in the grid.
 
         Parameters
         ----------

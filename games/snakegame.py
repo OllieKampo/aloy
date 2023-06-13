@@ -118,7 +118,8 @@ class SnakeGameLogic:
         `cells_grid_size: tuple[int, int]` - The size of the grid in cells.
         This is the number of cells in the x and y directions.
 
-        `manual_update: bool = False` - TODO
+        `manual_update: bool = False` - Whether the game is in manual update
+        mode. In this mode
         """
         if not isinstance(cells_grid_size, tuple):
             raise TypeError("The grid size must be a tuple. "
