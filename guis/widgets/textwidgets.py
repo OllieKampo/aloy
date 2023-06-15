@@ -1,3 +1,17 @@
+# Copyright (C) 2023 Oliver Michael Kamperis
+# Email: o.m.kamperis@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 """Module defining widgets for displaying text."""
 
 from abc import abstractmethod
@@ -79,6 +93,7 @@ class ScrollTextListPanel(ScrollTextPanel):
         *text: str,
         parent: QtWidgets.QWidget | None = None
     ) -> None:
+        """Create a new text list panel with the given text lines."""
         super().__init__(parent)
         self.__text: list[str] = list(text)
 
@@ -122,9 +137,7 @@ class ScrollTextListPanel(ScrollTextPanel):
 
 
 class TabbedScrollTextListPanel(QtWidgets.QWidget):
-    """
-    A panel with a tabbed interface for displaying text.
-    """
+    """A panel with a tabbed interface for displaying text."""
 
     def __init__(self, *tab_names: str, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
@@ -140,6 +153,24 @@ class TabbedScrollTextListPanel(QtWidgets.QWidget):
         self.__layout.addWidget(self.__tab_widget)
 
         self.setLayout(self.__layout)
+
+    @property
+    def current_tab_name(self) -> str:
+        """
+        Get the currently selected tab name.
+
+        :return: The currently selected tab name.
+        """
+        return list(self.__tabs.keys())[self.__tab_widget.currentIndex()]
+
+    @property
+    def current_tab(self) -> ScrollTextListPanel:
+        """
+        Get the currently selected tab.
+
+        :return: The currently selected tab.
+        """
+        return self.__tabs[self.current_tab_name]
 
     def tabs(self) -> list[str]:
         """
@@ -165,7 +196,7 @@ class TabbedScrollTextListPanel(QtWidgets.QWidget):
         :param tab_name: The name of the tab to add.
         """
         self.__tabs[tab_name] = ScrollTextListPanel(
-            text,
+            *text,
             parent=self.__tab_widget
         )
         self.__tab_widget.addTab(self.__tabs[tab_name], tab_name)
@@ -176,31 +207,80 @@ class TabbedScrollTextListPanel(QtWidgets.QWidget):
 
         :param tab_name: The name of the tab to remove.
         """
-        self.__tab_widget.removeTab(self.__tab_widget.indexOf(self.__tabs[tab_name]))
+        self.__tab_widget.removeTab(
+            self.__tab_widget.indexOf(
+                self.__tabs[tab_name]
+            )
+        )
         del self.__tabs[tab_name]
+
+
+class ConsolePanel(QtWidgets.QWidget):
+    """A panel with a tabbed interface for displaying text."""
+
+    return_pressed = QtCore.Signal(str)
+
+    def __init__(
+        self,
+        *tab_names: str,
+        parent: QtWidgets.QWidget | None = None
+    ) -> None:
+        super().__init__(parent)
+
+        self.__layout = QtWidgets.QVBoxLayout(self)
+        self.__layout.setContentsMargins(0, 0, 0, 0)
+        self.__layout.setSpacing(0)
+
+        self.__tabbed_panel = TabbedScrollTextListPanel(
+            *tab_names,
+            parent=self
+        )
+
+        self.__input_layout = QtWidgets.QHBoxLayout()
+        self.__return_button = QtWidgets.QPushButton("Return", self)
+        self.__return_button.clicked.connect(self.__on_return)
+        self.__input_panel = QtWidgets.QLineEdit(self)
+        self.__input_panel.returnPressed.connect(self.__on_return)
+        self.__input_layout.addWidget(self.__return_button)
+        self.__input_layout.addWidget(self.__input_panel)
+
+        self.__layout.addWidget(self.__tabbed_panel)
+        self.__layout.addLayout(self.__input_layout)
+
+        self.setLayout(self.__layout)
+
+    def __on_return(self) -> None:
+        if self.__input_panel.text():
+            self.return_pressed.emit(self.__input_panel.text())
+            self.__tabbed_panel.current_tab.add_line(self.__input_panel.text())
+            self.__input_panel.clear()
 
 
 if __name__ == "__main__":
     import sys
     app = QtWidgets.QApplication(sys.argv)
-    window_1 = QtWidgets.QMainWindow()
-    window_2 = QtWidgets.QMainWindow()
-    window_3 = QtWidgets.QMainWindow()
-    list_panel = ScrollTextListPanel(parent=window_1)
-    edit_panel = ScrollTextEditPanel(parent=window_2)
-    tabbed_panel = TabbedScrollTextListPanel("Tab 1", "Tab 2", parent=window_1)
-    window_1.setCentralWidget(list_panel)
-    window_1.show()
-    window_2.setCentralWidget(edit_panel)
-    window_2.show()
-    window_3.setCentralWidget(tabbed_panel)
-    window_3.show()
-    def add_line():
-        list_panel.add_line("Hello" + str(list(range(100))))
-        edit_panel.add_line("Hello" + str(list(range(100))))
-        tabbed_panel.get_tab("Tab 1").add_line("Hello" + str(list(range(100, 200))))
-        tabbed_panel.get_tab("Tab 2").add_line("Hello" + str(list(range(200, 300))))
-    timer = QtCore.QTimer()
-    timer.timeout.connect(add_line)
-    timer.start(1000)
-    sys.exit(app.exec_())
+    # window_1 = QtWidgets.QMainWindow()
+    # window_2 = QtWidgets.QMainWindow()
+    # window_3 = QtWidgets.QMainWindow()
+    # list_panel = ScrollTextListPanel(parent=window_1)
+    # edit_panel = ScrollTextEditPanel(parent=window_2)
+    # tabbed_panel = TabbedScrollTextListPanel("Tab 1", "Tab 2", parent=window_1)
+    # window_1.setCentralWidget(list_panel)
+    # window_1.show()
+    # window_2.setCentralWidget(edit_panel)
+    # window_2.show()
+    # window_3.setCentralWidget(tabbed_panel)
+    # window_3.show()
+    # def add_line():
+    #     list_panel.add_line("Hello" + str(list(range(100))))
+    #     edit_panel.add_line("Hello" + str(list(range(100))))
+    #     tabbed_panel.get_tab("Tab 1").add_line("Hello" + str(list(range(100, 200))))
+    #     tabbed_panel.get_tab("Tab 2").add_line("Hello" + str(list(range(200, 300))))
+    # timer = QtCore.QTimer()
+    # timer.timeout.connect(add_line)
+    # timer.start(1000)
+    window = QtWidgets.QMainWindow()
+    console_panel = ConsolePanel("Tab 1", "Tab 2", parent=window)
+    window.setCentralWidget(console_panel)
+    window.show()
+    sys.exit(app.exec())
