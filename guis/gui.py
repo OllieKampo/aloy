@@ -1,32 +1,22 @@
-"""
-Module defining Jinx GUI classes for working with PyQt6.
+# Copyright (C) 2023 Oliver Michael Kamperis
+# Email: o.m.kamperis@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-For reference on PyQt6, see:
-https://doc.qt.io/qt-6/qt-intro.html
-https://doc.qt.io/qt-6/qtwidgets-index.html
-https://doc.qt.io/qt-6/widget-classes.html#the-widget-classes
-https://doc.qt.io/qt-6/qtexamplesandtutorials.html
-https://stackoverflow.com/questions/46361675/pyqt-enforcing-sizehint-dimensions-on-two-widget-app-with-layout-manager
-
-Copyright (C) 2023 Oliver Michael Kamperis.
-
-This program is free software: you can redistribute it and/or modify it under
-the terms of the GNU General Public License as published by the Free Software
-Foundation, either version 3 of the License, or any later version.
-
-This program is distributed in the hope that it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-"""
+"""Module defining Jinx GUI classes for working with PySide6."""
 
 from abc import abstractmethod
-from typing import Any, ClassVar, Literal, NamedTuple, Union
-from PySide6 import QtWidgets
-from PySide6 import QtCore
-from PySide6 import QtGui
+from typing import Any, ClassVar, Literal, NamedTuple, Union, final
+from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtCore import QTimer  # pylint: disable=E0611
 from concurrency.clocks import ClockThread
 from concurrency.synchronization import atomic_update
@@ -37,6 +27,13 @@ __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
 
 __all__ = (
+    "JinxWidgetSize",
+    "JinxGridShape",
+    "JinxWidgetPadding",
+    "JinxWidgetMargins",
+    "scale_size",
+    "scale_size_for_grid",
+    "GridScaler",
     "JinxGuiData",
     "JinxObserverWidget",
     "JinxGuiWindow"
@@ -129,6 +126,7 @@ def scale_size_for_grid(
     return scale_size(size, scale)
 
 
+@final
 class GridScaler:
     """A class for scaling widgets in a grid."""
 
@@ -212,7 +210,7 @@ class GridScaler:
 
 
 class JinxGuiData(observable.Observable):
-    """A class defining a gui data object."""
+    """A class defining a Jinx GUI data object."""
 
     __slots__ = {
         "__weakref__": "Weak reference to the object.",
@@ -324,7 +322,7 @@ class JinxGuiData(observable.Observable):
 
 
 class JinxObserverWidget(observable.Observer):
-    """A class defining an observer widget."""
+    """A class defining Jinx observer widgets."""
 
     __slots__ = {
         "__weakref__": "Weak reference to the object.",
@@ -407,7 +405,7 @@ class JinxObserverWidget(observable.Observer):
 
 class JinxGuiWindow(observable.Observer):
     """
-    A class defining a PyQt6 window used by Jinx.
+    A class defining a PySide6 window used by Jinx.
 
     A Jinx window is a window that can contain multiple views. The views
     can optionally be selected using a combo box or a tab bar, or a custom
@@ -474,8 +472,9 @@ class JinxGuiWindow(observable.Observer):
         pixels (width, height). If not given or None, the size of the window
         is not set.
 
-        `tabbed: bool = True` - Whether the views are tabbed or to use a
-        combo box drop-down menu to select the views.
+        `kind: Literal["tabbed", "combo"] | None = "tabbed"` - Whether the
+        view selecter is a tab bar or a combo box. If None, then no view
+        selecter is used.
 
         `set_title: bool = True` - Whether to set the title of the window
         to the given name.
@@ -500,6 +499,7 @@ class JinxGuiWindow(observable.Observer):
             self.__qwindow = QtWidgets.QMainWindow()
         else:
             self.__qwindow = qwindow
+        qwindow = self.__qwindow
 
         if set_title:
             self.__qwindow.setWindowTitle(self.window_name)
@@ -554,10 +554,12 @@ class JinxGuiWindow(observable.Observer):
             QtWidgets.QSizePolicy.Policy.Expanding,
             QtWidgets.QSizePolicy.Policy.Expanding
         )
-        self.__default_qwidget.sizeHint = \
-            self.__default_size_hint  # type: ignore
-        self.__default_qwidget.paintEvent = \
-            self.__default_paint_event  # type: ignore
+        self.__default_qwidget.sizeHint = (     # type: ignore
+            self.__default_size_hint
+        )
+        self.__default_qwidget.paintEvent = (   # type: ignore
+            self.__default_paint_event
+        )
         self.__stack.addWidget(self.__default_qwidget)
         self.__stack.setCurrentWidget(self.__default_qwidget)
 
@@ -580,7 +582,7 @@ class JinxGuiWindow(observable.Observer):
 
     def __default_paint_event(
         self,
-        event: QtGui.QPaintEvent
+        arg__1: QtGui.QPaintEvent
     ) -> None:
         """Paint the default widget."""
         painter = QtGui.QPainter(self.__default_qwidget)
@@ -659,8 +661,6 @@ class JinxGuiWindow(observable.Observer):
             self.__tab_bar.addTab(name)
         elif self.__kind == "combo":
             self.__combo_box.addItem(name)
-        else:
-            self.view_added.emit(name)
 
         if self.__current_view_state is None:
             self.__data.desired_view_state = name
@@ -680,8 +680,6 @@ class JinxGuiWindow(observable.Observer):
                     break
         elif self.__kind == "combo":
             self.__combo_box.removeItem(self.__combo_box.findText(name))
-        else:
-            self.view_removed.emit(name)
 
         if self.__current_view_state == name:
             if self.__views:
@@ -695,8 +693,6 @@ class JinxGuiWindow(observable.Observer):
             return
         desired_view_state: str | None = self.__data.desired_view_state
         if self.__current_view_state != desired_view_state:
-            if self.__kind is None:
-                self.view_changed.emit(desired_view_state)
             if self.__current_view_state is not None:
                 jwidget = self.__views[self.__current_view_state]
                 self.__data.remove_observers(jwidget)
