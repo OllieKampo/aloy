@@ -273,27 +273,45 @@ class EstopInterface(JinxObserverWidget):
         """Handle the released button being clicked."""
         self.__has_estop_control = not self.__has_estop_control
         if self.__has_estop_control:
-            # self.__data.command_handler.acquire_estop_control()
+            # self.data.command_handler.acquire_estop_control()
             self.__estop_control_text.setText("You have E-Stop Control")
             self.__release_button.setText("Release E-Stop")
         else:
-            # self.__data.command_handler.release_estop_control()
+            # self.data.command_handler.release_estop_control()
             self.__estop_control_text.setText("You don't have E-Stop Control")
             self.__release_button.setText("Acquire E-Stop Control")
 
     def __on_off_button_clicked(self, button: QtWidgets.QRadioButton) -> None:
         """Handle the on/off button being clicked."""
         if button.text() == "On":
+            self.__waiting_for_power_on = True
+            # self.data.command_handler.power_on()
+        else:
+            self.__waiting_for_power_off = True
+            # self.data.command_handler.power_off()
+
+    def __confirm_power_on(self, observable_: JinxGuiData) -> None:
+        """Confirm that the power is on."""
+        if observable_.is_power_on:
+            self.__waiting_for_power_on = False
+            self.__power_on = True
             self.__start_time = QtCore.QTime.currentTime()
             self.__update_clock()
             self.__timer.start()
-            self.__power_on = True
-        else:
-            self.__timer.stop()
+
+    def __confirm_power_off(self, observable_: JinxGuiData) -> None:
+        """Confirm that the power is off."""
+        if not observable_.is_power_on:
+            self.__waiting_for_power_off = False
             self.__power_on = False
+            self.__timer.stop()
 
     def update_observer(self, observable_: JinxGuiData) -> None:
-        pass
+        """Update the observer."""
+        # if self.__waiting_for_power_on:
+        #     self.__confirm_power_on(observable_)
+        # if self.__waiting_for_power_off:
+        #     self.__confirm_power_off(observable_)
 
 
 class DirectionalControlInterface(JinxObserverWidget):
@@ -449,30 +467,27 @@ class DirectionalControlInterface(JinxObserverWidget):
         print(f"Speed set to: {value!s}")
 
 
-if __name__ == "__main__":
+def __main() -> None:
     qapp = QtWidgets.QApplication([])
     qwindow = QtWidgets.QMainWindow()
     qwindow.setWindowTitle("Control Interface")
     qwindow.resize(425, 500)
 
-    estop_qwidget = QtWidgets.QWidget()
     estop_jwidget = EstopInterface(
-        estop_qwidget,
+        QtWidgets.QWidget(),
         "E-Stop Interface",
         (425, 233)
     )
-
-    control_qwidget = QtWidgets.QWidget()
     control_jwidget = DirectionalControlInterface(
-        control_qwidget,
+        QtWidgets.QWidget(),
         "Control Interface",
         (425, 266)
     )
 
     combined_qwidget = QtWidgets.QWidget()
     combined_layout = QtWidgets.QVBoxLayout()
-    combined_layout.addWidget(estop_qwidget)
-    combined_layout.addWidget(control_qwidget)
+    combined_layout.addWidget(estop_jwidget.qwidget)
+    combined_layout.addWidget(control_jwidget.qwidget)
     combined_layout.setSpacing(0)
     combined_qwidget.setLayout(combined_layout)
 
@@ -480,3 +495,8 @@ if __name__ == "__main__":
 
     qwindow.show()
     qapp.exec()
+
+
+
+if __name__ == "__main__":
+    __main()
