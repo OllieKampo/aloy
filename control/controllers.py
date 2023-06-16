@@ -2108,7 +2108,7 @@ class AutoSystemController:
 
         For example:
         ```
-        with controller.start(tick_rate, time_factor, reset):
+        with controller.context_run(tick_rate, time_factor):
             # Do stuff concurrently...
         ```
         Is equivalent to:
@@ -2117,7 +2117,7 @@ class AutoSystemController:
             controller.run_forever(tick_rate, time_factor)
             # Do stuff concurrently...
         finally:
-            controller.stop(reset)
+            controller.stop()
         ```
 
         Parameters
@@ -2130,13 +2130,8 @@ class AutoSystemController:
         time differences. The tick rate is multiplied by this value to get the
         tick rate relative to the time factor.
 
-        `data_callback:
-            (int,
-             float | dict[str, float],
-             float | dict[str, float],
-             float,
-             float
-            ) -> None = None` - A callable to callback control data to.
+        `data_callback: (int, float | dict[str, float], float | dict[str, float],
+        float, float) -> None = None` - A callable to callback control data to.
         The function parameters are:
         `(iteration, error(s), output(s), delta time, total time)`.
         For multivariate controllers, the errors and outputs are dictionaries
@@ -2181,13 +2176,8 @@ class AutoSystemController:
         time differences. The tick rate is multiplied by this value to get the
         tick rate relative to the time factor.
 
-        `data_callback:
-            (int,
-             float | dict[str, float],
-             float | dict[str, float],
-             float,
-             float
-            ) -> None = None` - A callable to callback control data to.
+        `data_callback: (int, float | dict[str, float], float | dict[str, float],
+        float, float) -> None = None` - A callable to callback control data to.
         The function parameters are:
         `(iteration, error(s), output(s), delta time, total time)`.
         For multivariate controllers, the errors and outputs are dictionaries
@@ -2236,13 +2226,8 @@ class AutoSystemController:
         time differences. The tick rate is multiplied by this value to get the
         tick rate relative to the time factor.
 
-        `data_callback:
-            (int,
-             float | dict[str, float],
-             float | dict[str, float],
-             float,
-             float
-            ) -> None = None` - A callable to callback control data to.
+        `data_callback: (int, float | dict[str, float], float | dict[str, float],
+        float, float) -> None = None` - A callable to callback control data to.
         The function parameters are:
         `(iteration, error(s), output(s), delta time, total time)`.
         For multivariate controllers, the errors and outputs are dictionaries
@@ -2305,14 +2290,9 @@ class AutoSystemController:
 
         Parameters
         ----------
-        `condition:
-            (int,
-             float | dict[str, float],
-             float | dict[str, float],
-             float,
-             float
-            ) -> bool` - The condition to test. The controller will stop when
-        the condition returns `False`. The function parameters are:
+        `condition: (int, float | dict[str, float], float | dict[str, float],
+        float, float) -> bool` - The condition to test. The controller will stop
+        when the condition returns `False`. The function parameters are:
         `(iterations, error(s), output(s), delta time, total time) -> bool`.
         For multivariate controllers, the errors and outputs are dictionaries
         whose keys are input and output variable names respectively and whose
@@ -2326,13 +2306,8 @@ class AutoSystemController:
         time differences. The tick rate is multiplied by this value to get the
         tick rate relative to the time factor.
 
-        `data_callback:
-            (int,
-             float | dict[str, float],
-             float | dict[str, float],
-             float,
-             float
-            ) -> None = None` - A callable to callback control data to.
+        `data_callback: (int, float | dict[str, float], float | dict[str, float],
+        float, float) -> None = None` - A callable to callback control data to.
         The function parameters are:
         `(iteration, error(s), output(s), delta time, total time)`.
         For multivariate controllers, the errors and outputs are dictionaries
