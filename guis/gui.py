@@ -15,7 +15,7 @@
 """Module defining Jinx GUI classes for working with PySide6."""
 
 from abc import abstractmethod
-from typing import Any, ClassVar, Literal, NamedTuple, Union, final
+from typing import Any, ClassVar, Literal, NamedTuple, Sequence, Union, final
 from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtCore import QTimer  # pylint: disable=E0611
 from concurrency.clocks import ClockThread
@@ -29,7 +29,7 @@ __license__ = "GPL-3.0"
 __all__ = (
     "JinxWidgetSize",
     "JinxGridShape",
-    "JinxWidgetPadding",
+    "JinxWidgetSpacing",
     "JinxWidgetMargins",
     "scale_size",
     "scale_size_for_grid",
@@ -59,8 +59,8 @@ class JinxGridShape(NamedTuple):
     rows: int
 
 
-class JinxWidgetPadding(NamedTuple):
-    """Tuple representing the padding of a Jinx widget."""
+class JinxWidgetSpacing(NamedTuple):
+    """Tuple representing the spacing of a Jinx widget."""
 
     horizontal: int
     vertical: int
@@ -90,7 +90,7 @@ def scale_size_for_grid(
     size: tuple[int, int],
     grid_shape: tuple[int, int],
     widget_shape: tuple[int, int] = (1, 1),
-    padding: tuple[int, int] = (10, 10),
+    spacing: tuple[int, int] = (10, 10),
     margins: tuple[int, int, int, int] = (10, 10, 10, 10)
 ) -> JinxWidgetSize:
     """
@@ -104,7 +104,7 @@ def scale_size_for_grid(
 
     `widget_shape: tuple[int, int]` - The shape of the widget; columns, rows.
 
-    `padding: tuple[int, int] = (10, 10)` - The padding in pixels between
+    `spacing: tuple[int, int] = (10, 10)` - The spacing in pixels between
     grid cells; horizontal, vertical.
 
     `margins: tuple[int, int, int, int] = (10, 10, 10, 10)` - The margins
@@ -113,14 +113,19 @@ def scale_size_for_grid(
     Returns
     -------
     `tuple[int, int]` - The scaled size in pixels of a grid cell.
+
+    Notes
+    -----
+    For help of layouts see: https://doc.qt.io/qt-6/layout.html
+    For help on size policies see: https://doc.qt.io/qt-6/qsizepolicy.html
     """
     scale = (widget_shape[0] / grid_shape[0], widget_shape[1] / grid_shape[1])
     size = (
         size[0]
-        - (padding[0] * (grid_shape[0] - widget_shape[0]))
+        - (spacing[0] * (grid_shape[0] - widget_shape[0]))
         - (margins[0] + margins[2]),
         size[1]
-        - (padding[1] * (grid_shape[1] - widget_shape[1]))
+        - (spacing[1] * (grid_shape[1] - widget_shape[1]))
         - (margins[1] + margins[3])
     )
     return scale_size(size, scale)
@@ -133,7 +138,7 @@ class GridScaler:
     __slots__ = {
         "__size": "The size of the grid in pixels.",
         "__grid_shape": "The shape of the grid (rows, columns).",
-        "__padding": "The padding in pixels between grid cells "
+        "__spacing": "The spacing in pixels between grid cells "
                      "(horizontal, vertical).",
         "__margins": "The margins in pixels around the grid "
                      "(left, top, right, bottom)."
@@ -143,7 +148,7 @@ class GridScaler:
         self,
         size: tuple[int, int],
         grid_shape: tuple[int, int],
-        padding: tuple[int, int] = (10, 10),
+        spacing: tuple[int, int] = (10, 10),
         margins: tuple[int, int, int, int] = (10, 10, 10, 10)
     ) -> None:
         """
@@ -156,7 +161,7 @@ class GridScaler:
         `grid_shape: tuple[int, int]` - The shape of the grid, i.e. the number
         of rows and columns.
 
-        `padding: tuple[int, int] = (10, 10)` - The padding in pixels between
+        `spacing: tuple[int, int] = (10, 10)` - The spacing in pixels between
         grid cells. The order is horizontal, vertical.
 
         `margins: tuple[int, int, int, int] = (10, 10, 10, 10)` - The margins
@@ -164,7 +169,7 @@ class GridScaler:
         """
         self.__size = JinxWidgetSize(*size)
         self.__grid_shape = JinxGridShape(*grid_shape)
-        self.__padding = JinxWidgetPadding(*padding)
+        self.__spacing = JinxWidgetSpacing(*spacing)
         self.__margins = JinxWidgetMargins(*margins)
 
     @property
@@ -178,9 +183,9 @@ class GridScaler:
         return self.__grid_shape
 
     @property
-    def padding(self) -> JinxWidgetPadding:
-        """Get the padding in pixels between grid cells."""
-        return self.__padding
+    def spacing(self) -> JinxWidgetSpacing:
+        """Get the spacing in pixels between grid cells."""
+        return self.__spacing
 
     @property
     def margins(self) -> JinxWidgetMargins:
@@ -204,9 +209,63 @@ class GridScaler:
             self.__size,
             self.__grid_shape,
             widget_shape,
-            self.__padding,
+            self.__spacing,
             self.__margins
         )
+
+
+def combine_jinx_widgets(
+    jwidgets: Sequence["JinxObserverWidget"],
+    stretches: Sequence[int],
+    alignment: QtCore.Qt.AlignmentFlag,
+    kind: Literal["horizontal", "vertical"],
+    spacing: int = 0,
+    parent: QtWidgets.QWidget | QtWidgets.QMainWindow | None = None
+) -> QtWidgets.QWidget | QtWidgets.QMainWindow:
+    """
+    Combine a sequence of Jinx widgets onto a single widget.
+
+    Parameters
+    ----------
+    `jwidgets: Sequence[JinxObserverWidget]` - The Jinx widgets to combine.
+
+    `stretches: Sequence[int]` - The stretch factors for each widget.
+
+    `alignment: QtCore.Qt.AlignmentFlag` - The alignment of the widgets.
+
+    `kind: Literal["horizontal", "vertical"]` - The kind of layout to use.
+
+    `spacing: int = 0` - The spacing between widgets in pixels.
+
+    `parent: QtWidgets.QWidget | QtWidgets.QMainWindow | None = None` - The
+    parent widget to use. If None, a new widget will be created.
+
+    Returns
+    -------
+    `QtWidgets.QWidget | QtWidgets.QMainWindow` - The parent widget.
+    """
+    layout: QtWidgets.QLayout
+    if kind == "horizontal":
+        layout = QtWidgets.QHBoxLayout()
+    elif kind == "vertical":
+        layout = QtWidgets.QVBoxLayout()
+    else:
+        raise ValueError(f"Unknown kind: {kind!s}")
+    layout.setSpacing(spacing)
+
+    for jwidget, stretch in zip(jwidgets, stretches):
+        layout.addWidget(jwidget.qwidget, stretch=stretch, alignment=alignment)
+
+    if isinstance(parent, QtWidgets.QMainWindow):
+        combined_qwidget = QtWidgets.QWidget()
+        combined_qwidget.setLayout(layout)
+        parent.setCentralWidget(combined_qwidget)
+    else:
+        if parent is None:
+            parent = QtWidgets.QWidget()
+        parent.setLayout(layout)
+
+    return parent
 
 
 class JinxGuiData(observable.Observable):
@@ -249,6 +308,10 @@ class JinxGuiData(observable.Observable):
         See `jinx.guis.observable.Observable` for details.
 
         `debug: bool = False`  - Whether to log debug messages.
+
+        Notes
+        -----
+        For help on windows see: https://doc.qt.io/qt-6/mainwindow.html
         """
         super().__init__(name, clock, debug=debug)
         self.__connected_gui: JinxGuiWindow | None = None
@@ -327,16 +390,28 @@ class JinxObserverWidget(observable.Observer):
     __slots__ = {
         "__weakref__": "Weak reference to the object.",
         "__qwidget": "The encapsulated widget.",
+        "__data": "The gui data object.",
         "__size": "The size of the widget."
     }
 
     def __init__(
         self,
-        qwidget: QtWidgets.QWidget, /,
+        qwidget: QtWidgets.QWidget | None = None,
+        data: JinxGuiData | None = None,
         name: str | None = None,
-        size: tuple[int, int] | None = None, *,
+        size: tuple[int, int] | None = None,
         resize: bool = True,
-        set_size: Literal["fix", "base", "min", "max"] | None = None,
+        set_size: Literal[
+            "fix",
+            "min",
+            "max",
+            "hint",
+            "hint-min"
+        ] | None = None,
+        size_policy: tuple[
+            QtWidgets.QSizePolicy.Policy,
+            QtWidgets.QSizePolicy.Policy
+        ] | None = None,
         debug: bool = False
     ) -> None:
         """
@@ -344,7 +419,14 @@ class JinxObserverWidget(observable.Observer):
 
         Parameters
         ----------
-        `qwidget: QtWidgets.QWidget` - The parent widget.
+        `qwidget: QtWidgets.QWidget | None = None` - The parent widget to
+        be wrapped. If None, a new widget will be created.
+
+        `data: JinxGuiData | None = None` - The gui data object to be
+        attached to the widget. If None, no gui data object will be
+        attached. Gui data objects can be attached later using the
+        `attach_data()` method. Gui data is automatically attached to
+        the widget when the widget is added to a Jinx gui window.
 
         `name: str | None = None` - The name of the object. If None, the
         class name and id of the object are used.
@@ -355,37 +437,57 @@ class JinxObserverWidget(observable.Observer):
         `resize: bool = True` - Whether to resize the parent widget to the
         given size, or just simply store the size.
 
-        `set_size: Literal["fix", "base", "min", "max"] | None = None` -
-        Whether to set the size of the widget to the given size. If 'fix'
-        then the size is fixed, if 'base' then the base size is set, if
-        'min' then the minimum size is set, if 'max' then the maximum size
-        is set. If None, the size of the widget is not set.
+        `set_size: "fix" | "min" | "max" | "hint" | "hint-min" | None = None`
+        - Whether to set the size of the widget to the given size.
+
+        `size_policy: tuple[QtWidgets.QSizePolicy.Policy,
+        QtWidgets.QSizePolicy.Policy] | None = None` - The size horizontal
+        and vertical size policies of the widget. If None, the size policies
+        are not set.
 
         `debug: bool = False` - Whether to log debug messages.
         """
         super().__init__(name, debug=debug)
+
+        if qwidget is None:
+            qwidget = QtWidgets.QWidget()
         self.__qwidget: QtWidgets.QWidget = qwidget
+
+        self.__data: JinxGuiData | None = data
+
         self.__size: JinxWidgetSize | None = None
         if size is not None:
             self.__size = JinxWidgetSize(*size)
             if resize:
-                self.__qwidget.resize(*size)
+                qwidget.resize(*size)
             if set_size is not None:
                 if set_size == "fix":
-                    self.__qwidget.setFixedSize(*size)
-                elif set_size == "base":
-                    self.__qwidget.setBaseSize(*size)
+                    qwidget.setFixedSize(*size)
                 elif set_size == "min":
-                    self.__qwidget.setMinimumSize(*size)
+                    qwidget.setMinimumSize(*size)
                 elif set_size == "max":
-                    self.__qwidget.setMaximumSize(*size)
+                    qwidget.setMaximumSize(*size)
+                elif "hint" in set_size:
+                    def get_size() -> QtCore.QSize:
+                        return QtCore.QSize(*size)
+                    if set_size == "hint":
+                        qwidget.sizeHint = get_size  # type: ignore
+                    elif set_size == "hint-min":
+                        qwidget.minimumSizeHint = get_size  # type: ignore
                 else:
                     raise ValueError(
                         f"Invalid set_size value: {set_size}."
-                        f"Choose from: fix, base, min, max."
+                        f"Choose from: fix, min, max, hint, hint-min"
                     )
+
+        if size_policy is not None:
+            qwidget.setSizePolicy(
+                size_policy[0],
+                size_policy[1]
+            )
+
         if name is not None:
-            self.__qwidget.setObjectName(name)
+            qwidget.setObjectName(name)
 
     @property
     def qwidget(self) -> QtWidgets.QWidget:
@@ -393,9 +495,27 @@ class JinxObserverWidget(observable.Observer):
         return self.__qwidget
 
     @property
+    def data(self) -> JinxGuiData | None:
+        """Get the data object."""
+        return self.__data
+
+    @property
     def size(self) -> JinxWidgetSize | None:
         """Get the size of the widget."""
         return self.__size
+
+    def attach_data(self, data: JinxGuiData) -> None:
+        """Attach the given data object to the widget."""
+        if self.__data is not None:
+            self.__data.remove_observers(self)
+        self.__data = data
+        self.__data.assign_observers(self)
+
+    def detach_data(self) -> None:
+        """Detach the data object from the widget."""
+        if self.__data is not None:
+            self.__data.remove_observers(self)
+            self.__data = None
 
     @abstractmethod
     def update_observer(self, observable_: JinxGuiData) -> None:
@@ -529,8 +649,8 @@ class JinxGuiWindow(observable.Observer):
         self.__data: JinxGuiData
         if data is None:
             self.__data = JinxGuiData(
-                f"Gui Data for {self.window_name}",
-                self,
+                name=f"Gui Data for {self.window_name}",
+                gui=self,
                 debug=debug
             )
         else:
@@ -540,6 +660,30 @@ class JinxGuiWindow(observable.Observer):
 
         self.__views: dict[str, JinxObserverWidget] = {}
         self.__current_view_state: str | None = None
+        self.__default_qwidget = QtWidgets.QLabel()
+        self.__setup_default_qwidget()
+        self.__stack.addWidget(self.__default_qwidget)
+        self.__stack.setCurrentWidget(self.__default_qwidget)
+
+        self.__data.notify_all()
+
+    def __default_size_hint(
+        self
+    ) -> QtCore.QSize:
+        """
+        Return the default size hint.
+
+        The size hint is a reasonable size for the widget,
+        no minimum size hint is provided, as the minimum size
+        is handled by the  text size in the default widget.
+        """
+        return QtCore.QSize(
+            int(self.__qwindow.width() * 0.9),
+            int(self.__qwindow.height() * 0.9)
+        )
+
+    def __setup_default_qwidget(self) -> None:
+        """Create the default widget."""
         self.__default_qwidget = QtWidgets.QLabel()
         self.__default_qwidget.setStyleSheet(
             "QLabel { background-color: black; }"
@@ -559,25 +703,6 @@ class JinxGuiWindow(observable.Observer):
         )
         self.__default_qwidget.paintEvent = (   # type: ignore
             self.__default_paint_event
-        )
-        self.__stack.addWidget(self.__default_qwidget)
-        self.__stack.setCurrentWidget(self.__default_qwidget)
-
-        self.__data.notify_all()
-
-    def __default_size_hint(
-        self
-    ) -> QtCore.QSize:
-        """
-        Return the default size hint.
-
-        The size hint is a reasonable size for the widget,
-        no minimum size hint is provided, as the minimum size
-        is handled by the  text size in the default widget.
-        """
-        return QtCore.QSize(
-            int(self.__qwindow.width() * 0.9),
-            int(self.__qwindow.height() * 0.9)
         )
 
     def __default_paint_event(
@@ -651,12 +776,24 @@ class JinxGuiWindow(observable.Observer):
         """Handle a change in the tab bar."""
         self.__data.desired_view_state = self.__tab_bar.tabText(index)
 
-    def add_view(self, name: str, widget: JinxObserverWidget) -> None:
-        """Add a new view state to the window."""
-        self.__views[name] = widget
+    def add_view(
+        self,
+        jwidget: JinxObserverWidget,
+        name: str | None = None
+    ) -> None:
+        """
+        Add a Jinx widget as a new view state to the window.
+
+        If the name is None, the name of the Jinx widget is used.
+        """
+        if name is None:
+            name = jwidget.observer_name
+
+        self.__views[name] = jwidget
+        jwidget.attach_data(self.__data)
         self.__data.update_view_states()
 
-        self.__stack.addWidget(widget.qwidget)
+        self.__stack.addWidget(jwidget.qwidget)
         if self.__kind == "tabbed":
             self.__tab_bar.addTab(name)
         elif self.__kind == "combo":
