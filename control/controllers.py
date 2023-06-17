@@ -2291,8 +2291,6 @@ class AutoSystemController:
             )
             self.__start()
 
-# Signature: (iterations, error(s), output(s), delta_time, total_time) -> bool
-
     def run_while(
         self,
         condition: Condition,
