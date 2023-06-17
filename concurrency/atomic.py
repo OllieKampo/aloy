@@ -605,7 +605,7 @@ class AtomicDict(_Atomic[dict[KT, VT]], collections.abc.MutableMapping):
 ET = TypeVar("ET", bound=Hashable)
 
 
-class AtomicSet(_Atomic, collections.abc.MutableSet, Generic[ET]):
+class AtomicSet(_Atomic[set[ET]], collections.abc.MutableSet):
     """
     A thread-safe set whose updates are atomic.
 
