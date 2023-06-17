@@ -144,13 +144,18 @@ __instance_atomic_updaters: weakref.WeakKeyDictionary[type, \
 __class_atomic_updaters: weakref.WeakKeyDictionary[type, dict[str, threading.RLock]] = weakref.WeakKeyDictionary()
 __arbitrary_atomic_updaters: dict[str, threading.RLock] = defaultdict(threading.RLock)
 
+
 @contextlib.contextmanager
-def atomic_context(context_name: str, /, cls: type | None = None, inst: object | None = None) -> None:
+def atomic_context(
+    context_name: str, /,
+    cls: type | None = None,
+    inst: object | None = None
+) -> None:
     """
     Context manager that ensures atomic updates in the context.
-    
-    Atomic updates ensure that only one thread can update the context at a time.
-    The same thread can enter the same context multiple times.
+
+    Atomic updates ensure that only one thread can update the context at a
+    time. The same thread can enter the same context multiple times.
 
     Parameters
     ----------
@@ -162,14 +167,21 @@ def atomic_context(context_name: str, /, cls: type | None = None, inst: object |
     If `cls` is not given or None and `inst` is not None,
     `cls` will be set to `inst.__class__`.
     """
-    global __instance_atomic_updaters, __class_atomic_updaters, __arbitrary_atomic_updaters
+    global __instance_atomic_updaters
+    global __class_atomic_updaters
+    global __arbitrary_atomic_updaters
+
     if inst is not None:
         if cls is None:
             cls = inst.__class__
-        lock_ = __instance_atomic_updaters.setdefault(cls, weakref.WeakKeyDictionary()) \
-            .setdefault(inst, {}).setdefault(context_name, threading.RLock())
+        lock_ = __instance_atomic_updaters.setdefault(
+            cls, weakref.WeakKeyDictionary()) \
+            .setdefault(inst, {}).setdefault(
+                context_name, threading.RLock())
     elif cls is not None:
-        lock_ = __class_atomic_updaters.setdefault(cls, {}).setdefault(context_name, threading.RLock())
+        lock_ = __class_atomic_updaters.setdefault(
+            cls, {}) \
+            .setdefault(context_name, threading.RLock())
     else:
         lock_ = __arbitrary_atomic_updaters[context_name]
     lock_.acquire()
@@ -351,61 +363,79 @@ def synchronize_method(
 ) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
     """Decorate a method to synchronize it in a synchronized class."""
 
-    def synchronize_method_decorator(method: typing.Callable[SP, ST]) -> typing.Callable[SP, ST]:
+    def synchronize_method_decorator(
+        method: typing.Callable[SP, ST]
+    ) -> typing.Callable[SP, ST]:
         """Return a synchronized method wrapper."""
         if lock == "all":
             @functools.wraps(method)
-            def synchronize_method_wrapper(self, *args: SP.args, **kwargs: SP.kwargs) -> ST:
+            def synchronize_method_wrapper(
+                self,
+                *args: SP.args,
+                **kwargs: SP.kwargs
+            ) -> ST:
                 """Return a synchronized method wrapper."""
-                ## Acquire the instance lock.
+                # Acquire the instance lock.
                 with self.__lock__:
-                    ## Wait for all method-locked threads to finish executing.
+                    # Wait for all method-locked threads to finish executing.
                     self.__event__.wait()
-                    ## Execute the method.
+                    # Execute the method.
                     return method(self, *args, **kwargs)
 
         elif lock == "method":
             @functools.wraps(method)
-            def synchronize_method_wrapper(self, *args: SP.args, **kwargs: SP.kwargs) -> ST:
+            def synchronize_method_wrapper(
+                self,
+                *args: SP.args,
+                **kwargs: SP.kwargs
+            ) -> ST:
                 """Return a synchronized method wrapper."""
                 # If no method-locked methods are executing;
                 if self.__event__.is_set():
-                    # If the current thread owns the instance lock, then execute the method.
+                    # If the current thread owns the instance lock, then
+                    # execute the method.
                     if self.__lock__.owner is threading.current_thread():
                         with self.__lock__:
                             return method(self, *args, **kwargs)
 
-                    # Otherwise, acquire the instance lock, to prevent any instance-locked
-                    # methods executing beyond this point until the method-locks are updated.
+                    # Otherwise, acquire the instance lock, to prevent any
+                    # instance-locked methods executing beyond this point
+                    # until the method-locks are updated.
                     self.__lock__.acquire()
 
                     # Attempt to acquire the method lock.
                     self.__method_locks__[method.__name__].acquire()
 
-                    # Update the state to reflect that a method-locked method is executing.
+                    # Update the state to reflect that a method-locked method
+                    # is executing.
                     self.__semaphore__.acquire()
                     self.__event__.clear()
 
-                    # Release the instance lock, no instance-locked methods can be executed.
+                    # Release the instance lock, no instance-locked methods
+                    # can be executed.
                     self.__lock__.release()
 
                 else:
                     self.__method_locks__[method.__name__].acquire()
-                    if self.__method_locks__[method.__name__].recursion_depth == 1:
+                    if (self.__method_locks__[method.__name__].recursion_depth
+                            == 1):
                         self.__semaphore__.acquire()
                         self.__event__.clear()
 
                 # Execute the method.
                 result = method(self, *args, **kwargs)
 
-                # Update the state to reflect that the method-locked method has finished executing before releasing the method lock.
+                # Update the state to reflect that the method-locked method
+                # has finished executing before releasing the method lock.
                 if self.__method_locks__[method.__name__].recursion_depth == 1:
                     self.__semaphore__.release()
-                if self.__semaphore__._value == self.__semaphore__._initial_value:
+                # pylint: disable=protected-access
+                if (self.__semaphore__._value
+                        == self.__semaphore__._initial_value):
                     self.__event__.set()
                 self.__method_locks__[method.__name__].release()
 
-                ## Return the method's result.
+                # Return the method's result.
                 return result
 
         else:
@@ -466,45 +496,80 @@ class SynchronizedMeta(type):
                 else:
                     class_dict[attr_name].__sync__ = False
                     class_dict[attr_name].__group__ = None
-        
+
         if lock_methods:
-            ## Obtain a graph of which methods load each other.
+            # Obtain a graph of which methods load each other.
             load_graph: Graph[str] = Graph(directed=True)
             for method_name, method in all_methods.items():
-                load_graph[method_name] = set(loads_functions(method, all_methods.keys()))
-            
-            ## Check that no instance-locked methods are loaded by method-locked methods.
+                load_graph[method_name] = set(
+                    loads_functions(
+                        method,
+                        all_methods.keys()
+                    )
+                )
+
+            # Check that no instance-locked methods are loaded by
+            # method-locked methods.
             for method_name in lock_methods:
-                if instance_locked_methods_intersection := (load_graph[method_name] & instance_locked_methods):
+                instance_locked_methods_intersection = (
+                    load_graph[method_name] & instance_locked_methods
+                )
+                if instance_locked_methods_intersection:
                     if len(instance_locked_methods_intersection) > 1:
-                        instance_locked_methods_intersection = "', '".join(instance_locked_methods_intersection)
-                        raise ValueError(f"Method-locked method '{method_name}' cannot load or call \
-                                         the instance-locked methods: '{instance_locked_methods_intersection}'.")
+                        intersec = "', '".join(
+                            instance_locked_methods_intersection
+                        )
+                        raise ValueError(
+                            f"Method-locked method '{method_name}' cannot "
+                            "load or call the instance-locked methods: "
+                            f"'{intersec}'."
+                        )
                     else:
-                        instance_locked_methods_intersection = next(iter(instance_locked_methods_intersection))
-                        raise ValueError(f"Method-locked method '{method_name}' cannot load or call \
-                                         the instance-locked method: '{instance_locked_methods_intersection}'.")
-            
-            ## Group methods that are loaded by each other.
+                        intersec = next(iter(
+                            instance_locked_methods_intersection
+                        ))
+                        raise ValueError(
+                            f"Method-locked method '{method_name}' cannot "
+                            "load or call the instance-locked method: "
+                            f"'{intersec}'."
+                        )
+
+            # Group methods that are loaded by each other.
             loop_lock_numbers: ReversableDict[str, int] = ReversableDict()
             loop_lock_number_current: int = 0
             frontier: set[str] = set(lock_methods)
             while frontier:
                 method_name = frontier.pop()
-                if ((path := load_graph.get_path(method_name, method_name, find_cycle=True, raise_=False)) is not None
-                    and (path := set(path[:-1]))):
+                path = load_graph.get_path(
+                    method_name,
+                    method_name,
+                    find_cycle=True,
+                    raise_=False
+                )
+                if (path is not None
+                        and (path := set(path[:-1]))):
                     if looped_methods := (set(lock_methods) & path):
-                        loop_lock_numbers.reversed_set(loop_lock_number_current, *looped_methods)
+                        loop_lock_numbers.reversed_set(
+                            loop_lock_number_current,
+                            *looped_methods
+                        )
                         while looped_methods:
                             looped_method = looped_methods.pop()
                             if looped_method in lock_methods_groups:
-                                lock_method_group = set(lock_methods_groups.reversed_pop(lock_methods_groups[looped_method]))
-                                loop_lock_numbers.reversed_set(loop_lock_number_current, *lock_method_group)
+                                lock_method_group = set(
+                                    lock_methods_groups.reversed_pop(
+                                        lock_methods_groups[looped_method]
+                                    )
+                                )
+                                loop_lock_numbers.reversed_set(
+                                    loop_lock_number_current,
+                                    *lock_method_group
+                                )
                                 looped_methods -= lock_method_group
                         loop_lock_number_current += 1
                     frontier -= path
-        
-        ## Wrap the init method to ensure instances get the lock attributes.
+
+        # Wrap the init method to ensure instances get the lock attributes.
         original_init = class_dict["__init__"]
         @functools.wraps(original_init)
         def __init__(self, *args, **kwargs) -> None:
@@ -535,8 +600,8 @@ class SynchronizedMeta(type):
             self.__event__ = threading.Event()
             original_init(self, *args, **kwargs)
         class_dict["__init__"] = __init__
-        
-        ## Ensure that the class has lock status attributes.
+
+        # Ensure that the class has lock status attributes.
         def is_instance_locked(self) -> bool:
             """Return whether the instance is locked."""
             return self.__lock__.is_locked and self.__event__.is_set()
@@ -544,15 +609,18 @@ class SynchronizedMeta(type):
 
         def is_method_locked(self, method_name: str | None = None) -> bool:
             """
-            Return whether the method-locked method with the given name is locked.
-            
-            If no method name is given, then return whether any method-locked method is locked.
+            Return whether the method-locked method with the given name is
+            locked.
+
+            If no method name is given, then return whether any method-locked
+            method is locked.
             """
             if method_name is None:
                 return self.__semaphore__._value != self.__semaphore__._initial_value
             if method_name in self.__method_locks__:
                 return self.__method_locks__[method_name].is_locked
-            else: raise AttributeError(f"Method '{method_name}' is not method-locked.")
+            else:
+                raise AttributeError(f"Method '{method_name}' is not method-locked.")
         class_dict["is_method_locked"] = is_method_locked
         class_dict["lockable_methods"] = property(lambda self: tuple(self.__method_locks__.keys()))
 
@@ -564,7 +632,13 @@ class SynchronizedMeta(type):
             class_dict["group_locks"] = property(lambda self: ReversableDict())
 
         return super().__new__(cls, cls_name, bases, class_dict)
-    
+
     def __dir__(self) -> typing.Iterable[str]:
         """Return the attributes of the class."""
-        return super().__dir__() + ["is_instance_locked", "is_method_locked", "lockable_methods", "loop_locks", "group_locks"]
+        return super().__dir__() + [
+            "is_instance_locked",
+            "is_method_locked",
+            "lockable_methods",
+            "loop_locks",
+            "group_locks"
+        ]
