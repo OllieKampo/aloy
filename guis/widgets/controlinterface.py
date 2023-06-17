@@ -10,6 +10,7 @@ from guis.gui import (
     JinxGuiData,
     JinxObserverWidget,
     JinxWidgetSize,
+    combine_jinx_widgets,
     scale_size,
     scale_size_for_grid
 )
@@ -53,17 +54,19 @@ class EstopInterface(JinxObserverWidget):
 
     def __init__(
         self,
-        qwidget: QtWidgets.QWidget, /,
-        name: str,
-        size: tuple[int, int], *,
+        qwidget: QtWidgets.QWidget | None = None,
+        data: JinxGuiData | None = None,
+        name: str = "E-Stop Interface",
+        size: tuple[int, int] | None = None,
         resize: bool = True,
         debug: bool = False
     ) -> None:
         """Create a new emergency stop interface Jinx widget."""
         super().__init__(
-            qwidget,
-            name,
-            size,
+            qwidget=qwidget,
+            data=data,
+            name=name,
+            size=size,
             resize=resize,
             set_size="fix",
             debug=debug
@@ -73,18 +76,18 @@ class EstopInterface(JinxObserverWidget):
 
         self.__start_time = QtCore.QTime.currentTime()
 
-        padding = (10, 10)
+        spacing = (10, 10)
         margins = (10, 10, 10, 10)
         widget_size = scale_size_for_grid(
             self.size,
             (3, 5),
             (3, 1),
-            padding,
+            spacing,
             margins
         )
         self.__layout.setContentsMargins(*margins)
-        self.__layout.setHorizontalSpacing(padding[0])
-        self.__layout.setVerticalSpacing(padding[1])
+        self.__layout.setHorizontalSpacing(spacing[0])
+        self.__layout.setVerticalSpacing(spacing[1])
 
         # Bold text, red background
         self.__estop_button = QtWidgets.QPushButton()
@@ -107,7 +110,7 @@ class EstopInterface(JinxObserverWidget):
             self.size,
             (2, 5),
             (1, 1),
-            padding,
+            spacing,
             margins
         )
         self.__estop_control_text = QtWidgets.QLabel()
@@ -125,7 +128,7 @@ class EstopInterface(JinxObserverWidget):
             self.size,
             (2, 5),
             (1, 1),
-            padding,
+            spacing,
             margins
         )
         self.__release_button = QtWidgets.QPushButton()
@@ -150,7 +153,7 @@ class EstopInterface(JinxObserverWidget):
             self.size,
             (3, 5),
             (1, 1),
-            padding,
+            spacing,
             margins
         )
         self.__clock_label = QtWidgets.QLabel()
@@ -164,7 +167,7 @@ class EstopInterface(JinxObserverWidget):
             self.size,
             (3, 5),
             (2, 1),
-            padding,
+            spacing,
             margins
         )
         self.__clock_display = QtWidgets.QLCDNumber()
@@ -188,7 +191,7 @@ class EstopInterface(JinxObserverWidget):
             self.size,
             (3, 5),
             (3, 1),
-            padding,
+            spacing,
             margins
         )
         self.__power_label = QtWidgets.QLabel()
@@ -220,7 +223,7 @@ class EstopInterface(JinxObserverWidget):
             self.size,
             (3, 5),
             (1, 1),
-            padding,
+            spacing,
             margins
         )
         self.__motor_power_action_label = QtWidgets.QLabel()
@@ -237,7 +240,7 @@ class EstopInterface(JinxObserverWidget):
             self.size,
             (3, 5),
             (2, 1),
-            padding,
+            spacing,
             margins
         )
         # Align options in the center of the combo box
@@ -285,33 +288,34 @@ class EstopInterface(JinxObserverWidget):
         """Handle the on/off button being clicked."""
         if button.text() == "On":
             self.__waiting_for_power_on = True
-            # self.data.command_handler.power_on()
+            self.data.command_handler.request_power_on()
         else:
             self.__waiting_for_power_off = True
-            # self.data.command_handler.power_off()
+            self.data.command_handler.request_power_off()
 
-    def __confirm_power_on(self, observable_: JinxGuiData) -> None:
+    def __confirm_power_on(self) -> None:
         """Confirm that the power is on."""
-        if observable_.is_power_on:
+        if self.data.power_on:
             self.__waiting_for_power_on = False
             self.__power_on = True
             self.__start_time = QtCore.QTime.currentTime()
             self.__update_clock()
             self.__timer.start()
 
-    def __confirm_power_off(self, observable_: JinxGuiData) -> None:
+    def __confirm_power_off(self) -> None:
         """Confirm that the power is off."""
-        if not observable_.is_power_on:
+        if self.data.power_off:
             self.__waiting_for_power_off = False
             self.__power_on = False
             self.__timer.stop()
 
     def update_observer(self, observable_: JinxGuiData) -> None:
         """Update the observer."""
-        # if self.__waiting_for_power_on:
-        #     self.__confirm_power_on(observable_)
-        # if self.__waiting_for_power_off:
-        #     self.__confirm_power_off(observable_)
+        if self.__data is observable_:
+            if self.__waiting_for_power_on:
+                self.__confirm_power_on()
+            if self.__waiting_for_power_off:
+                self.__confirm_power_off()
 
 
 class DirectionalControlInterface(JinxObserverWidget):
@@ -322,17 +326,19 @@ class DirectionalControlInterface(JinxObserverWidget):
 
     def __init__(
         self,
-        qwidget: QtWidgets.QWidget, /,
-        name: str,
-        size: tuple[int, int], *,
+        qwidget: QtWidgets.QWidget | None = None,
+        data: JinxGuiData | None = None,
+        name: str = "Directional Control Interface",
+        size: tuple[int, int] | None = None,
         resize: bool = True,
         debug: bool = False
     ) -> None:
         """Create a new directional control interface Jinx widget."""
         super().__init__(
-            qwidget,
-            name,
-            size,
+            qwidget=qwidget,
+            data=data,
+            name=name,
+            size=size,
             resize=resize,
             set_size="fix",
             debug=debug
@@ -346,18 +352,18 @@ class DirectionalControlInterface(JinxObserverWidget):
         _group_box_layout.addWidget(self.__group_box)
         self.qwidget.setLayout(_group_box_layout)
 
-        padding = (10, 10)
+        spacing = (10, 10)
         margins = (10, 10, 10, 10)
         widget_size = scale_size_for_grid(
             self.size,
             (3, 2),
             (1, 1),
-            padding,
+            spacing,
             margins
         )
         self.__layout.setContentsMargins(*margins)
-        self.__layout.setHorizontalSpacing(padding[0])
-        self.__layout.setVerticalSpacing(padding[1])
+        self.__layout.setHorizontalSpacing(spacing[0])
+        self.__layout.setVerticalSpacing(spacing[1])
 
         self.__forward_button = QtWidgets.QPushButton()
         self.__forward_button.setText("Forward")
@@ -468,34 +474,33 @@ class DirectionalControlInterface(JinxObserverWidget):
 
 
 def __main() -> None:
+    size = (425, 500)
     qapp = QtWidgets.QApplication([])
     qwindow = QtWidgets.QMainWindow()
     qwindow.setWindowTitle("Control Interface")
-    qwindow.resize(425, 500)
+    qwindow.resize(*size)
 
     estop_jwidget = EstopInterface(
-        QtWidgets.QWidget(),
-        "E-Stop Interface",
-        (425, 233)
+        size=scale_size(size, (1.0, 0.45))
     )
     control_jwidget = DirectionalControlInterface(
-        QtWidgets.QWidget(),
-        "Control Interface",
-        (425, 266)
+        size=scale_size(size, (1.0, 0.55))
     )
 
-    combined_qwidget = QtWidgets.QWidget()
-    combined_layout = QtWidgets.QVBoxLayout()
-    combined_layout.addWidget(estop_jwidget.qwidget)
-    combined_layout.addWidget(control_jwidget.qwidget)
-    combined_layout.setSpacing(0)
-    combined_qwidget.setLayout(combined_layout)
-
-    qwindow.setCentralWidget(combined_qwidget)
+    combine_jinx_widgets(
+        jwidgets=[
+            estop_jwidget,
+            control_jwidget
+        ],
+        stretches=[1, 1],
+        alignment=QtCore.Qt.AlignmentFlag.AlignCenter,
+        kind="vertical",
+        spacing=0,
+        parent=qwindow
+    )
 
     qwindow.show()
     qapp.exec()
-
 
 
 if __name__ == "__main__":

@@ -242,6 +242,7 @@ def run_game_launcher(stdscr: curses.window) -> str | None:
     stdscr.refresh()
 
     index: int = 0
+    game_items_list = list(__registered_games__.items())
     char = stdscr.getch()
     title_window.refresh()
     while True:
@@ -255,7 +256,6 @@ def run_game_launcher(stdscr: curses.window) -> str | None:
         elif char == curses.KEY_ENTER or char == 10 or char == 13:
             break
         if index != previous_index:
-            game_items_list = list(__registered_games__.items())
             game_name, game_reg = game_items_list[previous_index]
             stdscr.addstr(
                 8 + previous_index, 7,

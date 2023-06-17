@@ -198,7 +198,7 @@ ST = typing.TypeVar("ST")
 def atomic_update(
     global_lock: str | None = None,
     method: bool = False
-) -> typing.Callable[[typing.Callable], typing.Callable]:
+) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
     """
     Decorate a function to ensure atomic updates in the decorated function.
 

@@ -23,6 +23,11 @@ from PySide6 import QtWidgets, QtCore, QtGui
 from guis.gui import JinxGuiData, JinxObserverWidget
 
 
+# TODO: Change to normal qwidget, we would update this from the same thread
+# that updates the simulation view.
+# A thread continuously runs the simulation, and a separate thread updates the
+# simulation view by directly grabbing the simulation state, so the simulation
+# view needs to take the simulation logic as argument.
 class PositionGraph(JinxObserverWidget):
     """A widget that displays a radial graph of two control variables."""
 

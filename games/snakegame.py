@@ -527,14 +527,14 @@ class SnakeGameJinxWidget(JinxObserverWidget):
 
     def __init__(
         self,
-        parent: QtWidgets.QWidget, /,
-        size: tuple[int, int], *,
+        parent: QtWidgets.QWidget,
+        size: tuple[int, int],
         snake_game_logic: SnakeGameLogic | None = None,
         manual_update: bool = False,
         debug: bool = False
     ) -> None:
         """Create a new snake game widget."""
-        super().__init__(parent, "Snake Game", size=size, debug=debug)
+        super().__init__(parent, name="Snake Game", size=size, debug=debug)
         width, height = size
         if width % _CELL_SIZE != 0 or height % _CELL_SIZE != 0:
             raise ValueError(
@@ -915,13 +915,18 @@ class SnakeGameOptionsJinxWidget(JinxObserverWidget):
     def __init__(
         self,
         parent: QtWidgets.QWidget,
-        data: JinxGuiData, /,
-        size: tuple[int, int], *,
+        data: JinxGuiData,
+        size: tuple[int, int],
         debug: bool = False
     ) -> None:
         """Create a new snake game options widget."""
-        super().__init__(parent, "Snake Game Options", size=size, debug=debug)
-        self.__data = data
+        super().__init__(
+            qwidget=parent,
+            data=data,
+            name="Snake Game Options",
+            size=size,
+            debug=debug
+        )
         self.__layout = QtWidgets.QGridLayout()
         self.__layout.setContentsMargins(0, 0, 0, 0)
         self.__layout.setSpacing(10)
@@ -950,7 +955,7 @@ class SnakeGameOptionsJinxWidget(JinxObserverWidget):
         self.__snake_length_spinbox = QtWidgets.QSpinBox()
         self.__snake_length_spinbox.setMinimum(1)
         self.__snake_length_spinbox.setMaximum(10)
-        self.__snake_length_spinbox.setValue(4)
+        self.__snake_length_spinbox.setValue(_DEFAULT_INITIAL_SNAKE_LENGTH)
         self.__snake_length_spinbox.valueChanged.connect(
             self.__set_snake_length)
         layout.addWidget(self.__snake_length_spinbox)
@@ -1003,7 +1008,6 @@ class SnakeGameOptionsJinxWidget(JinxObserverWidget):
         self.__speed_slider.setTickPosition(
             QtWidgets.QSlider.TickPosition.TicksBelow)
         self.__speed_slider.setOrientation(QtCore.Qt.Orientation.Horizontal)
-        self.__speed_slider.setValue(1)
         self.__speed_slider.valueChanged.connect(
             self.__set_speed)
         layout.addWidget(self.__speed_slider)
@@ -1069,38 +1073,38 @@ class SnakeGameOptionsJinxWidget(JinxObserverWidget):
 
     def __set_difficulty(self, value: str) -> None:
         """Update the difficulty."""
-        self.__data.set_data("difficulty", value)
+        self.data.set_data("difficulty", value)
 
     # @QtCore.pyqtSlot(int)
     def __set_snake_length(self, value: int) -> None:
         """Update the snake length."""
-        self.__data.set_data("initial_snake_length", value)
+        self.data.set_data("initial_snake_length", value)
 
     # @QtCore.pyqtSlot(int)
     def __set_food_per_snake_growth(self, value: int) -> None:
         """Update the food per snake growth."""
-        self.__data.set_data("food_per_snake_growth", value)
+        self.data.set_data("food_per_snake_growth", value)
 
     def __set_speed(self, value: int) -> None:
         """Update the speed."""
-        self.__data.set_data("speed", _DEFAULT_SPEED + (value / 100.0))
+        self.data.set_data("speed", _DEFAULT_SPEED + (value / 100.0))
 
     # @QtCore.pyqtSlot(int)
     def __set_food_per_level(self, value: int) -> None:
         """Update the food per level."""
-        self.__data.set_data("food_per_level", value)
+        self.data.set_data("food_per_level", value)
 
     def __set_food_time_limit(self, value: int) -> None:
         """Update the food time limit."""
-        self.__data.set_data("food_time_limit", value)
+        self.data.set_data("food_time_limit", value)
 
     def __set_walls(self, value: int) -> None:
         """Update the walls."""
-        self.__data.set_data("walls", value)
+        self.data.set_data("walls", value)
 
     def __set_show_path(self, value: int) -> None:
         """Update the show path."""
-        self.__data.set_data("show_path", value)
+        self.data.set_data("show_path", value)
 
     def update_observer(self, observable_: JinxGuiData) -> None:
         """Update the observer."""
@@ -1142,9 +1146,9 @@ def play_snake_game(
         snake_options_qwidget, jdata, size, debug=debug
     )
 
-    jgui.add_view("Snake Game", snake_game_jwidget)
-    jgui.add_view("Snake Game Options", snake_game_options_jwidget)
-    jdata.desired_view_state = "Snake Game"
+    jgui.add_view(snake_game_jwidget)
+    jgui.add_view(snake_game_options_jwidget)
+    jdata.desired_view_state = snake_game_jwidget.observer_name
 
     qwindow.show()
     sys.exit(qapp.exec())
