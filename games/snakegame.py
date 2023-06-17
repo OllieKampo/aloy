@@ -302,11 +302,10 @@ class SnakeGameLogic:
 
     def _random_start(self) -> None:
         """Start the snake at a random location."""
-        valid: bool = False
-        while not valid:
+        while True:
             # Place the snake's head at a random location
-            x = random.randint(0, self.grid_size[0] - 1)
-            y = random.randint(0, self.grid_size[1] - 1)
+            x = random.randint(0, self.__grid_size[0] - 1)
+            y = random.randint(0, self.__grid_size[1] - 1)
             if (x, y) in self.__obstacles or (x, y) == self.__food:
                 continue
             self.__snake = [(x, y)]
@@ -343,13 +342,11 @@ class SnakeGameLogic:
                 if next_cell not in self.__snake:
                     with self.__direction:
                         self.__direction.set_obj(direction)
-                    valid = True
-                    break
+                    return
 
     def _random_food(self) -> None:
         """Place food at a random location."""
-        limit: int = ((self.__grid_size[0] * self.__grid_size[1])
-                      // _CELL_SIZE) ** 1.5
+        limit: int = (self.__grid_size[0] * self.__grid_size[1]) ** 1.5
         for i in count(start=1):
             food = (
                 random.randint(0, self.__grid_size[0] - 1),
@@ -414,8 +411,14 @@ class SnakeGameLogic:
         total_obstacles = random.choices(
             range_, range_, k=1
         )[0]
+        # TODO: We can construct a set of all valid locations and then
+        # randomly select from that set instead of randomly generating
+        # locations until we find a valid one.
         for _ in range(total_obstacles):
-            while True:
+            unsatisfiable: bool = False
+            limit: int = (self.__grid_size[0] * self.__grid_size[1])
+            limit -= len(self.__snake) + len(self.__obstacles) + 1
+            for i in count(start=1):
                 obstacle = (
                     random.randint(0, self.grid_size[0] - 1),
                     random.randint(0, self.grid_size[1] - 1),
@@ -429,6 +432,11 @@ class SnakeGameLogic:
                         and obstacle != self.food):
                     self.__obstacles.append(obstacle)
                     break
+                if i > limit:
+                    unsatisfiable = True
+                    break
+            if unsatisfiable:
+                break
 
     def __adjacent(self, point: tuple[int, int]) -> list[tuple[int, int]]:
         """Get the adjacent points to a given point."""
