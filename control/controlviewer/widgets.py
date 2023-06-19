@@ -20,7 +20,7 @@ import sys
 from collections import deque
 from PySide6 import QtWidgets, QtCore, QtGui
 
-from guis.gui import JinxGuiData, JinxObserverWidget
+from guis.gui import JinxSystemData, JinxWidget
 
 
 # TODO: Change to normal qwidget, we would update this from the same thread
@@ -28,7 +28,7 @@ from guis.gui import JinxGuiData, JinxObserverWidget
 # A thread continuously runs the simulation, and a separate thread updates the
 # simulation view by directly grabbing the simulation state, so the simulation
 # view needs to take the simulation logic as argument.
-class PositionGraph(JinxObserverWidget):
+class PositionGraph(JinxWidget):
     """A widget that displays a radial graph of two control variables."""
 
     def __init__(
@@ -325,8 +325,25 @@ class PositionGraph(JinxObserverWidget):
         self.__scene.clear()
         self.__paint_display()
 
-    def update_observer(self, observable_: JinxGuiData) -> None:
+    def update_observer(self, observable_: JinxSystemData) -> None:
         pass
+
+
+class ResponseGraph(JinxWidget):
+    """A graph that displays the response of the system."""
+
+    def __init__(self, parent: QtWidgets.QWidget) -> None:
+        super().__init__(parent)
+
+        self.__x_label = "Time (s)"
+        self.__y_label = "Response (m)"
+        self.__x_limits = (0, 100)
+        self.__y_limits = (-1, 1)
+
+        self.__history_y: list[float] = []
+
+        self.__scene = QtWidgets.QGraphicsScene()
+        self.__paint_display()
 
 
 def __test_position_graph(qwindow: QtWidgets.QMainWindow) -> None:
@@ -375,7 +392,10 @@ def __main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--test",
-        choices=["positiongraph"],
+        choices=[
+            "positiongraph",
+            "responsegraph"
+        ],
         help="Run the test suite."
     )
     args: argparse.Namespace = parser.parse_args()
@@ -385,6 +405,8 @@ def __main() -> None:
 
     if args.test == "positiongraph":
         __test_position_graph(qwindow)
+    elif args.test == "responsegraph":
+        __test_response_graph(qwindow)
 
     qwindow.show()
     sys.exit(app.exec())
