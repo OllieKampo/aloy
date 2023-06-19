@@ -25,7 +25,8 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from datastructures.views import ListView
 from concurrency.atomic import AtomicObject
-from guis.gui import JinxGuiData, JinxGuiWindow, JinxObserverWidget
+from games.gamerecorder import GameRecorder, GameSpec
+from guis.gui import JinxSystemData, JinxGuiWindow, JinxWidget
 from moremath.vectors import (vector_add, vector_distance, vector_modulo,
                               vector_multiply)
 
@@ -57,6 +58,7 @@ _DEFAULT_FOOD_TIME_LIMIT: int = 20  # seconds
 _DEFAULT_FOOD_PER_LEVEL: int = 5
 _DEFAULT_FOOD_PER_SNAKE_GROWTH: int = 1
 _DEFAULT_INITIAL_SNAKE_LENGTH: int = 4
+_DEFAULT_RECORD_PATH: str = "games/recordings/snakegame_record.json"
 
 
 class SnakeGameLogic:
@@ -94,7 +96,14 @@ class SnakeGameLogic:
         "food_per_snake_growth",
         "food_time_limit",
         "food_per_level",
-        "initial_snake_length"
+        "initial_snake_length",
+
+        # Game recording
+        "__recorder",
+        "__recorder_enabled",
+        "__enable_recording_on_restart",
+        "__match_number",
+        "__recorder_path"
     )
 
     def __init__(
@@ -152,6 +161,13 @@ class SnakeGameLogic:
         self.food_per_level: int = _DEFAULT_FOOD_PER_LEVEL
         self.food_per_snake_growth: int = _DEFAULT_FOOD_PER_SNAKE_GROWTH
         self.initial_snake_length: int = _DEFAULT_INITIAL_SNAKE_LENGTH
+
+        # Game recording
+        self.__recorder: GameRecorder | None = None
+        self.__recorder_enabled: bool = False
+        self.__enable_recording_on_restart: bool = False
+        self.__match_number: int = 0
+        self.__recorder_path: str = _DEFAULT_RECORD_PATH
 
     @property
     def direction(self) -> AtomicObject[tuple[int, int]]:
@@ -252,6 +268,50 @@ class SnakeGameLogic:
         """Get the time since the last food was eaten."""
         return time.perf_counter() - self.__last_food_time
 
+    @property
+    def recording_enabled(self) -> bool:
+        """Get whether the game is being recorded."""
+        return self.__recorder_enabled
+
+    @recording_enabled.setter
+    def recording_enabled(self, recording_enabled: bool) -> None:
+        if recording_enabled:
+            if self.__playing:
+                self.__enable_recording_on_restart = True
+            elif self.__recorder is None:
+                self.__recorder_enabled = True
+                self.__create_recorder()
+        elif self.__recorder is not None:
+            self.__recorder_enabled = False
+            self.__recorder.clear_last_match()
+
+    def __create_recorder(self) -> None:
+        game_spec = GameSpec(
+            name="Snake Game",
+            match_name=f"Match {self.__match_number}",
+            game_options={
+                "difficulty": self.difficulty,
+                "show_path": self.show_path,
+                "walls": self.walls,
+                "speed": self.speed,
+                "food_time_limit": self.food_time_limit,
+                "food_per_level": self.food_per_level,
+                "food_per_snake_growth": self.food_per_snake_growth,
+                "initial_snake_length": self.initial_snake_length,
+                "grid_size": self.grid_size
+            }
+        )
+        self.__recorder = GameRecorder(game_spec)
+
+    @property
+    def recording_path(self) -> str:
+        """Get the recording path."""
+        return self.__recorder_path
+
+    @recording_path.setter
+    def recording_path(self, recording_path: str) -> None:
+        self.__recorder_path = recording_path
+
     def move_snake(self) -> None:
         """Move the snake in the current direction."""
         if not self.__playing:
@@ -299,6 +359,16 @@ class SnakeGameLogic:
 
         # Add the new head to the snake
         self.__snake.insert(0, new_head)
+
+        if self.__recorder_enabled:
+            self.__recorder.record(
+                action=direction,
+                state={
+                    "snake": self.snake,
+                    "food": self.food,
+                    "obstacles": self.obstacles
+                }
+            )
 
     def _random_start(self) -> None:
         """Start the snake at a random location."""
@@ -491,12 +561,21 @@ class SnakeGameLogic:
 
     def restart(self) -> None:
         """Reset the game."""
+        self.__match_number += 1
+        if self.__recorder_enabled:
+            self.__recorder.save(self.__recorder_path)
+            self.__recorder.new_match()
         self._reset_game_state()
         self._random_obstacles()
         self._random_food()
         self._random_start()
         if not self.__manual_update:
             self.__last_food_time = time.perf_counter()
+        if self.__enable_recording_on_restart:
+            self.__enable_recording_on_restart = False
+            self.__recorder_enabled = True
+            if self.__recorder is None:
+                self.__create_recorder()
 
     def get_state(self) -> np.ndarray:
         """
@@ -528,7 +607,7 @@ class SnakeGameLogic:
 _CELL_SIZE: int = 20
 
 
-class SnakeGameJinxWidget(JinxObserverWidget):
+class SnakeGameJinxWidget(JinxWidget):
     """
     A class to represent the snake game on a Jinx widget.
     """
@@ -652,7 +731,7 @@ class SnakeGameJinxWidget(JinxObserverWidget):
         if not manual_update:
             self.__timer.start()
 
-    def update_observer(self, observable_: JinxGuiData) -> None:
+    def update_observer(self, observable_: JinxSystemData) -> None:
         """Update the observer."""
         self._logic.difficulty = observable_.get_data(
             "difficulty",
@@ -685,6 +764,14 @@ class SnakeGameJinxWidget(JinxObserverWidget):
         self._logic.speed = observable_.get_data(
             "speed",
             _DEFAULT_SPEED
+        )
+        self._logic.recording_enabled = observable_.get_data(
+            "record",
+            False
+        )
+        self._logic.recording_path = observable_.get_data(
+            "record_path",
+            _DEFAULT_RECORD_PATH
         )
 
     def __key_press_event(self, event: QtCore.QEvent) -> None:
@@ -917,13 +1004,13 @@ class SnakeGameJinxWidget(JinxObserverWidget):
 
 
 # pylint: disable=W0201
-class SnakeGameOptionsJinxWidget(JinxObserverWidget):
+class SnakeGameOptionsJinxWidget(JinxWidget):
     """A widget that allows the user to change the options for the game."""
 
     def __init__(
         self,
         parent: QtWidgets.QWidget,
-        data: JinxGuiData,
+        data: JinxSystemData,
         size: tuple[int, int],
         debug: bool = False
     ) -> None:
@@ -954,6 +1041,8 @@ class SnakeGameOptionsJinxWidget(JinxObserverWidget):
         self.__create_food_time_limit_option(2, 1)
         self.__create_walls_option(3, 0)
         self.__create_show_path_option(3, 1)
+        self.__create_record_option(4, 0)
+        self.__create_record_path_option(4, 1)
 
     def __create_snake_length_option(self, row: int, column: int) -> None:
         """Create the option to change the snake length."""
@@ -1079,16 +1168,38 @@ class SnakeGameOptionsJinxWidget(JinxObserverWidget):
         layout.addWidget(self.__show_path_checkbox)
         self.__layout.addLayout(layout, row, column)
 
+    def __create_record_option(self, row: int, column: int) -> None:
+        """Create the option to change the record."""
+        layout = QtWidgets.QHBoxLayout()
+        label = QtWidgets.QLabel("Record:")
+        layout.addWidget(label)
+        self.__record_checkbox = QtWidgets.QCheckBox()
+        self.__record_checkbox.setChecked(False)
+        self.__record_checkbox.stateChanged.connect(
+            self.__set_record)
+        layout.addWidget(self.__record_checkbox)
+        self.__layout.addLayout(layout, row, column)
+
+    def __create_record_path_option(self, row: int, column: int) -> None:
+        """Create the option to change the record path."""
+        layout = QtWidgets.QHBoxLayout()
+        label = QtWidgets.QLabel("Record Path:")
+        layout.addWidget(label)
+        self.__record_path_lineedit = QtWidgets.QLineEdit()
+        self.__record_path_lineedit.setText(_DEFAULT_RECORD_PATH)
+        self.__record_path_lineedit.textChanged.connect(
+            self.__set_record_path)
+        layout.addWidget(self.__record_path_lineedit)
+        self.__layout.addLayout(layout, row, column)
+
     def __set_difficulty(self, value: str) -> None:
         """Update the difficulty."""
         self.data.set_data("difficulty", value)
 
-    # @QtCore.pyqtSlot(int)
     def __set_snake_length(self, value: int) -> None:
         """Update the snake length."""
         self.data.set_data("initial_snake_length", value)
 
-    # @QtCore.pyqtSlot(int)
     def __set_food_per_snake_growth(self, value: int) -> None:
         """Update the food per snake growth."""
         self.data.set_data("food_per_snake_growth", value)
@@ -1097,7 +1208,6 @@ class SnakeGameOptionsJinxWidget(JinxObserverWidget):
         """Update the speed."""
         self.data.set_data("speed", _DEFAULT_SPEED + (value / 100.0))
 
-    # @QtCore.pyqtSlot(int)
     def __set_food_per_level(self, value: int) -> None:
         """Update the food per level."""
         self.data.set_data("food_per_level", value)
@@ -1114,7 +1224,15 @@ class SnakeGameOptionsJinxWidget(JinxObserverWidget):
         """Update the show path."""
         self.data.set_data("show_path", value)
 
-    def update_observer(self, observable_: JinxGuiData) -> None:
+    def __set_record(self, value: bool) -> None:
+        """Update the record."""
+        self.data.set_data("record", value)
+
+    def __set_record_path(self, value: str) -> None:
+        """Update the record path."""
+        self.data.set_data("record_path", value)
+
+    def update_observer(self, observable_: JinxSystemData) -> None:
         """Update the observer."""
         return None
 
@@ -1128,18 +1246,16 @@ def play_snake_game(
     size = (width, height)
 
     qapp = QtWidgets.QApplication([])
-    qwindow = QtWidgets.QMainWindow()
-    qwindow.setWindowTitle("Snake Game")
-    qwindow.resize(width, height)
-
     qtimer = QtCore.QTimer()
-    jdata = JinxGuiData(
+
+    jdata = JinxSystemData(
         name="Snake GUI Data",
         clock=qtimer,
         debug=debug
     )
     jgui = JinxGuiWindow(
-        qapp, qwindow, jdata,
+        qapp=qapp,
+        data=jdata,
         name="Snake GUI Window",
         size=(width, height),
         debug=debug
@@ -1158,5 +1274,5 @@ def play_snake_game(
     jgui.add_view(snake_game_options_jwidget)
     jdata.desired_view_state = snake_game_jwidget.observer_name
 
-    qwindow.show()
+    jgui.qwindow.show()
     sys.exit(qapp.exec())
