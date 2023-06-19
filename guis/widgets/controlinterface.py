@@ -7,13 +7,14 @@ from PySide6 import QtWidgets
 from PySide6 import QtCore
 
 from guis.gui import (
-    JinxGuiData,
-    JinxObserverWidget,
+    JinxSystemData,
+    JinxWidget,
     JinxWidgetSize,
     combine_jinx_widgets,
     scale_size,
     scale_size_for_grid
 )
+from robots.robotcontrol import JinxRobotControlData, JinxRobotControl
 
 
 class LabelledArrowButton(QtWidgets.QToolButton):
@@ -47,7 +48,7 @@ class LabelledArrowButton(QtWidgets.QToolButton):
         self.setLayout(self.__layout)
 
 
-class EstopInterface(JinxObserverWidget):
+class EstopInterface(JinxWidget):
     """
     Widget defining an emergency stop interface for teleoperation of robots.
     """
@@ -55,7 +56,7 @@ class EstopInterface(JinxObserverWidget):
     def __init__(
         self,
         qwidget: QtWidgets.QWidget | None = None,
-        data: JinxGuiData | None = None,
+        data: JinxRobotControlData | None = None,
         name: str = "E-Stop Interface",
         size: tuple[int, int] | None = None,
         resize: bool = True,
@@ -95,10 +96,12 @@ class EstopInterface(JinxObserverWidget):
         self.__estop_button.setObjectName("estop_button")
         self.__estop_button.setFixedSize(*widget_size)
         self.__estop_button.setStyleSheet(
-            "QPushButton#estop_button {"
-            "   font-weight: bold;"
-            "   background-color: red;"
-            "}"
+            """
+            QPushButton#estop_button {
+               font-weight: bold;
+               background-color: red;
+            }
+            """
         )
         self.__layout.addWidget(self.__estop_button, 0, 0, 1, 3)
 
@@ -139,10 +142,12 @@ class EstopInterface(JinxObserverWidget):
         self.__release_button.setObjectName("release_button")
         self.__release_button.setFixedSize(*widget_size)
         self.__release_button.setStyleSheet(
-            "QPushButton#release_button {"
-            "   font-weight: bold;"
-            "   background-color: green;"
-            "}"
+            """
+            QPushButton#release_button {
+               font-weight: bold;
+               background-color: green;
+            }
+            """
         )
         self.__release_button.clicked.connect(self.__release_button_clicked)
         estop_control_layout.addWidget(self.__release_button)
@@ -218,6 +223,8 @@ class EstopInterface(JinxObserverWidget):
         self.__on_off_button_group.buttonClicked.connect(
             self.__on_off_button_clicked
         )
+        self.__waiting_for_power_on: bool = False
+        self.__waiting_for_power_off: bool = False
 
         widget_size = scale_size_for_grid(
             self.size,
@@ -263,6 +270,10 @@ class EstopInterface(JinxObserverWidget):
 
         self.qwidget.setLayout(self.__layout)
 
+    @property
+    def data(self) -> JinxRobotControlData:
+        return super().data
+
     def __update_clock(self) -> None:
         """Update the clock display."""
         qtime = QtCore.QTime.currentTime()
@@ -276,11 +287,11 @@ class EstopInterface(JinxObserverWidget):
         """Handle the released button being clicked."""
         self.__has_estop_control = not self.__has_estop_control
         if self.__has_estop_control:
-            # self.data.command_handler.acquire_estop_control()
+            self.data.robot_control.acquire_estop_control()
             self.__estop_control_text.setText("You have E-Stop Control")
             self.__release_button.setText("Release E-Stop")
         else:
-            # self.data.command_handler.release_estop_control()
+            self.data.robot_control.release_estop_control()
             self.__estop_control_text.setText("You don't have E-Stop Control")
             self.__release_button.setText("Acquire E-Stop Control")
 
@@ -288,37 +299,46 @@ class EstopInterface(JinxObserverWidget):
         """Handle the on/off button being clicked."""
         if button.text() == "On":
             self.__waiting_for_power_on = True
-            self.data.command_handler.request_power_on()
+            self.data.robot_control.request_motor_power_on()
         else:
             self.__waiting_for_power_off = True
-            self.data.command_handler.request_power_off()
+            self.data.robot_control.request_motor_power_off()
+        for button in self.__on_off_button_group.buttons():
+            button.setEnabled(False)
 
-    def __confirm_power_on(self) -> None:
+    def __confirm_power_on(self) -> bool:
         """Confirm that the power is on."""
-        if self.data.power_on:
+        if self.data.robot_control.power_on:
             self.__waiting_for_power_on = False
             self.__power_on = True
             self.__start_time = QtCore.QTime.currentTime()
             self.__update_clock()
             self.__timer.start()
+            return True
+        return False
 
-    def __confirm_power_off(self) -> None:
+    def __confirm_power_off(self) -> bool:
         """Confirm that the power is off."""
-        if self.data.power_off:
+        if not self.data.robot_control.power_on:
             self.__waiting_for_power_off = False
             self.__power_on = False
             self.__timer.stop()
+            return True
+        return False
 
-    def update_observer(self, observable_: JinxGuiData) -> None:
+    def update_observer(self, observable_: JinxSystemData) -> None:
         """Update the observer."""
-        if self.__data is observable_:
+        if self.data is observable_:
             if self.__waiting_for_power_on:
-                self.__confirm_power_on()
+                confirmed = self.__confirm_power_on()
             if self.__waiting_for_power_off:
-                self.__confirm_power_off()
+                confirmed = self.__confirm_power_off()
+            if confirmed:
+                for button in self.__on_off_button_group.buttons():
+                    button.setEnabled(True)
 
 
-class DirectionalControlInterface(JinxObserverWidget):
+class DirectionalControlInterface(JinxWidget):
     """
     Widget defining a directional control interface for teleoperation of
     robots.
@@ -327,7 +347,7 @@ class DirectionalControlInterface(JinxObserverWidget):
     def __init__(
         self,
         qwidget: QtWidgets.QWidget | None = None,
-        data: JinxGuiData | None = None,
+        data: JinxSystemData | None = None,
         name: str = "Directional Control Interface",
         size: tuple[int, int] | None = None,
         resize: bool = True,
@@ -433,7 +453,7 @@ class DirectionalControlInterface(JinxObserverWidget):
         self.__layout.addWidget(self.__speed_slider, 2, 1, 1, 2)
 
         self.__speed_label = QtWidgets.QLabel()
-        self.__speed_label.setText(f"Speed: {self.__speed_slider.value()!s}%")
+        self.__speed_label.setText(f"Desired speed: {self.__speed_slider.value()!s}%")
         self.__set_size(self.__speed_label, widget_size)
         self.__layout.addWidget(self.__speed_label, 2, 0, 1, 1)
 
@@ -449,7 +469,7 @@ class DirectionalControlInterface(JinxObserverWidget):
             QtWidgets.QSizePolicy.Policy.Expanding
         )
 
-    def update_observer(self, observable_: JinxGuiData) -> None:
+    def update_observer(self, observable_: JinxSystemData) -> None:
         """Update the observer with the latest data."""
         pass
 
@@ -469,7 +489,7 @@ class DirectionalControlInterface(JinxObserverWidget):
 
     def speed_slider_changed(self, value: int) -> None:
         """Called when the speed slider is changed."""
-        self.__speed_label.setText(f"Speed: {value!s}%")
+        self.__speed_label.setText(f"Desired speed: {value!s}%")
         print(f"Speed set to: {value!s}")
 
 
@@ -480,10 +500,15 @@ def __main() -> None:
     qwindow.setWindowTitle("Control Interface")
     qwindow.resize(*size)
 
+    qtimer = QtCore.QTimer()
+    jrobotcontrol = JinxRobotControl(qtimer=qtimer)
+    jrobotcontroldata = JinxRobotControlData(jrobotcontrol, clock=qtimer)
     estop_jwidget = EstopInterface(
+        data=jrobotcontroldata,
         size=scale_size(size, (1.0, 0.45))
     )
     control_jwidget = DirectionalControlInterface(
+        data=jrobotcontroldata,
         size=scale_size(size, (1.0, 0.55))
     )
 
