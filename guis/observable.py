@@ -80,8 +80,9 @@ class Observable(metaclass=ABCMeta):
         "__observers": "The observers of this observable.",
         "__changed": "The observers that have been notified the the state of "
                      "the observable has changed since the last update.",
-        "__clock": "The clock or timer that updates the observers.",
+        "__chained": "The observables that this observable is chained to.",
         "__lock": "Lock ensuring atomic updates to the observable.",
+        "__clock": "The clock or timer that updates the observers.",
         "__debug": "Whether to log debug messages."
     }
 
@@ -109,7 +110,8 @@ class Observable(metaclass=ABCMeta):
         `clock: ClockThread | QTimer | None = None` - The clock that updates
         the observers. If not given or None, a new ClockThread is created with
         the given tick rate. Otherwise, updates from this observable are
-        scheduled on the given clock.
+        scheduled on the given clock. See `jinx.concurrency.clocks.ClockThread`
+        for details on clock threads.
 
         `tick_rate: int = 10` - The tick rate of the clock if a new clock is
         created. Ignored if an existing clock is given.
@@ -127,13 +129,20 @@ class Observable(metaclass=ABCMeta):
                 "name=%s clock=%s, tick_rate=%s, start_clock=%s, debug=%s",
                 name, clock, tick_rate, start_clock, debug
             )
+
+        # All observable objects must have a name.
         self.__name: str
         if name is None:
             self.__name = f"{type(self).__name__}@{id(self):#x}"
         else:
             self.__name = name
+
+        # Ineternal data structures.
         self.__observers: set["Observer"] = set()
         self.__changed: set["Observer"] = set()
+        self.__chained: dict[str, "Observable"] = dict()
+
+        # The lock and clock used when updateding the observers.
         self.__lock = threading.RLock()
         self.__clock: ClockThread | QTimer
         if clock is None:
@@ -223,6 +232,22 @@ class Observable(metaclass=ABCMeta):
                 observer._remove_observable(self)  # pylint: disable=W0212
             self.__observers.clear()
 
+    @final
+    def chain_notifies_to(self, observable_: "Observable") -> None:
+        """Chain notifications from this observable to another observable."""
+        with self.__lock:
+            if self.__debug:
+                self.__OBSERVABLE_LOGGER.debug(
+                    "%s: Chaining notifies to %s.",
+                    self.__name, observable_
+                )
+            self.__chained[observable_.observable_name] = observable_
+
+    @final
+    def get_chained_observables(self) -> dict[str, "Observable"]:
+        """Return the observables that this observable is chained to."""
+        return self.__chained
+
     @property
     def tick_rate(self) -> int:
         """Return the tick rate of the internal update clock."""
@@ -276,6 +301,8 @@ class Observable(metaclass=ABCMeta):
                     else:
                         raise ValueError(f"Observer {observer} is not "
                                          "observing this observable.")
+            for observable in self.__chained.values():
+                observable.notify(*observers, raise_=raise_)
 
     @final
     def notify_by_name(self, *names: str, raise_: bool = False) -> None:
@@ -306,6 +333,8 @@ class Observable(metaclass=ABCMeta):
                     else:
                         raise ValueError(f"Observer with name {name} is not "
                                          "observing this observable.")
+            for observable_ in self.__chained.values():
+                observable_.notify_by_name(*names, raise_=raise_)
 
     @final
     def notify_all(self) -> None:
@@ -317,6 +346,8 @@ class Observable(metaclass=ABCMeta):
                     self.__name
                 )
             self.__changed.update(self.__observers)
+            for observable_ in self.__chained.values():
+                observable_.notify_all()
 
     @final
     def __update_observers(self) -> None:
