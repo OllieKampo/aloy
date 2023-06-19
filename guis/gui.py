@@ -15,7 +15,7 @@
 """Module defining Jinx GUI classes for working with PySide6."""
 
 from abc import abstractmethod
-from typing import Any, ClassVar, Literal, NamedTuple, Sequence, Union, final
+from typing import Any, Literal, NamedTuple, Sequence, Union, final
 from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtCore import QTimer  # pylint: disable=E0611
 from concurrency.clocks import ClockThread
@@ -34,8 +34,8 @@ __all__ = (
     "scale_size",
     "scale_size_for_grid",
     "GridScaler",
-    "JinxGuiData",
-    "JinxObserverWidget",
+    "JinxSystemData",
+    "JinxWidget",
     "JinxGuiWindow"
 )
 
@@ -215,7 +215,7 @@ class GridScaler:
 
 
 def combine_jinx_widgets(
-    jwidgets: Sequence["JinxObserverWidget"],
+    jwidgets: Sequence["JinxWidget"],
     stretches: Sequence[int],
     alignment: QtCore.Qt.AlignmentFlag,
     kind: Literal["horizontal", "vertical"],
@@ -268,12 +268,12 @@ def combine_jinx_widgets(
     return parent
 
 
-class JinxGuiData(observable.Observable):
-    """A class defining a Jinx GUI data object."""
+class JinxSystemData(observable.Observable):
+    """A class defining a Jinx system data object."""
 
     __slots__ = {
         "__weakref__": "Weak reference to the object.",
-        "__connected_gui": "The gui object connected to this data object.",
+        "__linked_gui": "The gui object linked to this data object.",
         "__view_states": "The list of view states.",
         "__desired_view_state": "The currently desired view state.",
         "__data": "Arbitrary data associated with the gui."
@@ -288,7 +288,7 @@ class JinxGuiData(observable.Observable):
         debug: bool = False
     ) -> None:
         """
-        Create a new Jinx gui data object.
+        Create a new Jinx system data object.
 
         Parameters
         ----------
@@ -297,10 +297,10 @@ class JinxGuiData(observable.Observable):
         See `jinx.guis.observable.Observable` for details.
 
         `gui: JinxGuiWindow | None = None` - The gui object to be
-        connected to this gui data object.
+        linked to this system data object.
 
         `data_dict: dict[str, Any] | None = None` - A data dictionary
-        to be copied into the gui data object.
+        to be copied into the system data object.
 
         `clock: ClockThread | QTimer | None = None` - The clock
         thread or timer to be used for the observable object.
@@ -308,15 +308,11 @@ class JinxGuiData(observable.Observable):
         See `jinx.guis.observable.Observable` for details.
 
         `debug: bool = False`  - Whether to log debug messages.
-
-        Notes
-        -----
-        For help on windows see: https://doc.qt.io/qt-6/mainwindow.html
         """
         super().__init__(name, clock, debug=debug)
-        self.__connected_gui: JinxGuiWindow | None = None
+        self.__linked_gui: JinxGuiWindow | None = None
         if gui is not None:
-            self.connect_gui(gui)
+            self.link_gui(gui)
         self.__desired_view_state: str | None = None
         self.__view_states: list[str] = []
         self.__data: dict[str, Any]
@@ -327,25 +323,25 @@ class JinxGuiData(observable.Observable):
 
     @atomic_update("gui", method=True)
     @observable.notifies_observers()
-    def connect_gui(self, gui: "JinxGuiWindow") -> None:
-        """Connect the gui to this gui data object."""
-        if self.__connected_gui is not None:
-            raise RuntimeError("Gui data object already connected to a gui.")
-        self.__connected_gui = gui
+    def link_gui(self, gui: "JinxGuiWindow") -> None:
+        """Connect the gui to this system data object."""
+        if self.__linked_gui is not None:
+            raise RuntimeError("System data object already linked to a gui.")
+        self.__linked_gui = gui
 
     @property
     @atomic_update("gui", method=True)
     def connected_gui(self) -> Union["JinxGuiWindow", None]:
         """Get the connected gui."""
-        return self.__connected_gui
+        return self.__linked_gui
 
     @atomic_update("view_states", method=True)
     @observable.notifies_observers()
     def update_view_states(self) -> None:
         """Update the view states of the connected gui."""
-        if self.__connected_gui is None:
-            raise RuntimeError("Gui data object not connected to a gui.")
-        self.__view_states = self.__connected_gui.view_states
+        if self.__linked_gui is None:
+            raise RuntimeError("System data object not connected to a gui.")
+        self.__view_states = self.__linked_gui.view_states
 
     @property
     @atomic_update("view_states", method=True)
@@ -384,20 +380,29 @@ class JinxGuiData(observable.Observable):
         self.__data.pop(key)
 
 
-class JinxObserverWidget(observable.Observer):
-    """A class defining Jinx observer widgets."""
+class JinxWidget(observable.Observer):
+    """
+    Class defining Jinx GUI widgets.
+
+    Jinx widgets are wrappers around PySide6 Qt widgets. Jinx widgets are
+    observer objects and can be assigned to system data objects, and are
+    notified when the data objects are changed. Similarly, data objects can be
+    attached to Jinx widgets, so that they can directly access or modify the
+    data objects. A Jinx widget can also be directly added to a Jinx gui
+    window as a view.
+    """
 
     __slots__ = {
         "__weakref__": "Weak reference to the object.",
         "__qwidget": "The encapsulated widget.",
-        "__data": "The gui data object.",
+        "__data": "The system data object.",
         "__size": "The size of the widget."
     }
 
     def __init__(
         self,
         qwidget: QtWidgets.QWidget | None = None,
-        data: JinxGuiData | None = None,
+        data: JinxSystemData | None = None,
         name: str | None = None,
         size: tuple[int, int] | None = None,
         resize: bool = True,
@@ -415,17 +420,17 @@ class JinxObserverWidget(observable.Observer):
         debug: bool = False
     ) -> None:
         """
-        Create a new Jinx widget wrapping the given parent widget.
+        Create a new Jinx GUI widget wrapping the given PySide6 Qt widget.
 
         Parameters
         ----------
         `qwidget: QtWidgets.QWidget | None = None` - The parent widget to
         be wrapped. If None, a new widget will be created.
 
-        `data: JinxGuiData | None = None` - The gui data object to be
-        attached to the widget. If None, no gui data object will be
-        attached. Gui data objects can be attached later using the
-        `attach_data()` method. Gui data is automatically attached to
+        `data: JinxGuiData | None = None` - The system data object to be
+        attached to the widget. If None, no system data object will be
+        attached. system data objects can be attached later using the
+        `attach_data()` method. system data is automatically attached to
         the widget when the widget is added to a Jinx gui window.
 
         `name: str | None = None` - The name of the object. If None, the
@@ -453,7 +458,9 @@ class JinxObserverWidget(observable.Observer):
             qwidget = QtWidgets.QWidget()
         self.__qwidget: QtWidgets.QWidget = qwidget
 
-        self.__data: JinxGuiData | None = data
+        self.__data: JinxSystemData | None = None
+        if data is not None:
+            self.attach_data(data)
 
         self.__size: JinxWidgetSize | None = None
         if size is not None:
@@ -477,7 +484,7 @@ class JinxObserverWidget(observable.Observer):
                 else:
                     raise ValueError(
                         f"Invalid set_size value: {set_size}."
-                        f"Choose from: fix, min, max, hint, hint-min"
+                        "Choose from: fix, min, max, hint, hint-min."
                     )
 
         if size_policy is not None:
@@ -495,7 +502,7 @@ class JinxObserverWidget(observable.Observer):
         return self.__qwidget
 
     @property
-    def data(self) -> JinxGuiData | None:
+    def data(self) -> JinxSystemData | None:
         """Get the data object."""
         return self.__data
 
@@ -504,7 +511,7 @@ class JinxObserverWidget(observable.Observer):
         """Get the size of the widget."""
         return self.__size
 
-    def attach_data(self, data: JinxGuiData) -> None:
+    def attach_data(self, data: JinxSystemData) -> None:
         """Attach the given data object to the widget."""
         if self.__data is not None:
             self.__data.remove_observers(self)
@@ -518,7 +525,7 @@ class JinxObserverWidget(observable.Observer):
             self.__data = None
 
     @abstractmethod
-    def update_observer(self, observable_: JinxGuiData) -> None:
+    def update_observer(self, observable_: JinxSystemData) -> None:
         """Update the observer."""
         return super().update_observer(observable_)
 
@@ -535,10 +542,6 @@ class JinxGuiWindow(observable.Observer):
     allow the custom interface to be updated.
     """
 
-    view_changed: ClassVar[QtCore.Signal] = QtCore.Signal(str)
-    view_added: ClassVar[QtCore.Signal] = QtCore.Signal(str)
-    view_removed: ClassVar[QtCore.Signal] = QtCore.Signal(str)
-
     __slots__ = {
         "__weakref__": "Weak reference to the object.",
         "__qapp": "The main application.",
@@ -549,7 +552,7 @@ class JinxGuiWindow(observable.Observer):
         "__kind": "Whether the views are tabbed or not.",
         "__combo_box": "The combo box for the views selection.",
         "__tab_bar": "The tab bar for the views selection.",
-        "__data": "The Jinx gui data for the window.",
+        "__data": "The Jinx system data for the window.",
         "__views": "The views of the window.",
         "__current_view_state": "The current view state of the window.",
         "__default_qwidget": "The default widget."
@@ -559,7 +562,7 @@ class JinxGuiWindow(observable.Observer):
         self,
         qapp: QtWidgets.QApplication | None = None,
         qwindow: QtWidgets.QMainWindow | None = None,
-        data: JinxGuiData | None = None,
+        data: JinxSystemData | None = None,
         name: str | None = None,
         size: tuple[int, int] | None = None, *,
         kind: Literal["tabbed", "combo"] | None = "tabbed",
@@ -580,8 +583,8 @@ class JinxGuiWindow(observable.Observer):
         `qwindow: QtWidgets.QMainWindow | None = None` - The main window.
         If not given or None, a new main window is created.
 
-        `data: JinxGuiData | None = None` - The Jinx gui data for the
-        window. If not given or None, a new Jinx gui data object is
+        `data: JinxGuiData | None = None` - The Jinx system data for the
+        window. If not given or None, a new Jinx system data object is
         created.
 
         `name: str | None = None` - The name of the window. If not given or
@@ -646,19 +649,19 @@ class JinxGuiWindow(observable.Observer):
         self.__vbox.addWidget(self.__stack)
         self.__main_qwidget.setLayout(self.__vbox)
 
-        self.__data: JinxGuiData
+        self.__data: JinxSystemData
         if data is None:
-            self.__data = JinxGuiData(
-                name=f"Gui Data for {self.window_name}",
+            self.__data = JinxSystemData(
+                name=f"System data for {self.window_name}",
                 gui=self,
                 debug=debug
             )
         else:
             self.__data = data
-            self.__data.connect_gui(self)
+            self.__data.link_gui(self)
         self.__data.assign_observers(self)
 
-        self.__views: dict[str, JinxObserverWidget] = {}
+        self.__views: dict[str, JinxWidget] = {}
         self.__current_view_state: str | None = None
         self.__default_qwidget = QtWidgets.QLabel()
         self.__setup_default_qwidget()
@@ -707,7 +710,7 @@ class JinxGuiWindow(observable.Observer):
 
     def __default_paint_event(
         self,
-        arg__1: QtGui.QPaintEvent
+        arg__1: QtGui.QPaintEvent  # pylint: disable=unused-argument
     ) -> None:
         """Paint the default widget."""
         painter = QtGui.QPainter(self.__default_qwidget)
@@ -744,8 +747,8 @@ class JinxGuiWindow(observable.Observer):
         return self.__qwindow
 
     @property
-    def data(self) -> JinxGuiData:
-        """Get the Jinx gui data for the window."""
+    def data(self) -> JinxSystemData:
+        """Get the Jinx system data for the window."""
         return self.__data
 
     @property
@@ -778,7 +781,7 @@ class JinxGuiWindow(observable.Observer):
 
     def add_view(
         self,
-        jwidget: JinxObserverWidget,
+        jwidget: JinxWidget,
         name: str | None = None
     ) -> None:
         """
@@ -824,7 +827,7 @@ class JinxGuiWindow(observable.Observer):
             else:
                 self.__data.desired_view_state = None
 
-    def update_observer(self, observable_: JinxGuiData) -> None:
+    def update_observer(self, observable_: JinxSystemData) -> None:
         """Update the observer."""
         if observable_ is not self.__data:
             return

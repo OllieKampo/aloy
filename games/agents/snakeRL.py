@@ -18,7 +18,7 @@ from PyQt6 import QtWidgets
 from PyQt6.QtCore import QTimer
 
 from games.snakegame import SnakeGameJinxWidget, SnakeGameLogic
-from guis.gui import JinxGuiData, JinxGuiWindow
+from guis.gui import JinxSystemData, JinxGuiWindow
 from learning.convolutional import calc_conv_output_shape, calc_conv_output_shape_from, size_of_flat_layer
 from moremath.mathutils import exp_decay_between
 from moremath.vectors import vector_distance_torus_wrapped
@@ -416,7 +416,7 @@ def render(args: argparse.Namespace) -> None:
     qwindow.setWindowTitle("Snake Game")
     qwindow.resize(width, height)
 
-    jdata = JinxGuiData("Snake GUI Data", debug=debug)
+    jdata = JinxSystemData("Snake GUI Data", debug=debug)
     jgui = JinxGuiWindow(qwindow, jdata, "Snake GUI Window", debug=debug)
 
     snake_qwidget = QtWidgets.QWidget()
