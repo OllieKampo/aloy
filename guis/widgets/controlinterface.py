@@ -1,10 +1,23 @@
+# Copyright (C) 2023 Oliver Michael Kamperis
+# Email: o.m.kamperis@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
 Module containing Jinx PyQt6 widgets defining interfaces for teleoperate
 control of robots.
 """
 
-from PySide6 import QtWidgets
-from PySide6 import QtCore
+from PySide6 import QtWidgets, QtCore
 
 from guis.gui import (
     JinxSystemData,
@@ -15,37 +28,6 @@ from guis.gui import (
     scale_size_for_grid
 )
 from robots.robotcontrol import JinxRobotControlData, JinxRobotControl
-
-
-class LabelledArrowButton(QtWidgets.QToolButton):
-    """
-    Widget defining a labelled arrow button.
-    """
-
-    def __init__(
-        self,
-        qwidget: QtWidgets.QWidget, /,
-        name: str,
-        arrow_type: QtCore.Qt.ArrowType
-    ) -> None:
-        """Create a new labelled arrow button Jinx widget."""
-        super().__init__(qwidget)
-
-        self.__layout = QtWidgets.QVBoxLayout()
-
-        self.__label = QtWidgets.QLabel()
-        self.__label.setText(name)
-        self.__layout.addWidget(self.__label)
-
-        self.__button = QtWidgets.QToolButton()
-        self.__button.setArrowType(arrow_type)
-        self.__button.setAutoRepeat(True)
-        self.__layout.addWidget(self.__button)
-
-        self.__layout.setStretch(0, 1)
-        self.__layout.setStretch(1, 1)
-
-        self.setLayout(self.__layout)
 
 
 class EstopInterface(JinxWidget):
@@ -303,8 +285,8 @@ class EstopInterface(JinxWidget):
         else:
             self.__waiting_for_power_off = True
             self.data.robot_control.request_motor_power_off()
-        for button in self.__on_off_button_group.buttons():
-            button.setEnabled(False)
+        for button_ in self.__on_off_button_group.buttons():
+            button_.setEnabled(False)
 
     def __confirm_power_on(self) -> bool:
         """Confirm that the power is on."""
@@ -453,7 +435,8 @@ class DirectionalControlInterface(JinxWidget):
         self.__layout.addWidget(self.__speed_slider, 2, 1, 1, 2)
 
         self.__speed_label = QtWidgets.QLabel()
-        self.__speed_label.setText(f"Desired speed: {self.__speed_slider.value()!s}%")
+        self.__speed_label.setText(
+            f"Desired speed: {self.__speed_slider.value()!s}%")
         self.__set_size(self.__speed_label, widget_size)
         self.__layout.addWidget(self.__speed_label, 2, 0, 1, 1)
 
@@ -463,7 +446,9 @@ class DirectionalControlInterface(JinxWidget):
         size: JinxWidgetSize
     ) -> None:
         """Connect slots and set the size of the button."""
-        button.sizeHint = lambda: QtCore.QSize(size.width, size.height)
+        def get_size() -> QtCore.QSize:
+            return QtCore.QSize(size.width, size.height)
+        button.sizeHint = get_size  # type: ignore
         button.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Expanding,
             QtWidgets.QSizePolicy.Policy.Expanding
