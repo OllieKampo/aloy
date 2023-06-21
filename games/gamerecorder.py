@@ -29,13 +29,17 @@ ST = TypeVar("ST")
 class GameRecorder(Generic[AT, ST]):  # pylint: disable=too-few-public-methods
     """Class recording actions played in a game, and saving them to a file."""
 
-    def __init__(self, game_spec: GameSpec, initial_state: ST | None = None) -> None:
+    def __init__(
+        self,
+        game_spec: GameSpec,
+        initial_state: ST | None = None
+    ) -> None:
         """Initialize a GameRecorder."""
         self.__game_spec: list[GameSpec] = [game_spec]
-        self.__initial_state: list[ST] = [initial_state]
+        self.__initial_state: list[ST | None] = [initial_state]
         self.__records: list[list[dict[str, AT | ST | None]]] = [[]]
         self.__last_game_spec: GameSpec = game_spec
-        self.__last_initial_state: ST = initial_state
+        self.__last_initial_state: ST | None = initial_state
 
     def new_match(
         self,
@@ -93,6 +97,7 @@ class GameRecorder(Generic[AT, ST]):  # pylint: disable=too-few-public-methods
         #   - https://stackoverflow.com/a/18857381
         #   - https://stackoverflow.com/a/21533561
         #   - https://docs.python.org/3/tutorial/inputoutput.html#reading-and-writing-files
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
         if os.path.exists(filename) and os.path.isfile(filename) and append:
             with open(filename, "ab+") as file:
                 file.seek(0, os.SEEK_END)
@@ -106,16 +111,16 @@ class GameRecorder(Generic[AT, ST]):  # pylint: disable=too-few-public-methods
         else:
             with open(filename, "w") as file:
                 json.dump(data, file, indent=2)
-        self.game_spec = []
-        self.initial_state = []
-        self.records = []
+        self.__game_spec = []
+        self.__initial_state = []
+        self.__records = []
 
 
 def __main() -> None:
     ops = GameSpec("test_game", "match_1", {"difficulty": "hard"})
-    rec = GameRecorder(ops, [1, 2, 3, 4])
+    rec = GameRecorder[str, list[int]](ops, [1, 2, 3, 4])
     rec.record("forwards", [2, 2, 3, 4])
-    rec.save("test_game_save", 1)
+    rec.save("test_game_save")
 
     # Read the file back in and print it
     with open("test_game_save", "r") as file:
