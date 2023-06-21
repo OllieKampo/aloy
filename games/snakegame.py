@@ -279,15 +279,15 @@ class SnakeGameLogic:
             if self.__playing:
                 self.__enable_recording_on_restart = True
             elif self.__recorder is None:
-                self.__recorder_enabled = True
                 self.__create_recorder()
+                self.__recorder_enabled = True
         elif self.__recorder is not None:
             self.__recorder_enabled = False
             self.__recorder.clear_last_match()
 
     def __create_recorder(self) -> None:
         game_spec = GameSpec(
-            name="Snake Game",
+            game_name="Snake Game",
             match_name=f"Match {self.__match_number}",
             game_options={
                 "difficulty": self.difficulty,
@@ -364,9 +364,9 @@ class SnakeGameLogic:
             self.__recorder.record(
                 action=direction,
                 state={
-                    "snake": self.snake,
-                    "food": self.food,
-                    "obstacles": self.obstacles
+                    "snake": self.__snake,
+                    "food": self.__food,
+                    "obstacles": self.__obstacles
                 }
             )
 
@@ -565,17 +565,17 @@ class SnakeGameLogic:
         if self.__recorder_enabled:
             self.__recorder.save(self.__recorder_path)
             self.__recorder.new_match()
+        if self.__enable_recording_on_restart:
+            self.__enable_recording_on_restart = False
+            if self.__recorder is None:
+                self.__create_recorder()
+            self.__recorder_enabled = True
         self._reset_game_state()
         self._random_obstacles()
         self._random_food()
         self._random_start()
         if not self.__manual_update:
             self.__last_food_time = time.perf_counter()
-        if self.__enable_recording_on_restart:
-            self.__enable_recording_on_restart = False
-            self.__recorder_enabled = True
-            if self.__recorder is None:
-                self.__create_recorder()
 
     def get_state(self) -> np.ndarray:
         """
