@@ -9,18 +9,23 @@
 # ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
 # FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
 #
-# You should have received a copy of the GNU General Public License
-# along with this program. If not, see <https://www.gnu.org/licenses/>.
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
 
-"""Module defining Jinx GUI classes for working with PySide6."""
+"""
+Module defining Jinx GUI components which wrap PySide6.
+
+The main Jinx GUI components are; JinxGuiWindow which wrap PySide6 QMainWindow
+and JinxWidget which wraps PySide6 QWidget. Both of these are observers.
+"""
 
 from abc import abstractmethod
 from typing import Any, Literal, NamedTuple, Sequence, Union, final
 from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtCore import QTimer  # pylint: disable=E0611
+
 from concurrency.clocks import ClockThread
 from concurrency.synchronization import atomic_update
-
 import guis.observable as observable
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
@@ -227,7 +232,7 @@ def combine_jinx_widgets(
 
     Parameters
     ----------
-    `jwidgets: Sequence[JinxObserverWidget]` - The Jinx widgets to combine.
+    `jwidgets: Sequence[JinxWidget]` - The Jinx widgets to combine.
 
     `stretches: Sequence[int]` - The stretch factors for each widget.
 
@@ -427,7 +432,7 @@ class JinxWidget(observable.Observer):
         `qwidget: QtWidgets.QWidget | None = None` - The parent widget to
         be wrapped. If None, a new widget will be created.
 
-        `data: JinxGuiData | None = None` - The system data object to be
+        `data: JinxSystemData | None = None` - The system data object to be
         attached to the widget. If None, no system data object will be
         attached. system data objects can be attached later using the
         `attach_data()` method. system data is automatically attached to
@@ -583,7 +588,7 @@ class JinxGuiWindow(observable.Observer):
         `qwindow: QtWidgets.QMainWindow | None = None` - The main window.
         If not given or None, a new main window is created.
 
-        `data: JinxGuiData | None = None` - The Jinx system data for the
+        `data: JinxSystemData | None = None` - The Jinx system data for the
         window. If not given or None, a new Jinx system data object is
         created.
 
@@ -676,9 +681,9 @@ class JinxGuiWindow(observable.Observer):
         """
         Return the default size hint.
 
-        The size hint is a reasonable size for the widget,
-        no minimum size hint is provided, as the minimum size
-        is handled by the  text size in the default widget.
+        The size hint is a reasonable size for the widget, no minimum size
+        hint is provided, as the minimum size is handled by the  text size
+        in the default widget.
         """
         return QtCore.QSize(
             int(self.__qwindow.width() * 0.9),

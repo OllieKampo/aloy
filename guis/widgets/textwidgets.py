@@ -9,8 +9,8 @@
 # ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
 # FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
 #
-# You should have received a copy of the GNU General Public License
-# along with this program. If not, see <https://www.gnu.org/licenses/>.
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
 
 """Module defining widgets for displaying text."""
 
@@ -139,7 +139,11 @@ class ScrollTextListPanel(ScrollTextPanel):
 class TabbedScrollTextListPanel(QtWidgets.QWidget):
     """A panel with a tabbed interface for displaying text."""
 
-    def __init__(self, *tab_names: str, parent: QtWidgets.QWidget | None = None) -> None:
+    def __init__(
+        self,
+        *tab_names: str,
+        parent: QtWidgets.QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self.__tabs: dict[str, ScrollTextListPanel] = {}
 
@@ -216,7 +220,7 @@ class TabbedScrollTextListPanel(QtWidgets.QWidget):
 
 
 class ConsolePanel(QtWidgets.QWidget):
-    """A panel with a tabbed interface for displaying text."""
+    """A panel with a tabbed text interface and an input line."""
 
     return_pressed = QtCore.Signal(str)
 
@@ -259,26 +263,37 @@ class ConsolePanel(QtWidgets.QWidget):
 if __name__ == "__main__":
     import sys
     app = QtWidgets.QApplication(sys.argv)
-    # window_1 = QtWidgets.QMainWindow()
-    # window_2 = QtWidgets.QMainWindow()
-    # window_3 = QtWidgets.QMainWindow()
-    # list_panel = ScrollTextListPanel(parent=window_1)
-    # edit_panel = ScrollTextEditPanel(parent=window_2)
-    # tabbed_panel = TabbedScrollTextListPanel("Tab 1", "Tab 2", parent=window_1)
-    # window_1.setCentralWidget(list_panel)
-    # window_1.show()
-    # window_2.setCentralWidget(edit_panel)
-    # window_2.show()
-    # window_3.setCentralWidget(tabbed_panel)
-    # window_3.show()
-    # def add_line():
-    #     list_panel.add_line("Hello" + str(list(range(100))))
-    #     edit_panel.add_line("Hello" + str(list(range(100))))
-    #     tabbed_panel.get_tab("Tab 1").add_line("Hello" + str(list(range(100, 200))))
-    #     tabbed_panel.get_tab("Tab 2").add_line("Hello" + str(list(range(200, 300))))
-    # timer = QtCore.QTimer()
-    # timer.timeout.connect(add_line)
-    # timer.start(1000)
+
+    window_1 = QtWidgets.QMainWindow()
+    window_2 = QtWidgets.QMainWindow()
+    window_3 = QtWidgets.QMainWindow()
+    list_panel = ScrollTextListPanel(parent=window_1)
+    edit_panel = ScrollTextEditPanel(parent=window_2)
+    tabbed_panel = TabbedScrollTextListPanel(
+        "Tab 1",
+        "Tab 2",
+        parent=window_3
+    )
+    window_1.setCentralWidget(list_panel)
+    window_1.show()
+    window_2.setCentralWidget(edit_panel)
+    window_2.show()
+    window_3.setCentralWidget(tabbed_panel)
+    window_3.show()
+
+    def add_line():
+        """Add a line to each of the panels."""
+        list_panel.add_line("Hello" + str(list(range(100))))
+        edit_panel.add_line("Hello" + str(list(range(100))))
+        tabbed_panel.get_tab("Tab 1").add_line(
+            "Hello" + str(list(range(100, 200))))
+        tabbed_panel.get_tab("Tab 2").add_line(
+            "Hello" + str(list(range(200, 300))))
+
+    timer = QtCore.QTimer()
+    timer.timeout.connect(add_line)
+    timer.start(1000)
+
     window = QtWidgets.QMainWindow()
     console_panel = ConsolePanel("Tab 1", "Tab 2", parent=window)
     window.setCentralWidget(console_panel)
