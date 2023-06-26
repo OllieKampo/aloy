@@ -139,10 +139,24 @@ class OwnedRLock(contextlib.AbstractContextManager):
         self.release()
 
 
-__instance_atomic_updaters: weakref.WeakKeyDictionary[type, \
-    weakref.WeakKeyDictionary[object, dict[str, threading.RLock]]] = weakref.WeakKeyDictionary()
-__class_atomic_updaters: weakref.WeakKeyDictionary[type, dict[str, threading.RLock]] = weakref.WeakKeyDictionary()
-__arbitrary_atomic_updaters: dict[str, threading.RLock] = defaultdict(threading.RLock)
+__INSTANCE_ATOMIC_UPDATERS: weakref.WeakKeyDictionary[
+    type,
+    weakref.WeakKeyDictionary[
+        object,
+        dict[str, threading.RLock]
+    ]
+] = weakref.WeakKeyDictionary()
+__CLASS_ATOMIC_UPDATERS: weakref.WeakKeyDictionary[
+    type,
+    dict[
+        str,
+        threading.RLock
+    ]
+] = weakref.WeakKeyDictionary()
+__ARBITRARY_ATOMIC_UPDATERS: dict[
+    str,
+    threading.RLock
+] = defaultdict(threading.RLock)
 
 
 @contextlib.contextmanager
@@ -150,7 +164,7 @@ def atomic_context(
     context_name: str, /,
     cls: type | None = None,
     inst: object | None = None
-) -> None:
+) -> typing.Iterator[None]:
     """
     Context manager that ensures atomic updates in the context.
 
@@ -167,23 +181,31 @@ def atomic_context(
     If `cls` is not given or None and `inst` is not None,
     `cls` will be set to `inst.__class__`.
     """
-    global __instance_atomic_updaters
-    global __class_atomic_updaters
-    global __arbitrary_atomic_updaters
+    # global __INSTANCE_ATOMIC_UPDATERS
+    # global __CLASS_ATOMIC_UPDATERS
+    # global __ARBITRARY_ATOMIC_UPDATERS
 
     if inst is not None:
         if cls is None:
             cls = inst.__class__
-        lock_ = __instance_atomic_updaters.setdefault(
+        lock_ = __INSTANCE_ATOMIC_UPDATERS.setdefault(
             cls, weakref.WeakKeyDictionary()) \
             .setdefault(inst, {}).setdefault(
                 context_name, threading.RLock())
     elif cls is not None:
-        lock_ = __class_atomic_updaters.setdefault(
+        lock_ = __CLASS_ATOMIC_UPDATERS.setdefault(
             cls, {}) \
             .setdefault(context_name, threading.RLock())
     else:
-        lock_ = __arbitrary_atomic_updaters[context_name]
+        lock_ = __ARBITRARY_ATOMIC_UPDATERS[context_name]
+    print(
+        *list(f"atomic_context: {type_} {inst_} {name_} {lock_}"
+        for type_, dict_ in __INSTANCE_ATOMIC_UPDATERS.items()
+        for inst_, dict2_ in dict_.items()
+        for name_, lock_ in dict2_.items()),
+        sep="\n"
+    )
+    print("END")
     lock_.acquire()
     try:
         yield
