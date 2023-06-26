@@ -46,7 +46,7 @@ __all__ = (
 )
 
 
-def __dir__() -> tuple[str]:
+def __dir__() -> tuple[str, ...]:
     """Get the names of module attributes."""
     return __all__
 
@@ -81,13 +81,17 @@ class OwnedRLock(contextlib.AbstractContextManager):
 
     def __str__(self) -> str:
         """Get a simple string representation of the lock."""
-        return f"{'locked' if self.is_locked else 'unlocked'} {self.__class__.__name__} {self.__name}, " \
+        return f"{'locked' if self.is_locked else 'unlocked'} " \
+               f"{self.__class__.__name__} {self.__name}, " \
                f"owned by={self.__owner}, depth={self.__recursion_depth!s}"
 
     def __repr__(self) -> str:
         """Get a verbose string representation of the lock."""
-        return f"<{'locked' if self.is_locked else 'unlocked'} {self.__class__.__name__}, name={self.__name}, " \
-               f"owned by={self.__owner}, recursion depth={self.__recursion_depth!s}, lock={self.__lock!r}>"
+        return f"<{'locked' if self.is_locked else 'unlocked'} " \
+               f"{self.__class__.__name__}, name={self.__name}, " \
+               f"owned by={self.__owner}, " \
+               f"recursion depth={self.__recursion_depth!s}, " \
+               f"lock={self.__lock!r}>"
 
     @property
     def name(self) -> str | None:
@@ -101,7 +105,10 @@ class OwnedRLock(contextlib.AbstractContextManager):
 
     @property
     def owner(self) -> threading.Thread | None:
-        """Get the thread that currently owns the lock, or None if the lock is not locked."""
+        """
+        Get the thread that currently owns the lock, or None if the lock is
+        not locked.
+        """
         return self.__owner
 
     @property
@@ -111,19 +118,30 @@ class OwnedRLock(contextlib.AbstractContextManager):
 
     @property
     def recursion_depth(self) -> int:
-        """Get the number of times the lock has been acquired by the current thread."""
+        """
+        Get the number of times the lock has been acquired by the current
+        thread.
+        """
         return self.__recursion_depth
 
-    @functools.wraps(threading._RLock.acquire, assigned=("__doc__",))
+    @functools.wraps(
+        threading._RLock.acquire,  # pylint: disable=protected-access
+        assigned=("__doc__",)
+    )
     def acquire(self, blocking: bool = True, timeout: float = -1.0) -> bool:
-        """Acquire the lock, blocking or non-blocking, with an optional timeout."""
+        """
+        Acquire the lock, blocking or non-blocking, with an optional timeout.
+        """
         if result := self.__lock.acquire(blocking, timeout):
             if self.__owner is None:
                 self.__owner = threading.current_thread()
             self.__recursion_depth += 1
         return result
 
-    @functools.wraps(threading._RLock.release, assigned=("__doc__",))
+    @functools.wraps(
+        threading._RLock.release,  # pylint: disable=protected-access
+        assigned=("__doc__",)
+    )
     def release(self) -> None:
         """Release the lock, if it is locked by the current thread."""
         if self.__owner is threading.current_thread():
@@ -134,7 +152,12 @@ class OwnedRLock(contextlib.AbstractContextManager):
 
     __enter__ = acquire
 
-    def __exit__(self, exc_type: type | None, exc_val: BaseException | None, exc_tb: types.TracebackType | None) -> None:
+    def __exit__(
+        self,
+        exc_type: type | None,
+        exc_val: BaseException | None,
+        exc_tb: types.TracebackType | None
+    ) -> None:
         """Release the lock when the context manager exits."""
         self.release()
 
@@ -181,10 +204,6 @@ def atomic_context(
     If `cls` is not given or None and `inst` is not None,
     `cls` will be set to `inst.__class__`.
     """
-    # global __INSTANCE_ATOMIC_UPDATERS
-    # global __CLASS_ATOMIC_UPDATERS
-    # global __ARBITRARY_ATOMIC_UPDATERS
-
     if inst is not None:
         if cls is None:
             cls = inst.__class__
@@ -198,14 +217,6 @@ def atomic_context(
             .setdefault(context_name, threading.RLock())
     else:
         lock_ = __ARBITRARY_ATOMIC_UPDATERS[context_name]
-    print(
-        *list(f"atomic_context: {type_} {inst_} {name_} {lock_}"
-        for type_, dict_ in __INSTANCE_ATOMIC_UPDATERS.items()
-        for inst_, dict2_ in dict_.items()
-        for name_, lock_ in dict2_.items()),
-        sep="\n"
-    )
-    print("END")
     lock_.acquire()
     try:
         yield
@@ -213,6 +224,7 @@ def atomic_context(
         lock_.release()
 
 
+CT = typing.TypeVar("CT")
 SP = typing.ParamSpec("SP")
 ST = typing.TypeVar("ST")
 
@@ -382,12 +394,15 @@ def sync(
 
 def synchronize_method(
     lock: typing.Literal["all", "method"] = "all"
-) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
+) -> typing.Callable[
+    [typing.Callable[typing.Concatenate[CT, SP], ST]],
+    typing.Callable[typing.Concatenate[CT, SP], ST]
+]:
     """Decorate a method to synchronize it in a synchronized class."""
 
     def synchronize_method_decorator(
-        method: typing.Callable[SP, ST]
-    ) -> typing.Callable[SP, ST]:
+        method: typing.Callable[typing.Concatenate[CT, SP], ST]
+    ) -> typing.Callable[typing.Concatenate[CT, SP], ST]:
         """Return a synchronized method wrapper."""
         if lock == "all":
             @functools.wraps(method)
