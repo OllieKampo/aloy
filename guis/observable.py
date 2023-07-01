@@ -15,14 +15,37 @@
 """
 Module defining obversable-observer pattern interface.
 
-The observable-observer pattern is a design pattern in which an object, called
-the observable, maintains a list of its dependents, called observers, and
-updates them automatically when its state changes.
+The observable-observer pattern is a single-producer multi-consumer
+communication design pattern in which an object, called the observable,
+maintains a list of its dependents, called observers, and updates them
+automatically when its state changes. The pattern is effective technique for
+simple GUI based applications, because it is easy to understand and implement,
+with minimal boilerplate code needed.
 
 The observable-observer pattern is unlike the publisher-subscriber pattern in
 that observers do not subscribe to specific events or topics. Instead, they
 observe the whole observable, are notified when the observable changes in any
 way, and it is up to the observer to decide how to update itself accordingly.
+
+The main downside of the observable-observer pattern, is that it scales quite
+poorly to large applications. For applictions with many components that need
+to be updated very often, the pattern is typically very inefficient. There are
+three main reasons for this:
+- Firstly, observers are notified that the observable has changed, but not of
+  what has changed. This means that observers either need to update themselves
+  completely, or keep track of and check what has changed themselves.
+- Secondly, although it is possible to only notify a sub-set of observers when
+  changing the observable, typically, we don't want anything that updates the
+  observable to have to know about the observers. This means that we usually
+  notify all observers for any and all state changes. Therefore, every
+  component of the application is updated, no matter how small the change is.
+- Thirdly, observers are updated through a single method call, which takes
+  the observable as an argument. This means that all observables appear to be
+  the same to the observer. This is problematic, because we typically want to
+  make custom observable sub-classes, which have different methods and
+  properties. If we want to observe multiple observables, then the observer
+  needs to check the type of the observable, and then call the appropriate
+  method. This is not ideal, because it couples the observer to the observable.
 """
 
 from abc import abstractmethod, ABCMeta
