@@ -45,3 +45,18 @@ def normalize_to_sum(
     list_: list[NT] = list(iterable)
     list_sum = sum(list_)
     return [item * (sum_ / list_sum) for item in list_]
+
+
+def closest_integer_factors(value: int) -> tuple[int, int]:
+    """
+    Find the closest two integer factors of a given integer. Such that
+    `x_factor * y_factor == value` and `x_factor <= y_factor`.
+
+    See:
+    https://stackoverflow.com/questions/16266931/input-an-integer-find-the-two-closest-integers-which-when-multiplied-equal-th
+    """
+    x_factor = math.floor(value ** 0.5)
+    while (value % x_factor) != 0:
+        x_factor -= 1
+    y_factor = value // x_factor
+    return (x_factor, y_factor)
