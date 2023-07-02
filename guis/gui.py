@@ -23,12 +23,12 @@ from abc import abstractmethod
 from collections import defaultdict
 import itertools
 from typing import Any, Literal, NamedTuple, Sequence, Union, final
-from PySide6 import QtWidgets, QtCore, QtGui
-from PySide6.QtCore import QTimer  # pylint: disable=E0611
+from PySide6 import QtWidgets, QtCore, QtGui  # pylint: disable=unused-import
 
 from concurrency.clocks import ClockThread
 from concurrency.synchronization import atomic_update
 import guis.observable as observable
+from guis.widgets.placeholders import PlaceholderWidget
 from moremath.mathutils import closest_integer_factors
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
@@ -387,7 +387,7 @@ class JinxSystemData(observable.Observable):
         name: str | None = None,
         gui: Union["JinxGuiWindow", None] = None,
         data_dict: dict[str, Any] | None = None,
-        clock: ClockThread | QTimer | None = None, *,
+        clock: ClockThread | QtCore.QTimer | None = None, *,
         debug: bool = False
     ) -> None:
         """
@@ -793,8 +793,10 @@ class JinxGuiWindow(observable.Observer):
 
         self.__views: dict[str, JinxWidget] = {}
         self.__current_view_state: str | None = None
-        self.__default_qwidget = QtWidgets.QLabel()
-        self.__setup_default_qwidget()
+        self.__default_qwidget = PlaceholderWidget(
+            "No views have been added to this window."
+        )
+        self.__default_qwidget.sizeHint = self.__default_size_hint
         self.__stack.addWidget(self.__default_qwidget)
         self.__stack.setCurrentWidget(self.__default_qwidget)
 
@@ -814,57 +816,6 @@ class JinxGuiWindow(observable.Observer):
             int(self.__qwindow.width() * 0.9),
             int(self.__qwindow.height() * 0.9)
         )
-
-    def __setup_default_qwidget(self) -> None:
-        """Create the default widget."""
-        self.__default_qwidget = QtWidgets.QLabel()
-        self.__default_qwidget.setStyleSheet(
-            "QLabel { background-color: black; }"
-        )
-        self.__default_qwidget.setAlignment(
-            QtCore.Qt.AlignmentFlag.AlignCenter
-        )
-        self.__default_qwidget.setText(
-            "No views have been added to this window."
-        )
-        self.__default_qwidget.setSizePolicy(
-            QtWidgets.QSizePolicy.Policy.Expanding,
-            QtWidgets.QSizePolicy.Policy.Expanding
-        )
-        self.__default_qwidget.sizeHint = (     # type: ignore
-            self.__default_size_hint
-        )
-        self.__default_qwidget.paintEvent = (   # type: ignore
-            self.__default_paint_event
-        )
-
-    def __default_paint_event(
-        self,
-        arg__1: QtGui.QPaintEvent  # pylint: disable=unused-argument
-    ) -> None:
-        """Paint the default widget."""
-        painter = QtGui.QPainter(self.__default_qwidget)
-        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
-        painter.setPen(QtGui.QPen(QtGui.QColor("green")))
-        painter.drawLine(0, 0, self.__default_qwidget.width(),
-                         self.__default_qwidget.height())
-        painter.drawLine(0, self.__default_qwidget.height(),
-                         self.__default_qwidget.width(), 0)
-        painter.setPen(QtGui.QPen(QtGui.QColor("red")))
-        # Paint the widget size in the top left corner.
-        painter.drawText(
-            self.__default_qwidget.rect(),
-            QtCore.Qt.AlignmentFlag.AlignLeft
-            | QtCore.Qt.AlignmentFlag.AlignTop,
-            f"size={self.__default_qwidget.width()}x"
-            f"{self.__default_qwidget.height()}"
-        )
-        painter.drawText(
-            self.__default_qwidget.rect(),
-            self.__default_qwidget.alignment(),
-            self.__default_qwidget.text()
-        )
-        painter.end()
 
     @property
     def qapp(self) -> QtWidgets.QApplication:
