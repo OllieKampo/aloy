@@ -1,25 +1,24 @@
-###########################################################################
-###########################################################################
-## Module containing priority queue data structures.                     ##
-##                                                                       ##
-## Copyright (C) 2023 Oliver Michael Kamperis                            ##
-##                                                                       ##
-## This program is free software: you can redistribute it and/or modify  ##
-## it under the terms of the GNU General Public License as published by  ##
-## the Free Software Foundation, either version 3 of the License, or     ##
-## any later version.                                                    ##
-##                                                                       ##
-## This program is distributed in the hope that it will be useful,       ##
-## but WITHOUT ANY WARRANTY; without even the implied warranty of        ##
-## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          ##
-## GNU General Public License for more details.                          ##
-##                                                                       ##
-## You should have received a copy of the GNU General Public License     ##
-## along with this program. If not, see <https://www.gnu.org/licenses/>. ##
-###########################################################################
-###########################################################################
+# Copyright (C) 2023 Oliver Michael Kamperis
+# Email: o.m.kamperis@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-"""Module containing sorted and priority queue data structures."""
+"""
+Module containing sorted and priority queue data structures.
+
+These data structures are for algorithmic use. They are not thread-safe, and
+not intended to be used in multi-threaded or multi-process applications. Use
+the Python standard library `queue` module instead for such purposes.
+"""
 
 import collections.abc
 import heapq
@@ -201,14 +200,15 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
         """Create a sorted queue from an iterable."""
         return cls(*iterable, key=key, min_first=min_first)
 
+    # pylint: disable=W0212,W0238
     def copy(self) -> "SortedQueue[ST]":
         """Return a shallow copy of the queue."""
         heap: "SortedQueue[ST]" = self.__class__()
-        heap.__members = self.__members.copy()  # pylint: disable=W0212,W0238
-        heap.__get = self.__get                 # pylint: disable=W0212,W0238
-        heap.__set = self.__set                 # pylint: disable=W0212,W0238
-        heap.__heap = self.__heap.copy()        # pylint: disable=W0212,W0238
-        heap.__delete = self.__delete.copy()    # pylint: disable=W0212,W0238
+        heap.__members = self.__members.copy()
+        heap.__get = self.__get
+        heap.__set = self.__set
+        heap.__heap = self.__heap.copy()
+        heap.__delete = self.__delete.copy()
         return heap
 
     def __str__(self) -> str:
@@ -464,12 +464,13 @@ class PriorityQueue(collections.abc.Mapping, Generic[VT, QT]):
         """
         return cls(*iterable)
 
+    # pylint: disable=W0212,W0238
     def copy(self) -> "PriorityQueue[VT, QT]":
         """Return a shallow copy of the queue."""
         heap: "PriorityQueue[VT, QT]" = self.__class__()
-        heap.__members = self.__members.copy()  # pylint: disable=W0212,W0238
-        heap.__heap = self.__heap.copy()        # pylint: disable=W0212,W0238
-        heap.__delete = self.__delete.copy()    # pylint: disable=W0212,W0238
+        heap.__members = self.__members.copy()
+        heap.__heap = self.__heap.copy()
+        heap.__delete = self.__delete.copy()
         return heap
 
     def __str__(self) -> str:
