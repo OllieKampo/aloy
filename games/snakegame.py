@@ -335,7 +335,7 @@ class SnakeGameLogic:
             self.__game_over = True
             return
 
-        # Check if the good time limit has been exceeded
+        # Check if the food time limit has been exceeded
         if (self.time_since_last_food > (self.food_time_limit / self.speed)):
             self._random_food()
             self.__last_food_time = time.perf_counter()
@@ -1257,7 +1257,7 @@ def play_snake_game(
         qapp=qapp,
         data=jdata,
         name="Snake GUI Window",
-        size=(width, height),
+        size=size,
         debug=debug
     )
 
