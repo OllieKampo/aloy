@@ -20,6 +20,8 @@ and JinxWidget which wraps PySide6 QWidget. Both of these are observers.
 """
 
 from abc import abstractmethod
+from collections import defaultdict
+import itertools
 from typing import Any, Literal, NamedTuple, Sequence, Union, final
 from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtCore import QTimer  # pylint: disable=E0611
@@ -27,6 +29,7 @@ from PySide6.QtCore import QTimer  # pylint: disable=E0611
 from concurrency.clocks import ClockThread
 from concurrency.synchronization import atomic_update
 import guis.observable as observable
+from moremath.mathutils import closest_integer_factors
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
@@ -221,11 +224,14 @@ class GridScaler:
 
 def combine_jinx_widgets(
     jwidgets: Sequence["JinxWidget"],
-    stretches: Sequence[int],
-    alignment: QtCore.Qt.AlignmentFlag,
-    kind: Literal["horizontal", "vertical"],
-    spacing: int = 0,
-    parent: QtWidgets.QWidget | QtWidgets.QMainWindow | None = None
+    kind: Literal["horizontal", "vertical", "grid"] = "vertical",
+    stretches: (Sequence[int] | tuple[Sequence[int], Sequence[int]]
+                | None) = None,
+    spacing: int | tuple[int, int] = 0,
+    contents_margins: tuple[int, int, int, int] | None = None,
+    alignment: QtCore.Qt.AlignmentFlag = QtCore.Qt.AlignmentFlag.AlignCenter,
+    parent: QtWidgets.QWidget | QtWidgets.QMainWindow | None = None,
+    grid_size_max: tuple[int, int] | None = None
 ) -> QtWidgets.QWidget | QtWidgets.QMainWindow:
     """
     Combine a sequence of Jinx widgets onto a single widget.
@@ -234,32 +240,123 @@ def combine_jinx_widgets(
     ----------
     `jwidgets: Sequence[JinxWidget]` - The Jinx widgets to combine.
 
-    `stretches: Sequence[int]` - The stretch factors for each widget.
+    `kind: Literal["horizontal", "vertical", "grid"]` - The kind of layout to
+    use. If "grid", the widgets will be initially placed along the columns of
+    the first row, additional rows are added whenever a row is filled.
+
+    `stretches: Sequence[int] | tuple[Sequence[int], Sequence[int]] | None =
+    None` - The stretch factors for the widgets. If None, all widgets will have
+    a stretch factor of 0. If a sequence of integers, the stretch factors will
+    be applied to the widgets in the order they are given. For grid layouts,
+    a tuple of two sequences of integers must be given, where the first
+    sequence is the stretch factors for the rows and the second sequence is the
+    stretch factors for the columns. If there are more widgets than stretch
+    factors, the sequence of stretch factors will be cycled.
+
+    `spacing: int | tuple[int, int] = 0` - The spacing between widgets in
+    pixels. If a single integer is given, the same spacing will be used
+    horizontally and vertically. For grid layouts, a tuple of two integers must
+    be given for the horizontal and vertical spacing.
+
+    `contents_margins: tuple[int, int, int, int] | None = None` - The margins
+    around the widgets in pixels. If None, no margins will be used. The order
+    is left, top, right, bottom.
 
     `alignment: QtCore.Qt.AlignmentFlag` - The alignment of the widgets.
 
-    `kind: Literal["horizontal", "vertical"]` - The kind of layout to use.
-
-    `spacing: int = 0` - The spacing between widgets in pixels.
-
     `parent: QtWidgets.QWidget | QtWidgets.QMainWindow | None = None` - The
     parent widget to use. If None, a new widget will be created.
+
+    `grid_size_max: tuple[int, int] | None = None` - The maximum size of the
+    grid in pixels. If None, the grid size will be made the tightest possible
+    square that fits all widgets, i.e. the number of rows and columns will be
+    closest possible two factors of the closest square number that is greater
+    than or equal to the number of widgets. If a tuple of two integers is
+    given, try to fit the widgets into a grid of the given size, filling the
+    grid from left to right, then top to bottom (expand columns first, then
+    rows).
 
     Returns
     -------
     `QtWidgets.QWidget | QtWidgets.QMainWindow` - The parent widget.
     """
     layout: QtWidgets.QLayout
-    if kind == "horizontal":
-        layout = QtWidgets.QHBoxLayout()
-    elif kind == "vertical":
-        layout = QtWidgets.QVBoxLayout()
+
+    if kind == "grid":
+        layout = QtWidgets.QGridLayout()
+
+        if not isinstance(spacing, tuple):
+            raise TypeError(
+                f"Spacing {spacing!r} must be a tuple of two integers for "
+                f"grid layout."
+            )
+        layout.setHorizontalSpacing(spacing[0])
+        layout.setVerticalSpacing(spacing[1])
+
+        if stretches is None:
+            row_stretches = itertools.repeat(0)
+            col_stretches = itertools.repeat(0)
+        else:
+            if len(next(iter(stretches))) != 2:  # type: ignore
+                raise ValueError(
+                    "Grid layout requires a tuple of two sequences of "
+                    "stretch factors, one for rows and one for columns."
+                )
+            row_stretches = itertools.cycle(stretches[0])  # type: ignore
+            col_stretches = itertools.cycle(stretches[1])  # type: ignore
+
+        if grid_size_max is not None:
+            if (grid_size_max[0] * grid_size_max[1]) < len(jwidgets):
+                raise ValueError(
+                    f"Grid size {grid_size_max!r} is too small for "
+                    f"{len(jwidgets)!r} widgets."
+                )
+        else:
+            grid_size_max = closest_integer_factors(len(jwidgets))
+
+        for index, jwidget in enumerate(jwidgets):
+            index_row, index_col = divmod(index, grid_size_max[1])
+            layout.addWidget(
+                jwidget.qwidget,
+                index_row,
+                index_col,
+                alignment=alignment
+            )
+            layout.setRowStretch(index_row, next(row_stretches))
+            layout.setColumnStretch(index_col, next(col_stretches))
+
+    elif kind in ("horizontal", "vertical"):
+        if kind == "horizontal":
+            layout = QtWidgets.QHBoxLayout()
+        elif kind == "vertical":
+            layout = QtWidgets.QVBoxLayout()
+
+        if not isinstance(spacing, int):
+            raise TypeError(
+                f"Spacing must be an integer for {kind!r} layout."
+            )
+        layout.setSpacing(spacing)
+
+        if stretches is None:
+            stretches = itertools.repeat(0)  # type: ignore
+        elif not isinstance(next(iter(stretches)), int):
+            raise TypeError(
+                f"Stretches must be a sequence of integers for {kind!r} "
+                f"layout."
+            )
+
+        for jwidget, stretch in zip(jwidgets, stretches):  # type: ignore
+            layout.addWidget(
+                jwidget.qwidget,
+                stretch=stretch,  # type: ignore
+                alignment=alignment
+            )
+
     else:
         raise ValueError(f"Unknown kind: {kind!s}")
-    layout.setSpacing(spacing)
 
-    for jwidget, stretch in zip(jwidgets, stretches):
-        layout.addWidget(jwidget.qwidget, stretch=stretch, alignment=alignment)
+    if contents_margins is not None:
+        layout.setContentsMargins(*contents_margins)
 
     if isinstance(parent, QtWidgets.QMainWindow):
         combined_qwidget = QtWidgets.QWidget()
@@ -281,7 +378,8 @@ class JinxSystemData(observable.Observable):
         "__linked_gui": "The gui object linked to this data object.",
         "__view_states": "The list of view states.",
         "__desired_view_state": "The currently desired view state.",
-        "__data": "Arbitrary data associated with the gui."
+        "__data": "Arbitrary data associated with the gui.",
+        "__messages": "Log messages associated with the gui.",
     }
 
     def __init__(
@@ -325,6 +423,7 @@ class JinxSystemData(observable.Observable):
             self.__data = {}
         else:
             self.__data = data_dict.copy()
+        self.__messages: dict[str, list[str]] = defaultdict(list)
 
     @atomic_update("gui", method=True)
     @observable.notifies_observers()
@@ -336,16 +435,16 @@ class JinxSystemData(observable.Observable):
 
     @property
     @atomic_update("gui", method=True)
-    def connected_gui(self) -> Union["JinxGuiWindow", None]:
-        """Get the connected gui."""
+    def linked_gui(self) -> Union["JinxGuiWindow", None]:
+        """Get the linked gui."""
         return self.__linked_gui
 
     @atomic_update("view_states", method=True)
     @observable.notifies_observers()
     def update_view_states(self) -> None:
-        """Update the view states of the connected gui."""
+        """Update the view states of the linked gui."""
         if self.__linked_gui is None:
-            raise RuntimeError("System data object not connected to a gui.")
+            raise RuntimeError("System data object not linked to a gui.")
         self.__view_states = self.__linked_gui.view_states
 
     @property
@@ -383,6 +482,32 @@ class JinxSystemData(observable.Observable):
     def del_data(self, key: str) -> None:
         """Delete the data associated with the given key."""
         self.__data.pop(key)
+
+    @atomic_update("messages", method=True)
+    @observable.notifies_observers()
+    def add_log_message(self, kind: str, message: str) -> None:
+        """Add a log message."""
+        self.__messages[kind].append(message)
+
+    @atomic_update("messages", method=True)
+    @observable.notifies_observers()
+    def clear_log_messages(self, kind: str | None = None) -> None:
+        """Clear log messages."""
+        if kind is None:
+            self.__messages.clear()
+        else:
+            self.__messages[kind].clear()
+
+    @atomic_update("messages", method=True)
+    def get_log_messages(
+        self,
+        kind: str | None = None
+    ) -> dict[str, list[str]] | list[str]:
+        """Get log messages."""
+        if kind is None:
+            return self.__messages
+        else:
+            return self.__messages[kind]
 
 
 class JinxWidget(observable.Observer):
@@ -682,7 +807,7 @@ class JinxGuiWindow(observable.Observer):
         Return the default size hint.
 
         The size hint is a reasonable size for the widget, no minimum size
-        hint is provided, as the minimum size is handled by the  text size
+        hint is provided, as the minimum size is handled by the text size
         in the default widget.
         """
         return QtCore.QSize(
@@ -792,7 +917,11 @@ class JinxGuiWindow(observable.Observer):
         """
         Add a Jinx widget as a new view state to the window.
 
-        If the name is None, the name of the Jinx widget is used.
+        If `name` is None, the name of the Jinx widget is used. This window's
+        linked data object will be attached to the Jinx widget. The Jinx
+        widget is then added to the window's view stack. If this is the first
+        view state added to the window, it will be set as the current view
+        state.
         """
         if name is None:
             name = jwidget.observer_name
@@ -811,7 +940,7 @@ class JinxGuiWindow(observable.Observer):
             self.__data.desired_view_state = name
 
     def remove_view(self, name: str) -> None:
-        """Remove a view state from the window."""
+        """Remove the view state with the given name from the window."""
         if name not in self.__views or name is None:
             return
         jwidget = self.__views.pop(name)

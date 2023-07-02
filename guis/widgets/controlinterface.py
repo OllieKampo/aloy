@@ -502,10 +502,10 @@ def __main() -> None:
             estop_jwidget,
             control_jwidget
         ],
-        stretches=[1, 1],
-        alignment=QtCore.Qt.AlignmentFlag.AlignCenter,
         kind="vertical",
+        stretches=[1, 1],
         spacing=0,
+        alignment=QtCore.Qt.AlignmentFlag.AlignCenter,
         parent=qwindow
     )
 
