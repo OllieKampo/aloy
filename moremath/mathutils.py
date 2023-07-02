@@ -55,8 +55,16 @@ def closest_integer_factors(value: int) -> tuple[int, int]:
     See:
     https://stackoverflow.com/questions/16266931/input-an-integer-find-the-two-closest-integers-which-when-multiplied-equal-th
     """
-    x_factor = math.floor(value ** 0.5)
+    x_factor = math.floor(math.sqrt(value))
     while (value % x_factor) != 0:
         x_factor -= 1
     y_factor = value // x_factor
     return (x_factor, y_factor)
+
+
+def closest_squares(value: int) -> tuple[int, int]:
+    """Find the closest square numbers to a given integer."""
+    sqrt = math.sqrt(value)
+    if sqrt.is_integer():
+        return (int(sqrt),) * 2
+    return (math.floor(sqrt) ** 2, math.ceil(sqrt) ** 2)
