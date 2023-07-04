@@ -633,13 +633,6 @@ class SnakeGameJinxWidget(JinxWidget):
             height // _CELL_SIZE
         )
 
-        # Set up the timer to update the game
-        self.__manual_update: bool = manual_update
-        self.__timer = QtCore.QTimer()
-        if not manual_update:
-            self.__timer.setInterval(100)
-            self.__timer.timeout.connect(self.__update_game)
-
         # Set up the game logic
         self._logic: SnakeGameLogic
         if snake_game_logic is None:
@@ -647,6 +640,13 @@ class SnakeGameJinxWidget(JinxWidget):
         else:
             self._logic = snake_game_logic
             self._logic.grid_size = self.__grid_size
+
+        # Set up the timer to update the game
+        self.__manual_update: bool = manual_update
+        self.__timer = QtCore.QTimer()
+        if not manual_update:
+            self.__timer.setInterval(100)
+            self.__timer.timeout.connect(self.__update_game)
 
         # Widget and layout
         self.__layout = QtWidgets.QGridLayout()
@@ -774,25 +774,26 @@ class SnakeGameJinxWidget(JinxWidget):
             _DEFAULT_RECORD_PATH
         )
 
-    def __key_press_event(self, event: QtCore.QEvent) -> None:
+    def __key_press_event(self, event: QtGui.QKeyEvent) -> None:
         """
         Handle key press events.
 
         This handles all the actions that can be taken by the user in this
         game.
         """
+        key = event.key()
         with self._logic.direction:
-            if event.key() == QtCore.Qt.Key.Key_W:  # type: ignore
+            if key == QtCore.Qt.Key.Key_W:
                 self._logic.direction.set_obj((0, -1))
-            elif event.key() == QtCore.Qt.Key.Key_S:  # type: ignore
+            elif key == QtCore.Qt.Key.Key_S:
                 self._logic.direction.set_obj((0, 1))
-            elif event.key() == QtCore.Qt.Key.Key_A:  # type: ignore
+            elif key == QtCore.Qt.Key.Key_A:
                 self._logic.direction.set_obj((-1, 0))
-            elif event.key() == QtCore.Qt.Key.Key_D:  # type: ignore
+            elif key == QtCore.Qt.Key.Key_D:
                 self._logic.direction.set_obj((1, 0))
-            elif event.key() == QtCore.Qt.Key.Key_R:  # type: ignore
+            elif key == QtCore.Qt.Key.Key_R:
                 self._logic.restart()
-            elif event.key() == QtCore.Qt.Key.Key_Space:  # type: ignore
+            elif key == QtCore.Qt.Key.Key_Space:
                 self._logic.paused = not self._logic.paused
 
     def manual_update_game(self, action: str | int) -> None:
@@ -859,7 +860,7 @@ class SnakeGameJinxWidget(JinxWidget):
             self.__draw_debug()
         if self._logic.game_over:
             self.__draw_game_over()
-        elif self._logic.paused:
+        if self._logic.paused:
             self.__draw_paused()
         self.qwidget.update()
 
