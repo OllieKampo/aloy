@@ -15,6 +15,7 @@
 
 import functools
 from typing import Any
+from concurrency.executors import JinxThreadPool
 
 from datastructures.mappings import TwoWayMap
 
@@ -35,14 +36,11 @@ def field(field_name: str | None = None) -> Any:
         if field_name is None:
             field_name = func.__name__
         func.__subject_field__ = field_name
-        @functools.wraps(func)
-        def wrapper(self: "Subject", *args: Any, **kwargs: Any) -> Any:
-            return func(self, *args, **kwargs)
-        return wrapper
+        return func
     return decorator
 
 
-def fire_field_changed(field_name: str | None = None) -> Any:
+def field_change(field_name: str | None = None) -> Any:
     def decorator(func: Any) -> Any:
         if field_name is None:
             field_name = func.__name__
@@ -53,9 +51,7 @@ def fire_field_changed(field_name: str | None = None) -> Any:
             func(self, *args, **kwargs)
             new_value = getattr(self, field_name)
             if old_value != new_value:
-                for listener, fields in self.__listeners:
-                    if field_name in fields:
-                        listener.field_changed(self, field_name, new_value)
+                self.__update_listeners(field_name, old_value, new_value)
 
         return wrapper
     return decorator
@@ -65,6 +61,7 @@ class Subject:
 
     def __init__(self) -> None:
         self.__listeners = TwoWayMap[Listener, str]()
+        self.__executor = JinxThreadPool()
 
     @property
     @field()
@@ -72,7 +69,7 @@ class Subject:
         return self.__value
 
     @value.setter
-    @fire_field_changed()
+    @field_change()
     def value(self, value: int) -> None:
         self.__value = value
 
@@ -80,3 +77,18 @@ class Subject:
         self.__listeners.extend(
             (listener, set(fields))
         )
+
+    def remove_listener(self, listener: Listener) -> None:
+        self.__listeners.forwards_remove(listener)
+
+    def __update_listeners(self, field_name: str, old_value: Any, new_value: Any) -> None:
+        self.__executor.submit(
+            self.__update_listeners_async,
+            field_name,
+            old_value,
+            new_value
+        )
+
+    def __update_listeners_async(self, field_name: str, old_value: Any, new_value: Any) -> None:
+        for listener in self.__listeners[field_name]:
+            listener.field_changed(self, field_name, old_value, new_value)
