@@ -1,26 +1,18 @@
-###########################################################################
-###########################################################################
-## Module defining utility functions for manipulating strings.           ##
-##                                                                       ##
-## Copyright (C)  2023  Oliver Michael Kamperis                          ##
-## Email: o.m.kamperis@gmail.com                                         ##
-##                                                                       ##
-## This program is free software: you can redistribute it and/or modify  ##
-## it under the terms of the GNU General Public License as published by  ##
-## the Free Software Foundation, either version 3 of the License, or     ##
-## any later version.                                                    ##
-##                                                                       ##
-## This program is distributed in the hope that it will be useful,       ##
-## but WITHOUT ANY WARRANTY; without even the implied warranty of        ##
-## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          ##
-## GNU General Public License for more details.                          ##
-##                                                                       ##
-## You should have received a copy of the GNU General Public License     ##
-## along with this program. If not, see <https://www.gnu.org/licenses/>. ##
-###########################################################################
-###########################################################################
+# Copyright (C) 2023 Oliver Michael Kamperis
+# Email: o.m.kamperis@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-"""Module defining utility functions for manipulating strings."""
+"""Module defining utilities for manipulating strings."""
 
 import collections
 import itertools
@@ -344,11 +336,10 @@ def center_text(
     """
     Center a string for pretty printing to the console.
 
-    The string is wrapped to the given `wrapping_width`,
-    centered to the given `centering_width`, and framed
-    to the given `framing_width` with `framing_char`.
-    If `vbar_left` and `vbar_right` are given, they are
-    added to the left and right of each wrapped line.
+    The string is wrapped to the given `wrapping_width`, then centered to the
+    given `centering_width` (padding with spaces), and framed to the given
+    `framing_width` with `framing_char`. If `vbar_left` and `vbar_right` are
+    given, they are added to the left and right of each wrapped line.
     """
     centered_text = StringBuilder()
 

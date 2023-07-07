@@ -1,10 +1,37 @@
+# Copyright (C) 2023 Oliver Michael Kamperis
+# Email: o.m.kamperis@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-
+"""Module containing classes for calculating running statistics."""
 
 from collections import deque
 import functools
 from numbers import Number
 from typing import Callable, Generic, TypeVar, final
+
+__copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
+__license__ = "GPL-3.0"
+
+__all__ = (
+    "MovingAverage",
+    "ExponentialMovingAverage",
+    "RunningStandardDeviation"
+)
+
+
+def __dir__() -> tuple[str, ...]:
+    """Get the names of module attributes."""
+    return __all__
 
 
 NT = TypeVar("NT", bound=Number)
@@ -41,13 +68,13 @@ class MovingAverage(Generic[NT]):
         The moving average can either; compute an exact moving average by
         tracking all the data in the window, or more rapidly compute an
         approximate moving average by only tracking the total value of the
-        window and discarding the data after using it to calculate the
-        average. For large a large window size (200+) and many appends, the
-        approximate method can be more than 5x faster. However, for cases
-        where appended numbers have a large and random variance, the
-        approximate method can be extremely inaccurate. In cases where
-        append numbers have small variance, or increase or decrease
-        monotonically, the approximate method is reasonably accurate.
+        window and discarding the data after using it to calculate the average.
+        For a very large window size (at least 200) and many appends, the
+        approximate method can be many times faster than the exact. However,
+        for cases where appended numbers have a large and random variance, the
+        approximate method can be extremely inaccurate. In cases where append
+        numbers have small variance, or increase or decrease monotonically,
+        the approximate method may be reasonably accurate.
 
         Parameters
         ----------
@@ -108,8 +135,7 @@ class MovingAverage(Generic[NT]):
 
     def __repr__(self) -> str:
         """
-        Return an instaniable string representation of the moving
-        average.
+        Return an instaniable string representation of the moving average.
         """
         return f"{self.__class__.__name__}({self.__window}, {self.__total}, " \
                f"{self.__data is not None}, {self.__under_full})"
@@ -215,11 +241,15 @@ class ExponentialMovingAverage:
         self.__appends: int = 0
 
     def __repr__(self) -> str:
-        """Return an instaniable string representation of the moving average."""
+        """
+        Return an instaniable string representation of the moving average.
+        """
         return f"{self.__class__.__name__}({self.average}, {self.__smoothing})"
 
     def __str__(self) -> str:
-        """Return a human readable string representation of the moving average."""
+        """
+        Return a human readable string representation of the moving average.
+        """
         return f"{self.__class__.__name__}: total={self.__total}, " \
                f"average={self.average}, appends={self.__appends}"
 
