@@ -20,6 +20,9 @@ The content of this repository is currently under development. Eventually, the a
 - General reinforcement learning API,
     - Try Ray https://github.com/ray-project/ray and https://docs.ray.io/en/latest/rllib/index.html, and cleanRL https://github.com/vwxyzjn/cleanrl.
 - General deep game tree and MCTS API,
+- New event flow and command flow system with pub-sub style pattern for GUIs,
+- New threadpool system and futures implementation,
+- New thread-safe queues implementation,
 - Snake game with GUI and RL,
     - Support saving options and highscores,
     - Support recoding games for use as replay and for immitation learning.
@@ -32,5 +35,6 @@ The content of this repository is currently under development. Eventually, the a
     - Support playing over socket connection.
 - Block breaker game using PyGame,
 - Control interface for robots,
+- Control and path planning simulator GUI for robots,
 - More efficient data holders and multi-table data holders that you can attach to other classse and objects to capture performance statistics,
 - Benchmarking tools.
