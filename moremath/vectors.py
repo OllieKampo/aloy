@@ -106,13 +106,28 @@ def vector_distance_torus_wrapped(
     manhattan: bool = False
 ) -> NT:
     """Get the distance between two vectors on a torus."""
-    delta = vector_abs(vector_subtract(vector_a, vector_b))
+    delta_abs = vector_abs(vector_subtract(vector_a, vector_b))
+    for index, component in enumerate(delta_abs):
+        if component > size[index] / 2.0:
+            delta_abs[index] = size[index] - component
+    if manhattan:
+        return sum(delta_abs)
+    return vector_magnitude(delta_abs)
+
+
+def vector_between_torus_wrapped(
+    vector_a: Iterable[NT],
+    vector_b: Iterable[NT],
+    size: Sequence[NT]
+) -> Iterable[NT]:
+    """Get the shortest vector between two vectors on a torus."""
+    delta = vector_multiply(vector_subtract(vector_a, vector_b), -1)
     for index, component in enumerate(delta):
         if component > size[index] / 2.0:
-            delta[index] = size[index] - component
-    if manhattan:
-        return sum(delta)
-    return vector_magnitude(delta)
+            delta[index] = component - size[index]
+        elif component < -size[index] / 2.0:
+            delta[index] = component + size[index]
+    return delta
 
 
 def vector_midpoint(
