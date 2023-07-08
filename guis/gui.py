@@ -794,7 +794,7 @@ class JinxGuiWindow(observable.Observer):
         self.__views: dict[str, JinxWidget] = {}
         self.__current_view_state: str | None = None
         self.__default_qwidget = PlaceholderWidget(
-            "No views have been added to this window."
+            text="No views have been added to this window."
         )
         self.__default_qwidget.sizeHint = self.__default_size_hint
         self.__stack.addWidget(self.__default_qwidget)
