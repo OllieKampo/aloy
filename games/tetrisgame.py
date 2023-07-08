@@ -16,17 +16,18 @@
 
 import enum
 import random
+import sys
 from typing import TypeAlias
 from concurrency.atomic import AtomicObject
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from datastructures.mappings import frozendict
-from guis.gui import JinxWidget
+from guis.gui import JinxGuiWindow, JinxSystemData, JinxWidget
 
 @enum.unique
 class Piece(enum.Enum):
-    """Enumeration of the different tetris piece shapes."""
+    """Enumeration of the different tetris pieces."""
 
     ZShape = "Z"
     SShape = "S"
@@ -51,6 +52,19 @@ class PieceColor(enum.Enum):
     White = "white"
 
 
+# Mapping of pieces to colors.
+PIECE_COLOURS = frozendict({
+    Piece.ZShape: PieceColor.Red,
+    Piece.SShape: PieceColor.Green,
+    Piece.LineShape: PieceColor.Blue,
+    Piece.TShape: PieceColor.Yellow,
+    Piece.SquareShape: PieceColor.Magenta,
+    Piece.LShape: PieceColor.Cyan,
+    Piece.MirroredLShape: PieceColor.Orange
+})
+
+
+# Mapping of piece shapes to their shapes at each rotation.
 PIECE_SHAPES = frozendict({
     Piece.ZShape: frozendict({
         0: ((0, 0), (0, 1), (1, 1), (1, 2)),
@@ -97,72 +111,61 @@ PIECE_SHAPES = frozendict({
 })
 
 
-PIECE_COLOURS = frozendict({
-    Piece.ZShape: PieceColor.Red,
-    Piece.SShape: PieceColor.Green,
-    Piece.LineShape: PieceColor.Blue,
-    Piece.TShape: PieceColor.Yellow,
-    Piece.SquareShape: PieceColor.Magenta,
-    Piece.LShape: PieceColor.Cyan,
-    Piece.MirroredLShape: PieceColor.Orange
-})
-
-
 def _rotate_piece_left(
-    piece_position: tuple[tuple[int, int], ...],
     piece: Piece,
-    rotation: int
+    piece_position: tuple[tuple[int, int], ...],
+    piece_rotation: int
 ) -> tuple[tuple[tuple[int, int], ...], int]:
     """
     Rotate the piece to the left.
 
     Return the new piece position and rotation.
     """
-    new_rotation = (rotation - 1) % 4
+    new_piece_rotation = (piece_rotation - 1) % 4
     return (
-        _rotate_piece(piece_position, piece, rotation, new_rotation),
-        new_rotation
+        _rotate_piece(piece, piece_position, piece_rotation, new_piece_rotation),
+        new_piece_rotation
     )
 
 
 def _rotate_piece_right(
-    piece_position: tuple[tuple[int, int], ...],
     piece: Piece,
-    rotation: int
+    piece_position: tuple[tuple[int, int], ...],
+    piece_rotation: int
 ) -> tuple[tuple[tuple[int, int], ...], int]:
     """
     Rotate the piece to the right.
 
     Return the new piece position and rotation.
     """
-    new_rotation = (rotation + 1) % 4
+    new_piece_rotation = (piece_rotation + 1) % 4
     return (
-        _rotate_piece(piece_position, piece, rotation, new_rotation),
-        new_rotation
+        _rotate_piece(piece, piece_position, piece_rotation, new_piece_rotation),
+        new_piece_rotation
     )
 
 
 def _rotate_piece(
-    piece_position: tuple[tuple[int, int], ...],
     piece: Piece,
-    rotation: int,
-    new_rotation: int
+    piece_position: tuple[tuple[int, int], ...],
+    piece_rotation: int,
+    new_piece_rotation: int
 ) -> tuple[tuple[int, int], ...]:
     """Rotate the piece to the new rotation."""
     new_piece_position = list(piece_position)
     for index, section in enumerate(piece_position):
         new_piece_position[index] = (
-            section[0] - PIECE_SHAPES[piece][rotation][index][0]
-            + PIECE_SHAPES[piece][new_rotation][index][0],
-            section[1] - PIECE_SHAPES[piece][rotation][index][1]
-            + PIECE_SHAPES[piece][new_rotation][index][1]
+            section[0] - PIECE_SHAPES[piece][piece_rotation][index][0]
+            + PIECE_SHAPES[piece][new_piece_rotation][index][0],
+            section[1] - PIECE_SHAPES[piece][piece_rotation][index][1]
+            + PIECE_SHAPES[piece][new_piece_rotation][index][1]
         )
     return tuple(new_piece_position)
 
 
 @enum.unique
 class Direction(enum.Enum):
-    """Direction of the piece."""
+    """Enumeration of the possible directions a piece can move."""
 
     Left = enum.auto()
     Right = enum.auto()
@@ -174,11 +177,30 @@ class Direction(enum.Enum):
     StorePiece = enum.auto()
 
 
+# Game logic constants
 _INITIAL_DIRECTION: Direction = Direction.Down
-
+_INITIAL_SCORE: int = 0
+_INITIAL_LEVEL: int = 1
+_INITIAL_LINES_FILLED: dict[str, int] = {
+    "Total": 0,
+    "Single": 0,
+    "Double": 0,
+    "Triple": 0,
+    "Tetris": 0
+}
+_INITIAL_PIECES_USED: dict[Piece, int] = {
+    piece.value: 0
+    for piece in Piece
+} | {"Total": 0}
+_INITIAL_SECONDS_PER_MOVE: float = 1.0
+_DEFAULT_SPEED: float = 1.0
+_SPEED_PER_LEVEL: float = 0.05
+_MINIMUM_SPEED: float = 0.1
+_DEFAULT_GHOST_PIECE_ENABLED: bool = True
+_DEFAULT_ALLOW_STORE_PIECE: bool = True
+_DEFAULT_SHOW_GRID: bool = False
 _TICKS_PER_MOVE_DOWN: int = 5
 _SCORE_PER_LEVEL: int = 1000
-
 _NUM_LINES_NAME: dict[int, str] = {
     1: "Single",
     2: "Double",
@@ -212,11 +234,13 @@ class TetrisGameLogic:
         "__level",
         "__lines_filled",
         "__pieces_used",
+        "__seconds_per_move",
         "__game_over",
         "__paused",
         "__current_piece_position",
         "__current_piece_rotation",
         "__current_piece",
+        "__ghost_piece_position",
         "__next_piece",
         "__stored_piece",
         "__ticks_since_last_move_down",
@@ -224,10 +248,8 @@ class TetrisGameLogic:
 
         # Game options
         "speed",
-        "ghost_piece",
+        "ghost_piece_enabled",
         "allow_store_piece",
-        "show_next_piece",
-        "show_stored_piece",
         "show_grid"
     )
 
@@ -258,40 +280,37 @@ class TetrisGameLogic:
             [PieceColor.White for _ in range(cells_grid_size[0])]
             for _ in range(cells_grid_size[1])
         ]
-        self.__score: int = 0
-        self.__level = 1
-        self.__lines_filled: dict[str, int] = {
-            "Total": 0,
-            "Single": 0,
-            "Double": 0,
-            "Triple": 0,
-            "Tetris": 0
-        }
-        self.__pieces_used: dict[str, int] = {
-            "Total": 0
-        }
+        self.__score: int = _INITIAL_SCORE
+        self.__level: int = _INITIAL_LEVEL
+        self.__lines_filled: dict[str, int] = _INITIAL_LINES_FILLED.copy()
+        self.__pieces_used: dict[str, int] = _INITIAL_PIECES_USED.copy()
         self.__pieces_used.update({
             piece_shape.value: 0
             for piece_shape in Piece
         })
+        self.__seconds_per_move: float = _INITIAL_SECONDS_PER_MOVE
         self.__game_over: bool = False
         self.__paused: bool = False
         self.__current_piece_position: tuple[tuple[int, int], ...] | None \
             = None
-        self.__current_piece_rotation: int | None = None
+        self.__current_piece_rotation: int = 0
         self.__current_piece: Piece | None = None
+        self.__ghost_piece_position: tuple[tuple[int, int], ...] | None = None
         self.__next_piece: Piece | None = None
         self.__stored_piece: Piece | None = None
         self.__ticks_since_last_move_down: int = 0
         self.__manual_update: bool = manual_udpate
 
         # Game options
-        self.speed: int = 1
-        self.ghost_piece: bool = True
-        self.allow_store_piece: bool = True
-        self.show_next_piece: bool = True
-        self.show_stored_piece: bool = True
-        self.show_grid: bool = True
+        self.speed: float = _DEFAULT_SPEED
+        self.ghost_piece_enabled: bool = _DEFAULT_GHOST_PIECE_ENABLED
+        self.allow_store_piece: bool = _DEFAULT_ALLOW_STORE_PIECE
+        self.show_grid: bool = _DEFAULT_SHOW_GRID
+
+    @property
+    def direction(self) -> AtomicObject[Direction]:
+        """Get the direction of the piece."""
+        return self.__direction
 
     @property
     def playing(self) -> bool:
@@ -328,6 +347,60 @@ class TetrisGameLogic:
         """Get the number of pieces used."""
         return self.__pieces_used
 
+    @property
+    def seconds_per_move(self) -> float:
+        """Get the number of seconds per move."""
+        return self.__seconds_per_move
+
+    @property
+    def game_over(self) -> bool:
+        """Get whether the game is over."""
+        return self.__game_over
+
+    @property
+    def paused(self) -> bool:
+        """Get whether the game is paused."""
+        return self.__paused
+
+    @paused.setter
+    def paused(self, paused: bool) -> None:
+        self.__paused = paused
+
+    @property
+    def current_piece(self) -> Piece | None:
+        """Get the current piece."""
+        return self.__current_piece
+
+    @property
+    def current_piece_position(self) -> tuple[tuple[int, int], ...] | None:
+        """Get the position of the current piece."""
+        return self.__current_piece_position
+
+    @property
+    def current_piece_rotation(self) -> int:
+        """Get the rotation of the current piece."""
+        return self.__current_piece_rotation
+
+    @property
+    def ghost_piece_position(self) -> tuple[tuple[int, int], ...] | None:
+        """Get the position of the ghost piece."""
+        return self.__ghost_piece_position
+
+    @property
+    def next_piece(self) -> Piece | None:
+        """Get the next piece."""
+        return self.__next_piece
+
+    @property
+    def stored_piece(self) -> Piece | None:
+        """Get the stored piece."""
+        return self.__stored_piece
+
+    @property
+    def ticks_since_last_move_down(self) -> int:
+        """Get the number of ticks since the last move down."""
+        return self.__ticks_since_last_move_down
+
     def move_piece(self) -> None:
         """Move the current piece."""
         if not self.__playing:
@@ -337,6 +410,8 @@ class TetrisGameLogic:
             return
 
         direction = self.__direction.get_obj()
+        with self.__direction:
+            self.__direction.set_obj(Direction.Down)
 
         # Get theoretical new piece position
         new_piece_position = self.__current_piece_position
@@ -393,13 +468,14 @@ class TetrisGameLogic:
         if self.__can_move_piece(new_piece_position):
             self.__current_piece_position = new_piece_position
             self.__current_piece_rotation = new_piece_rotation
-            with self.__direction:
-                self.__direction.set_obj(Direction.Down)
 
         # Check if the piece has landed
         if (direction in (Direction.Down, Direction.FastDown, Direction.Drop)
                 and not self.__can_move_piece_down(self.__current_piece_position)):
             self.__land_piece()
+        elif self.ghost_piece_enabled:
+            # Set the ghost piece position only if the piece has not landed
+            self.__set_ghost_piece_position()
 
     def store_piece(self) -> None:
         """Store the current piece."""
@@ -414,8 +490,7 @@ class TetrisGameLogic:
             self.__stored_piece, self.__current_piece \
                 = self.__current_piece, self.__stored_piece
 
-        self.__current_piece_position = self.__get_initial_piece_position()
-        self.__current_piece_rotation = 0
+        self.__set_initial_piece_position_and_rotation()
 
     def __can_move_piece(self, piece_position: tuple[tuple[int, int], ...]) -> bool:
         """Check if the piece can move to the given position."""
@@ -444,6 +519,7 @@ class TetrisGameLogic:
             self.__game_over = True
 
         self.__current_piece = self.__next_piece
+        self.__set_initial_piece_position_and_rotation()
         self.__next_piece = self.__get_random_piece()
 
     def __clear_lines(self) -> None:
@@ -470,17 +546,51 @@ class TetrisGameLogic:
 
         self.__pieces_used[self.__current_piece] += 1
 
-    def __get_initial_piece_position(self) -> tuple[tuple[int, int], ...]:
-        """Get the initial position of the current piece."""
-        return tuple(
+    def __set_initial_piece_position_and_rotation(self) -> None:
+        """Set the initial position and rotation of the current piece."""
+        self.__current_piece_position = tuple(
             (x + (self.__board_size[0] // 2) - 1, y)
             for x, y in PIECE_SHAPES[self.__current_piece][0]
         )
+        self.__current_piece_rotation = 0
+
+    def __set_ghost_piece_position(self) -> None:
+        """Set the ghost piece position."""
+        ghost_piece_position = self.__current_piece_position
+        while self.__can_move_piece_down(ghost_piece_position):
+            ghost_piece_position = tuple(
+                (x, y + 1)
+                for x, y in ghost_piece_position
+            )
+        self.__ghost_piece_position = ghost_piece_position
 
     def __get_random_piece(self) -> Piece:
         """Get a random piece."""
         return random.choice(list(Piece))
 
+    def _reset_game_state(self) -> None:
+        """Reset the game state."""
+        with self.__direction:
+            self.__direction.set_obj(Direction.Down)
+        self.__board_cells = [
+            [PieceColor.White] * self.__board_size[0]
+            for _ in range(self.__board_size[1])
+        ]
+        self.__score = _INITIAL_SCORE
+        self.__level = _INITIAL_LEVEL
+        self.__lines_filled = _INITIAL_LINES_FILLED.copy()
+        self.__pieces_used = _INITIAL_PIECES_USED.copy()
+        self.__game_over = False
+        self.__paused = False
+
+    def restart(self) -> None:
+        """Restart the game."""
+        self._reset_game_state()
+        self.__current_piece = self.__get_random_piece()
+        self.__set_initial_piece_position_and_rotation()
+        self.__next_piece = self.__get_random_piece()
+        self.__stored_piece = None
+        self.__ticks_since_last_move_down = 0
 
 class TetrisGameJinxWidget(JinxWidget):
     """
@@ -543,7 +653,7 @@ class TetrisGameJinxWidget(JinxWidget):
             QtWidgets.QSizePolicy.Policy.Expanding,
             QtWidgets.QSizePolicy.Policy.Expanding
         )
-        self.qwidget.setStyleSheet("background-color: black;")
+        # self.qwidget.setStyleSheet("background-color: black;")
         self.qwidget.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
 
         # Next and stored piece widgets
@@ -561,23 +671,27 @@ class TetrisGameJinxWidget(JinxWidget):
         self.__layout.addWidget(self.__stored_piece_widget, 1, 0, 1, 1)
 
         # Control widget
-        self.__controls_widget = QtWidgets.QWidget()
+        # self.__controls_widget = QtWidgets.QWidget()
+        # self.__controls_widget.setSizePolicy(
+        #     QtWidgets.QSizePolicy.Policy.Expanding,
+        #     QtWidgets.QSizePolicy.Policy.Expanding
+        # )
         self.__controls_group_box = QtWidgets.QGroupBox("Controls")
         self.__controls_layout = QtWidgets.QFormLayout()
         self.__controls_layout.setContentsMargins(0, 0, 0, 0)
         self.__controls_layout.setSpacing(0)
-        self.__controls_layout.setFieldGrowthPolicy(
-            QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
-        )
-        self.__controls_layout.setRowWrapPolicy(
-            QtWidgets.QFormLayout.RowWrapPolicy.WrapAllRows
-        )
-        self.__controls_layout.setLabelAlignment(
-            QtCore.Qt.AlignmentFlag.AlignLeft
-        )
-        self.__controls_layout.setFormAlignment(
-            QtCore.Qt.AlignmentFlag.AlignLeft
-        )
+        # self.__controls_layout.setFieldGrowthPolicy(
+        #     QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
+        # )
+        # self.__controls_layout.setRowWrapPolicy(
+        #     QtWidgets.QFormLayout.RowWrapPolicy.WrapAllRows
+        # )
+        # self.__controls_layout.setLabelAlignment(
+        #     QtCore.Qt.AlignmentFlag.AlignLeft
+        # )
+        # self.__controls_layout.setFormAlignment(
+        #     QtCore.Qt.AlignmentFlag.AlignLeft
+        # )
         self.__controls_layout.addRow(
             QtWidgets.QLabel("Move Left:"),
             QtWidgets.QLabel("A")
@@ -615,10 +729,6 @@ class TetrisGameJinxWidget(JinxWidget):
             QtWidgets.QLabel("P")
         )
         self.__controls_group_box.setLayout(self.__controls_layout)
-        self.__controls_widget.setSizePolicy(
-            QtWidgets.QSizePolicy.Policy.Expanding,
-            QtWidgets.QSizePolicy.Policy.Expanding
-        )
         self.__layout.addWidget(self.__controls_group_box, 2, 0, 2, 1)
 
         # Tetris grid widget
@@ -642,10 +752,10 @@ class TetrisGameJinxWidget(JinxWidget):
         self.__layout.addWidget(self.__display_widget, 0, 1, 3, 1)
 
         # Statistics widgets
-        self.__statistics_widget = TetrisStatisticsWidget(
-            self._logic,
-            debug=debug
-        )
+        # self.__statistics_widget = TetrisStatisticsWidget(
+        #     self._logic,
+        #     debug=debug
+        # )
 
         # Set up the key press event
         self.qwidget.keyPressEvent = self.__key_press_event
@@ -653,6 +763,10 @@ class TetrisGameJinxWidget(JinxWidget):
         self._logic.restart()
         if not manual_update:
             self.__timer.start()
+
+    def update_observer(self, observable_: JinxSystemData) -> None:
+        """Update the obaerver."""
+        pass
 
     def __key_press_event(self, event: QtGui.QKeyEvent) -> None:
         """Handle a key press event."""
@@ -698,9 +812,9 @@ class TetrisGameJinxWidget(JinxWidget):
         self.__draw_grid()
         self.__draw_piece()
         self.__draw_ghost_piece()
-        self.__next_piece_widget.draw_piece()
-        self.__stored_piece_widget.draw_piece()
-        self.__statistics_widget.draw_statistics()
+        self.__next_piece_widget.draw_piece(self._logic.next_piece)
+        self.__stored_piece_widget.draw_piece(self._logic.stored_piece)
+        # self.__statistics_widget.draw_statistics()
         if self.debug:
             self.__draw_debug()
         if self._logic.game_over:
@@ -713,15 +827,19 @@ class TetrisGameJinxWidget(JinxWidget):
         """Draw the grid."""
         width, height = self._logic.board_size
         cells = self._logic.board_cells
+        if self._logic.show_grid:
+            pen = QtGui.QPen(QtGui.QColor("black"))
+        else:
+            pen = QtGui.QPen(QtGui.QColor("white"))
         for x in range(width):
             for y in range(height):
-                cell = cells[x][y]
+                cell = cells[y][x]
                 self.__scene.addRect(
-                    x * _CELL_SIZE,
-                    y * _CELL_SIZE,
-                    _CELL_SIZE,
-                    _CELL_SIZE,
-                    QtGui.QPen(QtGui.QColor("black")),
+                    x * self.__cell_size[0],
+                    y * self.__cell_size[1],
+                    self.__cell_size[0],
+                    self.__cell_size[1],
+                    pen,
                     QtGui.QBrush(QtGui.QColor(cell.value))
                 )
 
@@ -732,12 +850,12 @@ class TetrisGameJinxWidget(JinxWidget):
         if piece_cells is not None:
             for x, y in piece_cells:
                 self.__scene.addRect(
-                    x * _CELL_SIZE,
-                    y * _CELL_SIZE,
-                    _CELL_SIZE,
-                    _CELL_SIZE,
+                    x * self.__cell_size[0],
+                    y * self.__cell_size[1],
+                    self.__cell_size[0],
+                    self.__cell_size[1],
                     QtGui.QPen(QtGui.QColor("black")),
-                    QtGui.QBrush(QtGui.QColor(PIECE_COLOURS[piece]))
+                    QtGui.QBrush(QtGui.QColor(PIECE_COLOURS[piece].value))
                 )
 
     def __draw_ghost_piece(self) -> None:
@@ -747,12 +865,12 @@ class TetrisGameJinxWidget(JinxWidget):
         if piece_cells is not None:
             for x, y in piece_cells:
                 self.__scene.addRect(
-                    x * _CELL_SIZE,
-                    y * _CELL_SIZE,
-                    _CELL_SIZE,
-                    _CELL_SIZE,
+                    x * self.__cell_size[0],
+                    y * self.__cell_size[1],
+                    self.__cell_size[0],
+                    self.__cell_size[1],
                     QtGui.QPen(QtGui.QColor("black")),
-                    QtGui.QBrush(QtGui.QColor(PIECE_COLOURS[piece]).lighter(150))
+                    QtGui.QBrush(QtGui.QColor(PIECE_COLOURS[piece].value).lighter(150))
                 )
 
     def __draw_debug(self) -> None:
@@ -843,8 +961,12 @@ class TetrisPieceWidget(QtWidgets.QWidget):
 
     def draw_piece(self, piece: Piece) -> None:
         """Draw the piece."""
+        self.__scene.clear()
+        if piece is None:
+            self.update()
+            return
         piece_colour = PIECE_COLOURS[piece]
-        piece_shape = PIECE_SHAPES[piece]
+        piece_shape = PIECE_SHAPES[piece][1]
         cell_size = self.__cell_size
         for x, y in piece_shape:
             self.__scene.addRect(
@@ -853,6 +975,47 @@ class TetrisPieceWidget(QtWidgets.QWidget):
                 cell_size[0],
                 cell_size[1],
                 QtGui.QPen(QtGui.QColor("black")),
-                QtGui.QBrush(QtGui.QColor(piece_colour))
+                QtGui.QBrush(QtGui.QColor(piece_colour.value))
             )
         self.update()
+
+
+def play_tetris_game(
+    width: int,
+    height: int,
+    debug: bool = False
+) -> None:
+    """Play the tetris game."""
+    size = (width, height)
+
+    qapp = QtWidgets.QApplication([])
+    qtimer = QtCore.QTimer()
+
+    jdata = JinxSystemData(
+        name="Tetris GUI Data",
+        clock=qtimer,
+        debug=debug
+    )
+    jgui = JinxGuiWindow(
+        qapp=qapp,
+        data=jdata,
+        name="Tetris GUI Window",
+        size=size,
+        debug=debug
+    )
+
+    tetris_qwidget = QtWidgets.QWidget()
+    tetris_game_jwidget = TetrisGameJinxWidget(
+        tetris_qwidget, size, (10, 20), debug=debug
+    )
+    # tetris_options_qwidget = QtWidgets.QWidget()
+    # tetris_game_options_jwidget = TetrisGameOptionsJinxWidget(
+    #     tetris_options_qwidget, jdata, size, debug=debug
+    # )
+
+    jgui.add_view(tetris_game_jwidget)
+    # jgui.add_view(snake_game_options_jwidget)
+    jdata.desired_view_state = tetris_game_jwidget.observer_name
+
+    jgui.qwindow.show()
+    sys.exit(qapp.exec())

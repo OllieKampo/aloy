@@ -11,6 +11,7 @@ import pyfiglet
 
 from auxiliary.argparseutils import mapping_argument_factory
 from games.snakegame import play_snake_game
+from games.tetrisgame import play_tetris_game
 
 
 class GameParam(NamedTuple):
@@ -23,7 +24,7 @@ class GameParam(NamedTuple):
 
 
 __STANDARD_PARAMS: Final[list[GameParam]] = [
-    GameParam(["-w", "--width"], int, 1200, "The width of the game window."),
+    GameParam(["-w", "--width"], int, 800, "The width of the game window."),
     GameParam(["-t", "--height"], int, 800, "The height of the game window."),
     GameParam(["--debug"], bool, False, "Run the game in debug mode.")
 ]
@@ -148,12 +149,13 @@ register_game(
     "Play the snake game."
 )
 
-# register_game(
-#     play_tetris_game,
-#     "tetrisgame",
-#     "Tetris",
-#     "Play the tetris game."
-# )
+
+register_game(
+    play_tetris_game,
+    "tetrisgame",
+    "Tetris",
+    "Play the tetris game."
+)
 
 # register_game(
 #     play_pacman_game,

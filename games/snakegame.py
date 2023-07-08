@@ -560,7 +560,7 @@ class SnakeGameLogic:
         self.__pause_time = 0.0
 
     def restart(self) -> None:
-        """Reset the game."""
+        """Restart the game."""
         self.__match_number += 1
         if self.__recorder_enabled:
             self.__recorder.save(self.__recorder_path)
