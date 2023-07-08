@@ -188,11 +188,11 @@ _INITIAL_LINES_FILLED: dict[str, int] = {
     "Triple": 0,
     "Tetris": 0
 }
-_INITIAL_PIECES_USED: dict[Piece, int] = {
-    piece.value: 0
+_INITIAL_PIECES_USED: dict[Piece | str, int] = {
+    piece: 0
     for piece in Piece
 } | {"Total": 0}
-_INITIAL_SECONDS_PER_MOVE: float = 1.0
+_INITIAL_SECONDS_PER_MOVE: float = 0.25
 _DEFAULT_SPEED: float = 1.0
 _SPEED_PER_LEVEL: float = 0.05
 _MINIMUM_SPEED: float = 0.1
@@ -284,10 +284,6 @@ class TetrisGameLogic:
         self.__level: int = _INITIAL_LEVEL
         self.__lines_filled: dict[str, int] = _INITIAL_LINES_FILLED.copy()
         self.__pieces_used: dict[str, int] = _INITIAL_PIECES_USED.copy()
-        self.__pieces_used.update({
-            piece_shape.value: 0
-            for piece_shape in Piece
-        })
         self.__seconds_per_move: float = _INITIAL_SECONDS_PER_MOVE
         self.__game_over: bool = False
         self.__paused: bool = False
@@ -510,17 +506,21 @@ class TetrisGameLogic:
 
     def __land_piece(self) -> None:
         """Land the current piece."""
+        # Fix the current piece position on the board.
         for x_pos, y_pos in self.__current_piece_position:
             self.__board_cells[y_pos][x_pos] = PIECE_COLOURS[self.__current_piece]
 
-        self.__clear_lines()
-
-        if not self.__can_move_piece(self.__current_piece_position):
-            self.__game_over = True
-
+        # Set the current piece to the next piece and get a new next piece.
         self.__current_piece = self.__next_piece
         self.__set_initial_piece_position_and_rotation()
         self.__next_piece = self.__get_random_piece()
+
+        # Clear any lines that have been filled.
+        self.__clear_lines()
+
+        # Check if the game is over, i.e. the new piece cannot be placed.
+        if not self.__can_move_piece(self.__current_piece_position):
+            self.__game_over = True
 
     def __clear_lines(self) -> None:
         """
@@ -538,11 +538,11 @@ class TetrisGameLogic:
                     [PieceColor.White] * self.__board_size[0]
                 )
 
-        self.__lines_filled["Total"] += lines_filled
-        self.__lines_filled[_NUM_LINES_NAME[lines_filled]] += 1
-
-        self.__score += _NUM_LINES_SCORE[lines_filled] * self.__level
-        self.__level = self.__score // _SCORE_PER_LEVEL
+        if lines_filled > 0:
+            self.__lines_filled["Total"] += lines_filled
+            self.__lines_filled[_NUM_LINES_NAME[lines_filled]] += 1
+            self.__score += _NUM_LINES_SCORE[lines_filled] * self.__level
+            self.__level = self.__score // _SCORE_PER_LEVEL
 
         self.__pieces_used[self.__current_piece] += 1
 
@@ -680,18 +680,18 @@ class TetrisGameJinxWidget(JinxWidget):
         self.__controls_layout = QtWidgets.QFormLayout()
         self.__controls_layout.setContentsMargins(0, 0, 0, 0)
         self.__controls_layout.setSpacing(0)
-        # self.__controls_layout.setFieldGrowthPolicy(
-        #     QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
-        # )
-        # self.__controls_layout.setRowWrapPolicy(
-        #     QtWidgets.QFormLayout.RowWrapPolicy.WrapAllRows
-        # )
-        # self.__controls_layout.setLabelAlignment(
-        #     QtCore.Qt.AlignmentFlag.AlignLeft
-        # )
-        # self.__controls_layout.setFormAlignment(
-        #     QtCore.Qt.AlignmentFlag.AlignLeft
-        # )
+        self.__controls_layout.setFieldGrowthPolicy(
+            QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
+        )
+        self.__controls_layout.setRowWrapPolicy(
+            QtWidgets.QFormLayout.RowWrapPolicy.WrapLongRows
+        )
+        self.__controls_layout.setLabelAlignment(
+            QtCore.Qt.AlignmentFlag.AlignLeft
+        )
+        self.__controls_layout.setFormAlignment(
+            QtCore.Qt.AlignmentFlag.AlignLeft
+        )
         self.__controls_layout.addRow(
             QtWidgets.QLabel("Move Left:"),
             QtWidgets.QLabel("A")
@@ -1001,6 +1001,7 @@ def play_tetris_game(
         data=jdata,
         name="Tetris GUI Window",
         size=size,
+        kind=None,
         debug=debug
     )
 
