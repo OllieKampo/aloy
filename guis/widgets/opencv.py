@@ -68,6 +68,7 @@ class CvVideoViewer(QtWidgets.QWidget):
         else:
             self.__image_updater_thread.disable()
 
+    # pylint: disable=invalid-name
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         """Stop the thread when the widget is closed."""
         self.__image_updater_thread.kill()

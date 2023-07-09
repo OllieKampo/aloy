@@ -163,7 +163,7 @@ class Observable(metaclass=ABCMeta):
         # Ineternal data structures.
         self.__observers: set["Observer"] = set()
         self.__changed: set["Observer"] = set()
-        self.__chained: dict[str, "Observable"] = dict()
+        self.__chained: dict[str, "Observable"] = {}
 
         # The lock and clock used when updateding the observers.
         self.__lock = threading.RLock()
@@ -530,7 +530,7 @@ def notifies_observers(
                 return return_value
             return wrapper
         return inner
-    else:
+    else:  # pylint: disable=no-else-return
         def inner(
             function: Callable[Concatenate[Observable, SP], ST]
         ) -> Callable[Concatenate[Observable, SP], ST]:

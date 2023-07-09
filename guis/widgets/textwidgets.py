@@ -15,8 +15,8 @@
 """Module defining widgets for displaying text."""
 
 from abc import abstractmethod
-import PySide6.QtWidgets as QtWidgets
-import PySide6.QtCore as QtCore
+
+from PySide6 import QtCore, QtWidgets
 
 
 class ScrollTextPanel(QtWidgets.QWidget):

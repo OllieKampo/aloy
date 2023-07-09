@@ -559,9 +559,9 @@ class JinxWidget(observable.Observer):
 
         `data: JinxSystemData | None = None` - The system data object to be
         attached to the widget. If None, no system data object will be
-        attached. system data objects can be attached later using the
-        `attach_data()` method. system data is automatically attached to
-        the widget when the widget is added to a Jinx gui window.
+        attached. System data objects can be attached later using the
+        `attach_data()` method. System data is automatically attached to
+        the widget when the widget is added to a Jinx GUI window.
 
         `name: str | None = None` - The name of the object. If None, the
         class name and id of the object are used.
@@ -572,8 +572,8 @@ class JinxWidget(observable.Observer):
         `resize: bool = True` - Whether to resize the parent widget to the
         given size, or just simply store the size.
 
-        `set_size: "fix" | "min" | "max" | "hint" | "hint-min" | None = None`
-        - Whether to set the size of the widget to the given size.
+        `set_size: "fix" | "min" | "max" | "hint" | "hint-min" | None =
+        None` - Whether to set the size of the widget to the given size.
 
         `size_policy: tuple[QtWidgets.QSizePolicy.Policy,
         QtWidgets.QSizePolicy.Policy] | None = None` - The size horizontal
