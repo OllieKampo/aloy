@@ -145,30 +145,30 @@ def register_game(
 register_game(
     play_snake_game,
     "snakegame",
-    "Snake",
-    "Play the snake game."
+    "Snake Qt",
+    "Play the snake game with Qt."
 )
 
 
 register_game(
     play_tetris_game,
     "tetrisgame",
-    "Tetris",
-    "Play the tetris game."
+    "Tetris Qt",
+    "Play the tetris game with Qt."
 )
-
-# register_game(
-#     play_pacman_game,
-#     "pacmangame",
-#     "Pacman",
-#     "Play the pacman game."
-# )
 
 # register_game(
 #     play_blockbreaker_game,
 #     "blockbreakergame",
 #     "Block Breaker",
 #     "Play the block breaker game."
+# )
+
+# register_game(
+#     play_pacman_game,
+#     "pacmangame",
+#     "Pacman",
+#     "Play the pacman game."
 # )
 
 # register_game(

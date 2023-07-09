@@ -166,18 +166,18 @@ def _rotate_piece(
 class Direction(enum.Enum):
     """Enumeration of the possible directions a piece can move."""
 
-    Left = enum.auto()
-    Right = enum.auto()
-    RotateLeft = enum.auto()
-    RotateRight = enum.auto()
-    Down = enum.auto()
-    FastDown = enum.auto()
-    Drop = enum.auto()
-    StorePiece = enum.auto()
+    LEFT = enum.auto()
+    RIGHT = enum.auto()
+    ROTATE_LEFT = enum.auto()
+    ROTATE_RIGHT = enum.auto()
+    DOWN = enum.auto()
+    FAST_DOWN = enum.auto()
+    DROP = enum.auto()
+    STORE_PIECE = enum.auto()
 
 
 # Game logic constants
-_INITIAL_DIRECTION: Direction = Direction.Down
+_INITIAL_DIRECTION: Direction = Direction.DOWN
 _INITIAL_SCORE: int = 0
 _INITIAL_LEVEL: int = 1
 _INITIAL_LINES_FILLED: dict[str, int] = {
@@ -192,7 +192,7 @@ _INITIAL_PIECES_USED: dict[Piece | str, int] = {
     for piece in Piece
 } | {"Total": 0}
 _INITIAL_SECONDS_PER_MOVE: float = 0.25
-_SECONDS_PER_MOVE_PER_LEVEL: float = 0.01
+_SECONDS_PER_MOVE_DECREASE_PER_LEVEL: float = 0.01
 _MINIMUM_SECONDS_PER_MOVE: float = 0.10
 _DEFAULT_SPEED: float = 1.0
 _DEFAULT_GHOST_PIECE_ENABLED: bool = True
@@ -406,39 +406,39 @@ class TetrisGameLogic:
 
         direction = self.__direction.get_obj()
         with self.__direction:
-            self.__direction.set_obj(Direction.Down)
+            self.__direction.set_obj(Direction.DOWN)
 
         # Get theoretical new piece position
         new_piece_position = self.__current_piece_position
         new_piece_rotation = self.__current_piece_rotation
-        if direction == Direction.Left:
+        if direction == Direction.LEFT:
             new_piece_position = tuple(
                 (x_pos - 1, y_pos)
                 for x_pos, y_pos in new_piece_position
             )
-        if direction == Direction.Right:
+        if direction == Direction.RIGHT:
             new_piece_position = tuple(
                 (x_pos + 1, y_pos)
                 for x_pos, y_pos in new_piece_position
             )
-        if direction == Direction.RotateLeft:
+        if direction == Direction.ROTATE_LEFT:
             new_piece_position, new_piece_rotation = _rotate_piece_left(
                 self.__current_piece,
                 new_piece_position,
                 new_piece_rotation
             )
-        if direction == Direction.RotateRight:
+        if direction == Direction.ROTATE_RIGHT:
             new_piece_position, new_piece_rotation = _rotate_piece_right(
                 self.__current_piece,
                 new_piece_position,
                 new_piece_rotation
             )
-        if direction == Direction.FastDown:
+        if direction == Direction.FAST_DOWN:
             new_piece_position = tuple(
                 (x_pos, y_pos + 1)
                 for x_pos, y_pos in new_piece_position
             )
-        if direction == Direction.Drop:
+        if direction == Direction.DROP:
             while self.__can_move_piece_down(new_piece_position):
                 new_piece_position = tuple(
                     (x_pos, y_pos + 1)
@@ -447,7 +447,7 @@ class TetrisGameLogic:
 
         # Check if the piece was forced down
         forced_down: bool = False
-        if direction not in (Direction.FastDown, Direction.Drop):
+        if direction not in (Direction.FAST_DOWN, Direction.DROP):
             if self.__ticks_since_last_move_down < _TICKS_PER_MOVE_DOWN:
                 self.__ticks_since_last_move_down += 1
             else:
@@ -461,13 +461,13 @@ class TetrisGameLogic:
             self.__ticks_since_last_move_down = 0
 
         # Check if the new piece position is valid
-        if direction == Direction.Drop or self.__can_move_piece(new_piece_position):
+        if direction == Direction.DROP or self.__can_move_piece(new_piece_position):
             self.__current_piece_position = new_piece_position
             self.__current_piece_rotation = new_piece_rotation
 
         # Check if the piece has landed
-        if (direction == Direction.Drop
-            or ((direction == Direction.FastDown
+        if (direction == Direction.DROP
+            or ((direction == Direction.FAST_DOWN
                  or forced_down)
                 and not self.__can_move_piece_down(self.__current_piece_position))):
             self.__land_piece()
@@ -545,6 +545,10 @@ class TetrisGameLogic:
             self.__lines_filled[_NUM_LINES_NAME[lines_filled]] += 1
             self.__score += _NUM_LINES_SCORE[lines_filled] * self.__level
             self.__level = self.__score // _SCORE_PER_LEVEL
+            self.__seconds_per_move = max(
+                self.__seconds_per_move - _SECONDS_PER_MOVE_DECREASE_PER_LEVEL,
+                _MINIMUM_SECONDS_PER_MOVE
+            )
 
         self.__pieces_used[self.__current_piece] += 1
 
@@ -576,7 +580,7 @@ class TetrisGameLogic:
     def _reset_game_state(self) -> None:
         """Reset the game state."""
         with self.__direction:
-            self.__direction.set_obj(Direction.Down)
+            self.__direction.set_obj(Direction.DOWN)
         self.__board_cells = [
             [PieceColor.WHITE] * self.__board_size[0]
             for _ in range(self.__board_size[1])
@@ -585,18 +589,20 @@ class TetrisGameLogic:
         self.__level = _INITIAL_LEVEL
         self.__lines_filled = _INITIAL_LINES_FILLED.copy()
         self.__pieces_used = _INITIAL_PIECES_USED.copy()
+        self.__seconds_per_move = _INITIAL_SECONDS_PER_MOVE
         self.__game_over = False
         self.__paused = False
-
-    def restart(self) -> None:
-        """Restart the game."""
-        self._reset_game_state()
         self.__current_piece = self.__get_random_piece()
         self.__set_initial_piece_position_and_rotation()
         self.__set_ghost_piece_position()
         self.__next_piece = self.__get_random_piece()
         self.__stored_piece = None
         self.__ticks_since_last_move_down = 0
+
+    def restart(self) -> None:
+        """Restart the game."""
+        self._reset_game_state()
+
 
 class TetrisGameJinxWidget(JinxWidget):
     """
@@ -617,6 +623,11 @@ class TetrisGameJinxWidget(JinxWidget):
             parent,
             name="Tetris Game",
             size=widget_size,
+            set_size="hint",
+            size_policy=(
+                QtWidgets.QSizePolicy.Policy.Preferred,
+                QtWidgets.QSizePolicy.Policy.Preferred
+            ),
             debug=debug
         )
         if (board_size[0] <= 0
@@ -653,36 +664,72 @@ class TetrisGameJinxWidget(JinxWidget):
         # Widget and layout
         self.__layout = QtWidgets.QGridLayout()
         self.__layout.setContentsMargins(0, 0, 0, 0)
-        self.__layout.setSpacing(0)
+        _SPACING: int = 10
+        self.__layout.setSpacing(_SPACING)
         self.qwidget.setLayout(self.__layout)
         self.qwidget.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Expanding,
             QtWidgets.QSizePolicy.Policy.Expanding
         )
-        # self.qwidget.setStyleSheet("background-color: black;")
         self.qwidget.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
 
+        side_bar_width: int = (self.size.width - _SPACING) * 0.2
+        side_bar_height: int = self.size.height
+
         # Next and stored piece widgets
-        self.__next_piece_widget = TetrisPieceWidget(self.__cell_size)
-        self.__stored_piece_widget = TetrisPieceWidget(self.__cell_size)
+        self.__next_piece_widget = TetrisPieceWidget(
+            "Next Piece",
+            self.__cell_size
+        )
+        self.__stored_piece_widget = TetrisPieceWidget(
+            "Stored Piece",
+            self.__cell_size
+        )
+        self.__next_piece_widget.setFixedWidth(side_bar_width)
+        self.__stored_piece_widget.setFixedWidth(side_bar_width)
         self.__next_piece_widget.setSizePolicy(
-            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Fixed,
             QtWidgets.QSizePolicy.Policy.Expanding
         )
         self.__stored_piece_widget.setSizePolicy(
-            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Fixed,
             QtWidgets.QSizePolicy.Policy.Expanding
         )
         self.__layout.addWidget(self.__next_piece_widget, 0, 0, 1, 1)
         self.__layout.addWidget(self.__stored_piece_widget, 1, 0, 1, 1)
 
-        # Control widget
-        # self.__controls_widget = QtWidgets.QWidget()
-        # self.__controls_widget.setSizePolicy(
-        #     QtWidgets.QSizePolicy.Policy.Expanding,
-        #     QtWidgets.QSizePolicy.Policy.Expanding
-        # )
+        # Statistics widgets
+        self.__statistics_group_box = QtWidgets.QGroupBox("Statistics")
+        self.__statistics_group_box.setFixedWidth(side_bar_width)
+        self.__statistics_group_box.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Fixed,
+            QtWidgets.QSizePolicy.Policy.Expanding
+        )
+        self.__statistics_layout = QtWidgets.QFormLayout()
+        self.__statistics_layout.setContentsMargins(0, 0, 0, 0)
+        self.__statistics_layout.setSpacing(0)
+        self.__statistics_layout.setFieldGrowthPolicy(
+            QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
+        )
+        self.__statistics_layout.setRowWrapPolicy(
+            QtWidgets.QFormLayout.RowWrapPolicy.WrapLongRows
+        )
+        self.__statistics_layout.setLabelAlignment(
+            QtCore.Qt.AlignmentFlag.AlignLeft
+        )
+        self.__statistics_layout.setFormAlignment(
+            QtCore.Qt.AlignmentFlag.AlignLeft
+        )
+        self.__statistics_group_box.setLayout(self.__statistics_layout)
+        self.__layout.addWidget(self.__statistics_group_box, 2, 0, 1, 1)
+
+        # Controls widget
         self.__controls_group_box = QtWidgets.QGroupBox("Controls")
+        self.__controls_group_box.setFixedWidth(side_bar_width)
+        self.__controls_group_box.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Fixed,
+            QtWidgets.QSizePolicy.Policy.Expanding
+        )
         self.__controls_layout = QtWidgets.QFormLayout()
         self.__controls_layout.setContentsMargins(0, 0, 0, 0)
         self.__controls_layout.setSpacing(0)
@@ -705,10 +752,6 @@ class TetrisGameJinxWidget(JinxWidget):
         self.__controls_layout.addRow(
             QtWidgets.QLabel("Move Right:"),
             QtWidgets.QLabel("D")
-        )
-        self.__controls_layout.addRow(
-            QtWidgets.QLabel("Move Down:"),
-            QtWidgets.QLabel("W")
         )
         self.__controls_layout.addRow(
             QtWidgets.QLabel("Fast Down:"),
@@ -735,33 +778,28 @@ class TetrisGameJinxWidget(JinxWidget):
             QtWidgets.QLabel("P")
         )
         self.__controls_group_box.setLayout(self.__controls_layout)
-        self.__layout.addWidget(self.__controls_group_box, 2, 0, 2, 1)
+        self.__layout.addWidget(self.__controls_group_box, 2, 0, 1, 1)
 
         # Tetris grid widget
-        width, height = self.size
+        scene_width: int = (self.size.width - _SPACING) * 0.8
+        scene_height: int = self.size.height
         self.__display_widget = QtWidgets.QWidget()
         self.__display_widget.setStyleSheet("background-color: black;")
-        self.__display_widget.setFixedSize(width, height)
+        self.__display_widget.setFixedSize(scene_width, scene_height)
         self.__display_layout = QtWidgets.QGridLayout()
         self.__display_layout.setContentsMargins(0, 0, 0, 0)
         self.__display_layout.setSpacing(0)
         self.__display_widget.setLayout(self.__display_layout)
-        self.__scene = QtWidgets.QGraphicsScene(0, 0, width, height)
+        self.__scene = QtWidgets.QGraphicsScene(0, 0, scene_width, scene_height)
         self.__view = QtWidgets.QGraphicsView(self.__scene)
         self.__view.setStyleSheet("background-color: white;")
-        self.__view.setFixedSize(width, height)
+        self.__view.setFixedSize(scene_width, scene_height)
         self.__view.setHorizontalScrollBarPolicy(
             QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.__view.setVerticalScrollBarPolicy(
             QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.__display_layout.addWidget(self.__view, 0, 0, 1, 1)
         self.__layout.addWidget(self.__display_widget, 0, 1, 3, 1)
-
-        # Statistics widgets
-        # self.__statistics_widget = TetrisStatisticsWidget(
-        #     self._logic,
-        #     debug=debug
-        # )
 
         # Set up the key press event
         self.qwidget.keyPressEvent = self.__key_press_event
@@ -779,17 +817,17 @@ class TetrisGameJinxWidget(JinxWidget):
         key = event.key()
         with self._logic.direction:
             if key == QtCore.Qt.Key.Key_A:
-                self._logic.direction.set_obj(Direction.Left)
+                self._logic.direction.set_obj(Direction.LEFT)
             elif key == QtCore.Qt.Key.Key_D:
-                self._logic.direction.set_obj(Direction.Right)
+                self._logic.direction.set_obj(Direction.RIGHT)
             elif key == QtCore.Qt.Key.Key_E:
-                self._logic.direction.set_obj(Direction.RotateRight)
+                self._logic.direction.set_obj(Direction.ROTATE_RIGHT)
             elif key == QtCore.Qt.Key.Key_Q:
-                self._logic.direction.set_obj(Direction.RotateLeft)
+                self._logic.direction.set_obj(Direction.ROTATE_LEFT)
             elif key == QtCore.Qt.Key.Key_S:
-                self._logic.direction.set_obj(Direction.FastDown)
+                self._logic.direction.set_obj(Direction.FAST_DOWN)
             elif key == QtCore.Qt.Key.Key_Space:
-                self._logic.direction.set_obj(Direction.Drop)
+                self._logic.direction.set_obj(Direction.DROP)
             elif key == QtCore.Qt.Key.Key_Shift:
                 self._logic.store_piece()
             elif key == QtCore.Qt.Key.Key_P:
@@ -947,13 +985,18 @@ class TetrisGameJinxWidget(JinxWidget):
 class TetrisPieceWidget(QtWidgets.QWidget):
     """Widget to display a tetris piece."""
 
-    def __init__(self, cell_size: tuple[int, int]) -> None:
+    def __init__(self, name: str, cell_size: tuple[int, int]) -> None:
         """Initialise the widget."""
         super().__init__()
         self.__layout = QtWidgets.QGridLayout()
         self.__layout.setContentsMargins(0, 0, 0, 0)
         self.__layout.setSpacing(0)
         self.setLayout(self.__layout)
+
+        # Create the label to display the piece name
+        self.__widget_name: str = name
+        self.__name_label = QtWidgets.QLabel(name)
+        self.__layout.addWidget(self.__name_label, 0, 0, 1, 1)
 
         # Draw piece on a 4x2 grid
         self.__cell_size = cell_size
@@ -968,7 +1011,7 @@ class TetrisPieceWidget(QtWidgets.QWidget):
             QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.__view.setVerticalScrollBarPolicy(
             QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.__layout.addWidget(self.__view, 0, 0, 1, 1)
+        self.__layout.addWidget(self.__view, 1, 0, 1, 1)
 
     def draw_piece(self, piece: Piece) -> None:
         """Draw the piece."""
@@ -976,6 +1019,7 @@ class TetrisPieceWidget(QtWidgets.QWidget):
         if piece is None:
             self.update()
             return
+        self.__name_label.setText(f"{self.__widget_name} ({piece.value})")
         piece_colour = PIECE_COLOURS[piece]
         piece_shape = PIECE_SHAPES[piece][1]
         cell_size = self.__cell_size
@@ -1020,14 +1064,8 @@ def play_tetris_game(
     tetris_game_jwidget = TetrisGameJinxWidget(
         tetris_qwidget, size, (10, 20), debug=debug
     )
-    # tetris_options_qwidget = QtWidgets.QWidget()
-    # tetris_game_options_jwidget = TetrisGameOptionsJinxWidget(
-    #     tetris_options_qwidget, jdata, size, debug=debug
-    # )
 
     jgui.add_view(tetris_game_jwidget)
-    # jgui.add_view(snake_game_options_jwidget)
-    jdata.desired_view_state = tetris_game_jwidget.observer_name
 
     jgui.qwindow.show()
     sys.exit(qapp.exec())
