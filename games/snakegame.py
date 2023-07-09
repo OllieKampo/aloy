@@ -28,7 +28,7 @@ from concurrency.atomic import AtomicObject
 from games.gamerecorder import GameRecorder, GameSpec
 from guis.gui import JinxSystemData, JinxGuiWindow, JinxWidget
 from moremath.vectors import (vector_add, vector_between_torus_wrapped, vector_distance, vector_modulo,
-                              vector_multiply)
+                              vector_multiply, vector_subtract)
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
@@ -906,16 +906,20 @@ class SnakeGameJinxWidget(JinxWidget):
         end: tuple[int, int]
     ) -> list[tuple[int, int]]:
         """Find the manhattan path from start to end."""
-        dif_x, dif_y = vector_between_torus_wrapped(
-            start, end, self._logic.grid_size)
+        if self._logic.walls:
+            dif_x, dif_y = vector_subtract(end, start)
+        else:
+            dif_x, dif_y = vector_between_torus_wrapped(
+                start, end, self._logic.grid_size)
         add_x, add_y = (int(copysign(1, dif_x)), int(copysign(1, dif_y)))
         path: list[tuple[int, int]] = [start]
         for _ in range(abs(dif_x)):
             path.append((path[-1][0] + add_x, path[-1][1]))
         for _ in range(abs(dif_y)):
             path.append((path[-1][0], path[-1][1] + add_y))
-        for index, step in enumerate(path):
-            path[index] = vector_modulo(step, self._logic.grid_size)
+        if not self._logic.walls:
+            for index, step in enumerate(path):
+                path[index] = vector_modulo(step, self._logic.grid_size)
         return path
 
     def __draw_food(self) -> None:
