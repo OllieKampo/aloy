@@ -374,22 +374,22 @@ class SnakeGameLogic:
         """Start the snake at a random location."""
         while True:
             # Place the snake's head at a random location
-            x = random.randint(0, self.__grid_size[0] - 1)
-            y = random.randint(0, self.__grid_size[1] - 1)
-            if (x, y) in self.__obstacles or (x, y) == self.__food:
+            x_pos = random.randint(0, self.__grid_size[0] - 1)
+            y_pos = random.randint(0, self.__grid_size[1] - 1)
+            if (x_pos, y_pos) in self.__obstacles or (x_pos, y_pos) == self.__food:
                 continue
-            self.__snake = [(x, y)]
+            self.__snake = [(x_pos, y_pos)]
             # Randomly add segments to the snake's tail
             for _ in range(self.initial_snake_length - 1):
                 directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
                 random.shuffle(directions)
                 unsatisfiable: bool = False
                 for direction in directions:
-                    x += direction[0]
-                    y += direction[1]
-                    x = x % self.__grid_size[0]
-                    y = y % self.__grid_size[1]
-                    position = (x, y)
+                    x_pos += direction[0]
+                    y_pos += direction[1]
+                    x_pos = x_pos % self.__grid_size[0]
+                    y_pos = y_pos % self.__grid_size[1]
+                    position = (x_pos, y_pos)
                     # Do not put segments on top of each other
                     if (position not in self.__snake
                             and position not in self.__obstacles
@@ -399,7 +399,7 @@ class SnakeGameLogic:
                     elif direction == directions[-1]:
                         unsatisfiable = True
                     else:
-                        x, y = self.__snake[-1]
+                        x_pos, y_pos = self.__snake[-1]
                 if unsatisfiable:
                     break
             if len(self.__snake) != self.initial_snake_length:
@@ -454,18 +454,18 @@ class SnakeGameLogic:
         self.__obstacles = []
         if self.walls:
             self.__obstacles.extend(
-                [(x, 0) for x in range(self.grid_size[0])]
+                [(x_pos, 0) for x_pos in range(self.grid_size[0])]
             )
             self.__obstacles.extend(
-                [(x, self.grid_size[1] - 1)
-                 for x in range(self.grid_size[0])]
+                [(x_pos, self.grid_size[1] - 1)
+                 for x_pos in range(self.grid_size[0])]
             )
             self.__obstacles.extend(
-                [(0, y) for y in range(self.grid_size[1])]
+                [(0, y_pos) for y_pos in range(self.grid_size[1])]
             )
             self.__obstacles.extend(
-                [(self.grid_size[0] - 1, y)
-                 for y in range(self.grid_size[1])]
+                [(self.grid_size[0] - 1, y_pos)
+                 for y_pos in range(self.grid_size[1])]
             )
         if self.difficulty == "easy":
             return
@@ -510,12 +510,12 @@ class SnakeGameLogic:
 
     def __adjacent(self, point: tuple[int, int]) -> list[tuple[int, int]]:
         """Get the adjacent points to a given point."""
-        x, y = point
+        x_pos, y_pos = point
         return [
-            (x + 1, y),
-            (x - 1, y),
-            (x, y + 1),
-            (x, y - 1),
+            (x_pos + 1, y_pos),
+            (x_pos - 1, y_pos),
+            (x_pos, y_pos + 1),
+            (x_pos, y_pos - 1),
         ]
 
     def __infront(
@@ -872,28 +872,28 @@ class SnakeGameJinxWidget(JinxWidget):
                 self._logic.snake[0],
                 self._logic.food  # type: ignore
             )
-            for x, y in path:
+            for x_pos, y_pos in path:
                 self.__scene.addRect(
-                    (x * _CELL_SIZE) + 5,
-                    (y * _CELL_SIZE) + 5,
+                    (x_pos * _CELL_SIZE) + 5,
+                    (y_pos * _CELL_SIZE) + 5,
                     _CELL_SIZE // 2,
                     _CELL_SIZE // 2,
                     QtGui.QPen(QtGui.QColor("black")),
                     QtGui.QBrush(QtGui.QColor("yellow")),
                 )
-        x, y = self._logic.snake[0]
+        x_pos, y_pos = self._logic.snake[0]
         self.__scene.addRect(
-            x * _CELL_SIZE,
-            y * _CELL_SIZE,
+            x_pos * _CELL_SIZE,
+            y_pos * _CELL_SIZE,
             _CELL_SIZE,
             _CELL_SIZE,
             QtGui.QPen(QtGui.QColor("black")),
             QtGui.QBrush(QtGui.QColor("blue")),
         )
-        for x, y in self._logic.snake[1:]:
+        for x_pos, y_pos in self._logic.snake[1:]:
             self.__scene.addRect(
-                x * _CELL_SIZE,
-                y * _CELL_SIZE,
+                x_pos * _CELL_SIZE,
+                y_pos * _CELL_SIZE,
                 _CELL_SIZE,
                 _CELL_SIZE,
                 QtGui.QPen(QtGui.QColor("black")),
@@ -921,10 +921,10 @@ class SnakeGameJinxWidget(JinxWidget):
     def __draw_food(self) -> None:
         """Draw the food on the grid."""
         if self._logic.food is not None:
-            x, y = self._logic.food
+            x_pos, y_pos = self._logic.food
             self.__scene.addRect(
-                x * _CELL_SIZE,
-                y * _CELL_SIZE,
+                x_pos * _CELL_SIZE,
+                y_pos * _CELL_SIZE,
                 _CELL_SIZE,
                 _CELL_SIZE,
                 QtGui.QPen(QtGui.QColor("black")),
@@ -933,10 +933,10 @@ class SnakeGameJinxWidget(JinxWidget):
 
     def __draw_obstacles(self) -> None:
         """Draw the obstacles on the grid."""
-        for x, y in self._logic.obstacles:
+        for x_pos, y_pos in self._logic.obstacles:
             self.__scene.addRect(
-                x * _CELL_SIZE,
-                y * _CELL_SIZE,
+                x_pos * _CELL_SIZE,
+                y_pos * _CELL_SIZE,
                 _CELL_SIZE,
                 _CELL_SIZE,
                 QtGui.QPen(QtGui.QColor("black")),
