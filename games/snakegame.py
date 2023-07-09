@@ -550,6 +550,7 @@ class SnakeGameLogic:
         with self.direction as direction:
             direction.set_obj(_INITIAL_DIRECTION)
         self.__score = _INITIAL_SCORE
+        self.__level = _INITIAL_LEVEL
         self.__seconds_per_move = _INITIAL_SECONDS_PER_MOVE
         self.__game_over = False
         self.__paused = False
