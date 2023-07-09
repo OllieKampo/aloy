@@ -24,6 +24,13 @@
 Module defining publisher-subscriber interface pattern.
 
 An alternative to explicit naming of source and destination would be to name a port through which communication is to take place.
+
+Subscribers declare which topics they are interested in, and publishers send messages to topics without knowledge of what (if any) subscribers there may be.
+Subscribers are only updated when a topic or field they are subscribed to is updated or changed.
+
+Transmit
+Report
+Broadcast
 """
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
@@ -34,16 +41,13 @@ __all__ = ()
 
 from typing import Any
 
+from concurrency.executors import JinxThreadPool
+from datastructures.mappings import TwoWayMap
+
 
 def __dir__() -> tuple[str, ...]:
     """Get the names of module attributes."""
     return __all__
-
-
-# Publish
-# Transmit
-# Report
-# Broadcast
 
 
 class MessageTopic:
@@ -134,8 +138,48 @@ class Publisher:
         pass
 
 
-class Subscriber:
+def trigger_on_field_change(field_name: str) -> Any:
+    """Decorate a method to be called when a field changes."""
     pass
+
+
+class Subscriber:
+    def field_changed(
+        self,
+        source: "Subject",
+        field_name: str,
+        old_value: Any,
+        new_value: Any
+    ) -> None:
+        pass
+
+
+def field(field_name: str | None = None) -> Any:
+    """Decorate a field to be tracked by a `Subject`."""
+    def decorator(func: Any) -> Any:
+        if field_name is None:
+            field_name = func.__name__
+        func.__subject_field__ = field_name
+        return func
+    return decorator
+
+
+def field_change(field_name: str | None = None) -> Any:
+    """Decorate a method to indicate that it changes a field."""
+    def decorator(func: Any) -> Any:
+        if field_name is None:
+            field_name = func.__name__
+
+        @functools.wraps(func)
+        def wrapper(self: "Subject", *args: Any, **kwargs: Any) -> Any:
+            old_value = getattr(self, field_name)
+            func(self, *args, **kwargs)
+            new_value = getattr(self, field_name)
+            if old_value != new_value:
+                self.__update_listeners(field_name, old_value, new_value)
+
+        return wrapper
+    return decorator
 
 
 class Processer:
@@ -152,4 +196,36 @@ class PusSubHub:
     subscribers can register themselves. It is responsible for routing messages
     from publishers to subscribers.
     """
-    pass
+    def __init__(self) -> None:
+        self.__listeners = TwoWayMap[Listener, str]()
+        self.__executor = JinxThreadPool()
+
+    @property
+    @field()
+    def value(self) -> int:
+        return self.__value
+
+    @value.setter
+    @field_change()
+    def value(self, value: int) -> None:
+        self.__value = value
+
+    def assign_listener(self, listener: Listener, fields: list[str]) -> None:
+        self.__listeners.extend(
+            (listener, set(fields))
+        )
+
+    def remove_listener(self, listener: Listener) -> None:
+        self.__listeners.forwards_remove(listener)
+
+    def __update_listeners(self, field_name: str, old_value: Any, new_value: Any) -> None:
+        self.__executor.submit(
+            self.__update_listeners_async,
+            field_name,
+            old_value,
+            new_value
+        )
+
+    def __update_listeners_async(self, field_name: str, old_value: Any, new_value: Any) -> None:
+        for listener in self.__listeners[field_name]:
+            listener.field_changed(self, field_name, old_value, new_value)

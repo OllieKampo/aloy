@@ -42,10 +42,8 @@ three main reasons for this:
 - Thirdly, observers are updated through a single method call, which takes
   the observable as an argument. This means that all observables appear to be
   the same to the observer. This is problematic, because we typically want to
-  make custom observable sub-classes, which have different methods and
-  properties. If we want to observe multiple observables, then the observer
-  needs to check the type of the observable, and then call the appropriate
-  method. This is not ideal, because it couples the observer to the observable.
+  make custom observable sub-classes, which store different sets of data,
+  this is particularly to help mitigate the prior two problems.
 """
 
 from abc import abstractmethod, ABCMeta
