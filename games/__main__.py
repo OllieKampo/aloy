@@ -10,8 +10,6 @@ import curses
 import pyfiglet
 
 from auxiliary.argparseutils import mapping_argument_factory
-from games.snakegame import play_snake_game
-from games.tetrisgame import play_tetris_game
 
 
 class GameParam(NamedTuple):
@@ -23,10 +21,33 @@ class GameParam(NamedTuple):
     help: str
 
 
+def _optional_int(value: str) -> int | None:
+    """Convert a string to an integer if possible, otherwise return None."""
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
 __STANDARD_PARAMS: Final[list[GameParam]] = [
-    GameParam(["-w", "--width"], int, 800, "The width of the game window."),
-    GameParam(["-t", "--height"], int, 800, "The height of the game window."),
-    GameParam(["--debug"], bool, False, "Run the game in debug mode.")
+    GameParam(
+        ["-w", "--width"],
+        _optional_int,  # type: ignore
+        None,
+        "The width of the game window, each game has its own default width."
+    ),
+    GameParam(
+        ["-t", "--height"],
+        _optional_int,  # type: ignore
+        None,
+        "The height of the game window, each game has its own default height."
+    ),
+    GameParam(
+        ["--debug"],
+        bool,
+        False,
+        "Run the game in debug mode."
+    )
 ]
 
 
@@ -53,12 +74,13 @@ __NAME_RESERVED_CHARACTERS: Final[set[str]] = {"-", "_", " "}
 
 
 class GameRegistration(NamedTuple):
-    """A class to store information about a game."""
+    """Tuple to store information about a game registration."""
 
-    entry_point: Callable
     module: str
+    entry_point: str
     name: str
     description: str
+    default_size: tuple[int, int]
     competitive: bool
     parameters: list[GameParam]
     package: str = "games"
@@ -68,10 +90,11 @@ __registered_games__: dict[str, GameRegistration] = {}
 
 
 def register_game(
-    entry_point: Callable,
     module: str,
+    entry_point: str,
     name: str,
     description: str,
+    default_size: tuple[int, int],
     competitive: bool = False,
     parameters: Iterable[GameParam] | None = None,
     package: str = "games"
@@ -81,14 +104,17 @@ def register_game(
 
     Parameters
     ----------
-    `entry_point: Callable` - The function to call to run the game.
-
     `module: str` - The name of the module containing the game.
+
+    `entry_point: str` - The name of the function to call to run the game.
 
     `name: str` - The name of the game.
 
     `description: str` - A description of the game. This will be displayed
     when the user lists the available games.
+
+    `default_size: tuple[int, int]` - The default size of the game window in
+    pixels (width, height).
 
     `competitive: bool = False` - Whether the game is competitive. If the game
     is competitive, the game launcher will ask the user if they want to play
@@ -119,6 +145,18 @@ def register_game(
                 f"Game name '{name}' contains reserved character '{char}'."
             )
 
+    # Check size is valid.
+    if len(default_size) != 2:
+        raise ValueError(
+            f"Default size '{default_size}' is not a tuple of length 2."
+        )
+    for value in default_size:
+        if not isinstance(value, int) or value <= 0:
+            raise ValueError(
+                "Default size must be a tuple of positive integers. "
+                f"Got; '{default_size}'."
+            )
+
     # Check parameters are valid.
     if parameters is None:
         parameters = []
@@ -136,6 +174,7 @@ def register_game(
         module=module,
         name=name,
         description=description,
+        default_size=default_size,
         competitive=competitive,
         parameters=parameters,
         package=package
@@ -143,61 +182,72 @@ def register_game(
 
 
 register_game(
-    play_snake_game,
     "snakegame",
-    "Snake Qt",
-    "Play the snake game with Qt."
+    "play_snake_game",
+    "Snake",
+    "Play the snake game with Qt.",
+    default_size=(800, 600)
 )
 
 
 register_game(
-    play_tetris_game,
     "tetrisgame",
-    "Tetris Qt",
-    "Play the tetris game with Qt."
+    "play_tetris_game",
+    "Tetris",
+    "Play the tetris game with Qt.",
+    default_size=(800, 800)
 )
 
+
 # register_game(
-#     play_blockbreaker_game,
+#     "tetrisgame",
+#     "play_tetris_curses_game",
+#     "TetrisCurses",
+#     "Play the tetris game with Curses."
+# )
+
+
+# register_game(
 #     "blockbreakergame",
+#     "play_blockbreaker_game",
 #     "Block Breaker",
 #     "Play the block breaker game."
 # )
 
 # register_game(
-#     play_pacman_game,
 #     "pacmangame",
+#     "play_pacman_game",
 #     "Pacman",
 #     "Play the pacman game."
 # )
 
 # register_game(
-#     play_pong_game,
 #     "ponggame",
+#     "play_pong_game",
 #     "Pong",
 #     "Play the pong game.",
 #     competitive=True
 # )
 
 # register_game(
-#     play_connect_four_game,
 #     "connectfourgame",
+#     "play_connect_four_game",
 #     "Connect Four",
 #     "Play the connect four game.",
 #     competitive=True
 # )
 
 # register_game(
-#     play_chess_game,
 #     "chessgame",
+#     "play_chess_game",
 #     "Chess",
 #     "Play the chess game.",
 #     competitive=True
 # )
 
 # register_game(
-#     play_go_game,
 #     "gogame",
+#     "play_go_game",
 #     "Go",
 #     "Play the go game.",
 #     competitive=True
@@ -310,6 +360,11 @@ def main() -> int:
         print("Available games:")
         for _name, _game in __registered_games__.items():
             print(f"\t{_name}: {_game.description}")
+            print(f"\t\tDefault size: {_game.default_size}")
+            print(f"\t\tCompetitive: {_game.competitive}")
+            print(f"\t\tParameters:")
+            for parameter in _game.parameters:
+                print(f"\t\t\t{parameter}")
         return 0
 
     if args.launcher:
@@ -327,6 +382,13 @@ def main() -> int:
     print(f"Launching game '{game}'...")
     game_registration: GameRegistration = __registered_games__[game]
 
+    width = args.width
+    height = args.height
+    if width is None:
+        width = game_registration.default_size[0]
+    if height is None:
+        height = game_registration.default_size[1]
+
     final_params: dict[str, Any] = {}
     for parameter in game_registration.parameters:
         for param_name in parameter.names:
@@ -340,10 +402,14 @@ def main() -> int:
         f".{game_registration.module}",
         package=game_registration.package
     )
+    entry_point = getattr(
+        sys.modules[f"{game_registration.package}.{game_registration.module}"],
+        game_registration.entry_point
+    )
 
-    return game_registration.entry_point(
-        args.width,
-        args.height,
+    return entry_point(
+        width,
+        height,
         args.debug,
         **final_params
     )
