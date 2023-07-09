@@ -481,7 +481,9 @@ class TetrisGameLogic:
 
     def store_piece(self) -> None:
         """Store the current piece."""
-        if not self.allow_store_piece:
+        if (not self.__playing
+                or self.__game_over
+                or self.__paused):
             return
 
         if self.__stored_piece is None:
