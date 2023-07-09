@@ -544,7 +544,7 @@ class TetrisGameLogic:
             self.__lines_filled["Total"] += lines_filled
             self.__lines_filled[_NUM_LINES_NAME[lines_filled]] += 1
             self.__score += _NUM_LINES_SCORE[lines_filled] * self.__level
-            self.__level = self.__score // _SCORE_PER_LEVEL
+            self.__level = (self.__score // _SCORE_PER_LEVEL) + _INITIAL_LEVEL
             self.__seconds_per_move = max(
                 self.__seconds_per_move - _SECONDS_PER_MOVE_DECREASE_PER_LEVEL,
                 _MINIMUM_SECONDS_PER_MOVE
@@ -962,6 +962,14 @@ class TetrisGameJinxWidget(JinxWidget):
             f"Current piece rotation: {self._logic.current_piece_rotation}",
             QtGui.QFont("Arial", 12)
         ).setPos(0, 120)
+        self.__scene.addText(
+            f"Score: {self._logic.score}",
+            QtGui.QFont("Arial", 12)
+        ).setPos(0, 140)
+        self.__scene.addText(
+            f"Level: {self._logic.level}",
+            QtGui.QFont("Arial", 12)
+        ).setPos(0, 160)
 
     def __draw_game_over(self) -> None:
         """Draw the game over text."""
