@@ -20,6 +20,11 @@ from concurrency.executors import JinxThreadPool
 from datastructures.mappings import TwoWayMap
 
 
+def trigger_on_field_change(field_name: str) -> Any:
+    """Decorate a method to be called when a field changes."""
+    pass
+
+
 class Listener:
     def field_changed(
         self,
@@ -32,6 +37,7 @@ class Listener:
 
 
 def field(field_name: str | None = None) -> Any:
+    """Decorate a field to be tracked by a `Subject`."""
     def decorator(func: Any) -> Any:
         if field_name is None:
             field_name = func.__name__
@@ -41,6 +47,7 @@ def field(field_name: str | None = None) -> Any:
 
 
 def field_change(field_name: str | None = None) -> Any:
+    """Decorate a method to indicate that it changes a field."""
     def decorator(func: Any) -> Any:
         if field_name is None:
             field_name = func.__name__
