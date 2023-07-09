@@ -468,6 +468,15 @@ class TetrisGameLogic:
         if direction == Direction.DROP or self.__can_move_piece(new_piece_position):
             self.__current_piece_position = new_piece_position
             self.__current_piece_rotation = new_piece_rotation
+        elif direction in (Direction.ROTATE_LEFT, Direction.ROTATE_RIGHT):
+            # Try moving the piece left 
+            new_piece_position = tuple(
+                (x_pos - 1, y_pos)
+                for x_pos, y_pos in new_piece_position
+            )
+            if self.__can_move_piece(new_piece_position):
+                self.__current_piece_position = new_piece_position
+                self.__current_piece_rotation = new_piece_rotation
 
         # Check if the piece has landed
         if (direction == Direction.DROP
