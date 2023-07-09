@@ -188,13 +188,17 @@ _INITIAL_LINES_FILLED: dict[str, int] = {
     "Tetris": 0
 }
 _INITIAL_PIECES_USED: dict[Piece | str, int] = {
+    "Total": 0
+} | {
     piece: 0
     for piece in Piece
-} | {"Total": 0}
+}
 _INITIAL_SECONDS_PER_MOVE: float = 0.25
 _SECONDS_PER_MOVE_DECREASE_PER_LEVEL: float = 0.01
-_MINIMUM_SECONDS_PER_MOVE: float = 0.10
+_MIN_SECONDS_PER_MOVE: float = 0.10
 _DEFAULT_SPEED: float = 1.0
+_MIN_SPEED: float = 0.25
+_MAX_SPEED: float = 1.75
 _DEFAULT_GHOST_PIECE_ENABLED: bool = True
 _DEFAULT_ALLOW_STORE_PIECE: bool = True
 _DEFAULT_SHOW_GRID: bool = False
@@ -547,7 +551,7 @@ class TetrisGameLogic:
             self.__level = (self.__score // _SCORE_PER_LEVEL) + _INITIAL_LEVEL
             self.__seconds_per_move = max(
                 self.__seconds_per_move - _SECONDS_PER_MOVE_DECREASE_PER_LEVEL,
-                _MINIMUM_SECONDS_PER_MOVE
+                _MIN_SECONDS_PER_MOVE
             )
 
         self.__pieces_used[self.__current_piece] += 1
@@ -641,9 +645,12 @@ class TetrisGameJinxWidget(JinxWidget):
             raise ValueError("Widget size must be divisible by board size")
 
         # Size of an individual cell
+        _SPACING: int = 5
+        _WIDTH_SIZE_RATIO: float = (1.0 - (3 / (board_size[0] + 3)))
         self.__cell_size: tuple[int, int] = (
-            widget_size[0] // board_size[0],
-            widget_size[1] // board_size[1]
+            ((self.size.width - _SPACING)
+             * _WIDTH_SIZE_RATIO) // board_size[0],
+            self.size.height // board_size[1]
         )
 
         # Set up the game logic
@@ -664,7 +671,6 @@ class TetrisGameJinxWidget(JinxWidget):
         # Widget and layout
         self.__layout = QtWidgets.QGridLayout()
         self.__layout.setContentsMargins(0, 0, 0, 0)
-        _SPACING: int = 10
         self.__layout.setSpacing(_SPACING)
         self.qwidget.setLayout(self.__layout)
         self.qwidget.setSizePolicy(
@@ -673,8 +679,10 @@ class TetrisGameJinxWidget(JinxWidget):
         )
         self.qwidget.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
 
-        side_bar_width: int = (self.size.width - _SPACING) * 0.2
-        side_bar_height: int = self.size.height
+        side_bar_width: int = (
+            (self.size.width - _SPACING)
+            * (1.0 - _WIDTH_SIZE_RATIO)
+        )
 
         # Next and stored piece widgets
         self.__next_piece_widget = TetrisPieceWidget(
@@ -707,7 +715,8 @@ class TetrisGameJinxWidget(JinxWidget):
         )
         self.__statistics_layout = QtWidgets.QFormLayout()
         self.__statistics_layout.setContentsMargins(0, 0, 0, 0)
-        self.__statistics_layout.setSpacing(0)
+        self.__statistics_layout.setHorizontalSpacing(20)
+        self.__statistics_layout.setVerticalSpacing(0)
         self.__statistics_layout.setFieldGrowthPolicy(
             QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
         )
@@ -724,6 +733,36 @@ class TetrisGameJinxWidget(JinxWidget):
         self.__statistics_layout.addRow("Score:", self.__score_value_label)
         self.__level_value_label = QtWidgets.QLabel("1")
         self.__statistics_layout.addRow("Level:", self.__level_value_label)
+        separator = QtWidgets.QFrame()
+        separator.setFrameShape(QtWidgets.QFrame.Shape.HLine)
+        self.__statistics_layout.addRow(separator)
+        self.__statistics_layout.addRow(QtWidgets.QLabel("Lines Cleared:"))
+        self.__lines_cleared_value_labels: dict[
+            str, QtWidgets.QLabel] = {}
+        for lines_type, num_lines in self._logic.lines_filled.items():
+            lines_type_value_label = QtWidgets.QLabel(str(num_lines))
+            self.__lines_cleared_value_labels[lines_type] = (
+                lines_type_value_label)
+            self.__statistics_layout.addRow(
+                f"{lines_type}:",
+                lines_type_value_label
+            )
+        separator = QtWidgets.QFrame()
+        separator.setFrameShape(QtWidgets.QFrame.Shape.HLine)
+        self.__statistics_layout.addRow(separator)
+        self.__statistics_layout.addRow(QtWidgets.QLabel("Pieces Used:"))
+        self.__pieces_used_value_labels: dict[
+            str, QtWidgets.QLabel] = {}
+        for piece_type, num_pieces in self._logic.pieces_used.items():
+            if isinstance(piece_type, Piece):
+                piece_type = piece_type.value
+            piece_type_value_label = QtWidgets.QLabel(str(num_pieces))
+            self.__pieces_used_value_labels[piece_type] = (
+                piece_type_value_label)
+            self.__statistics_layout.addRow(
+                f"{piece_type} shape:" if piece_type != "Total" else "Total:",
+                piece_type_value_label
+            )
         self.__statistics_group_box.setLayout(self.__statistics_layout)
         self.__layout.addWidget(self.__statistics_group_box, 2, 0, 1, 1)
 
@@ -788,26 +827,69 @@ class TetrisGameJinxWidget(JinxWidget):
         self.__controls_group_box.setLayout(self.__controls_layout)
         self.__layout.addWidget(self.__controls_group_box, 3, 0, 1, 1)
 
-        # Tetris grid widget
-        scene_width: int = (self.size.width - _SPACING) * 0.8
-        scene_height: int = self.size.height
-        self.__display_widget = QtWidgets.QWidget()
-        self.__display_widget.setStyleSheet("background-color: black;")
-        self.__display_widget.setFixedSize(scene_width, scene_height)
-        self.__display_layout = QtWidgets.QGridLayout()
-        self.__display_layout.setContentsMargins(0, 0, 0, 0)
-        self.__display_layout.setSpacing(0)
-        self.__display_widget.setLayout(self.__display_layout)
-        self.__scene = QtWidgets.QGraphicsScene(0, 0, scene_width, scene_height)
-        self.__view = QtWidgets.QGraphicsView(self.__scene)
-        self.__view.setStyleSheet("background-color: white;")
-        self.__view.setFixedSize(scene_width, scene_height)
-        self.__view.setHorizontalScrollBarPolicy(
-            QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.__view.setVerticalScrollBarPolicy(
-            QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.__display_layout.addWidget(self.__view, 0, 0, 1, 1)
-        self.__layout.addWidget(self.__display_widget, 0, 1, 4, 1)
+        # Options widget
+        self.__options_widget = QtWidgets.QWidget()
+        self.__options_widget.setFixedWidth(side_bar_width)
+        self.__options_layout = QtWidgets.QFormLayout()
+        self.__options_layout.setContentsMargins(10, 10, 10, 10)
+        self.__options_layout.setSpacing(10)
+        self.__options_widget.setLayout(self.__options_layout)
+        self.__options_layout.addRow(
+            QtWidgets.QLabel("Game Options")
+        )
+
+        # Add speed slider
+        self.__speed_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self.__speed_slider.setRange(0, 10)
+        self.__speed_slider.setValue(5)
+        self.__speed_slider.setTickPosition(
+            QtWidgets.QSlider.TickPosition.TicksBelow
+        )
+        self.__speed_slider.setTickInterval(1)
+        def speed_slider_changed(value: int):
+            self._logic.speed = (
+                _DEFAULT_SPEED
+                + (_MAX_SPEED - _MIN_SPEED)
+                * ((value - 1) / 10)
+            )
+        self.__speed_slider.valueChanged.connect(speed_slider_changed)
+        self.__options_layout.addRow("Speed:", self.__speed_slider)
+
+        # Add ghost piece toggle
+        self.__ghost_toggle = QtWidgets.QCheckBox("Enable Ghost Piece")
+        self.__ghost_toggle.setChecked(_DEFAULT_GHOST_PIECE_ENABLED)
+        def ghost_toggle_changed(checked: bool):
+            self._logic.ghost_piece_enabled = checked
+        self.__ghost_toggle.stateChanged.connect(ghost_toggle_changed)
+        self.__options_layout.addRow(self.__ghost_toggle)
+
+        # Add store piece toggle
+        self.__store_toggle = QtWidgets.QCheckBox("Allow Store Piece")
+        self.__store_toggle.setChecked(_DEFAULT_ALLOW_STORE_PIECE)
+        def store_toggle_changed(checked: bool):
+            self._logic.allow_store_piece = checked
+        self.__store_toggle.stateChanged.connect(store_toggle_changed)
+        self.__options_layout.addRow(self.__store_toggle)
+
+        # Add grid toggle
+        self.__grid_toggle = QtWidgets.QCheckBox("Show Grid")
+        self.__grid_toggle.setChecked(_DEFAULT_SHOW_GRID)
+        def grid_toggle_changed(checked: bool):
+            self._logic.show_grid = checked
+        self.__grid_toggle.stateChanged.connect(grid_toggle_changed)
+        self.__options_layout.addRow(self.__grid_toggle)
+
+        # Add options widget to main layout
+        self.__layout.addWidget(self.__options_widget, 4, 0, 1, 1)
+
+        # Tetris grid display widget
+        display_widget, graphics_scene = self.__create_display(
+            (self.size.width - _SPACING)
+            * _WIDTH_SIZE_RATIO,
+            self.size.height
+        )
+        self.__scene = graphics_scene
+        self.__layout.addWidget(display_widget, 0, 1, 5, 1)
 
         # Set up the key press event
         self.qwidget.keyPressEvent = self.__key_press_event
@@ -815,6 +897,29 @@ class TetrisGameJinxWidget(JinxWidget):
         self._logic.restart()
         if not manual_update:
             self.__timer.start()
+
+    def __create_display(
+        self,
+        scene_width: int,
+        scene_height: int
+    ) -> tuple[QtWidgets.QWidget, QtWidgets.QGraphicsScene]:
+        display_widget = QtWidgets.QWidget()
+        display_widget.setStyleSheet("background-color: black;")
+        display_widget.setFixedSize(scene_width, scene_height)
+        display_layout = QtWidgets.QGridLayout()
+        display_layout.setContentsMargins(0, 0, 0, 0)
+        display_layout.setSpacing(0)
+        display_widget.setLayout(display_layout)
+        scene = QtWidgets.QGraphicsScene(0, 0, scene_width, scene_height)
+        view = QtWidgets.QGraphicsView(scene)
+        view.setStyleSheet("background-color: white;")
+        view.setFixedSize(scene_width, scene_height)
+        view.setHorizontalScrollBarPolicy(
+            QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        view.setVerticalScrollBarPolicy(
+            QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        display_layout.addWidget(view, 0, 0, 1, 1)
+        return display_widget, scene
 
     def update_observer(self, observable_: JinxSystemData) -> None:
         """Update the obaerver."""
@@ -1003,6 +1108,12 @@ class TetrisGameJinxWidget(JinxWidget):
         """Update the statistics."""
         self.__score_value_label.setText(str(self._logic.score))
         self.__level_value_label.setText(str(self._logic.level))
+        for lines_type, num_lines in self._logic.lines_filled.items():
+            self.__lines_cleared_value_labels[lines_type].setText(str(num_lines))
+        for piece_type, num_pieces in self._logic.pieces_used.items():
+            if isinstance(piece_type, Piece):
+                piece_type = piece_type.value
+            self.__pieces_used_value_labels[piece_type].setText(str(num_pieces))
 
 
 class TetrisPieceWidget(QtWidgets.QWidget):
