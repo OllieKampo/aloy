@@ -282,7 +282,7 @@ class TetrisGameLogic:
         self.__score: int = _INITIAL_SCORE
         self.__level: int = _INITIAL_LEVEL
         self.__lines_filled: dict[str, int] = _INITIAL_LINES_FILLED.copy()
-        self.__pieces_used: dict[str, int] = _INITIAL_PIECES_USED.copy()
+        self.__pieces_used: dict[Piece | str, int] = _INITIAL_PIECES_USED.copy()
         self.__seconds_per_move: float = _INITIAL_SECONDS_PER_MOVE
         self.__game_over: bool = False
         self.__paused: bool = False
@@ -720,6 +720,10 @@ class TetrisGameJinxWidget(JinxWidget):
         self.__statistics_layout.setFormAlignment(
             QtCore.Qt.AlignmentFlag.AlignLeft
         )
+        self.__score_value_label = QtWidgets.QLabel("0")
+        self.__statistics_layout.addRow("Score:", self.__score_value_label)
+        self.__level_value_label = QtWidgets.QLabel("1")
+        self.__statistics_layout.addRow("Level:", self.__level_value_label)
         self.__statistics_group_box.setLayout(self.__statistics_layout)
         self.__layout.addWidget(self.__statistics_group_box, 2, 0, 1, 1)
 
@@ -777,8 +781,12 @@ class TetrisGameJinxWidget(JinxWidget):
             QtWidgets.QLabel("Pause:"),
             QtWidgets.QLabel("P")
         )
+        self.__controls_layout.addRow(
+            QtWidgets.QLabel("Restart:"),
+            QtWidgets.QLabel("R")
+        )
         self.__controls_group_box.setLayout(self.__controls_layout)
-        self.__layout.addWidget(self.__controls_group_box, 2, 0, 1, 1)
+        self.__layout.addWidget(self.__controls_group_box, 3, 0, 1, 1)
 
         # Tetris grid widget
         scene_width: int = (self.size.width - _SPACING) * 0.8
@@ -799,7 +807,7 @@ class TetrisGameJinxWidget(JinxWidget):
         self.__view.setVerticalScrollBarPolicy(
             QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.__display_layout.addWidget(self.__view, 0, 0, 1, 1)
-        self.__layout.addWidget(self.__display_widget, 0, 1, 3, 1)
+        self.__layout.addWidget(self.__display_widget, 0, 1, 4, 1)
 
         # Set up the key press event
         self.qwidget.keyPressEvent = self.__key_press_event
@@ -832,6 +840,8 @@ class TetrisGameJinxWidget(JinxWidget):
                 self._logic.store_piece()
             elif key == QtCore.Qt.Key.Key_P:
                 self._logic.paused = not self._logic.paused
+            elif key == QtCore.Qt.Key.Key_R:
+                self._logic.restart()
             else:
                 return
         self.__update_game(forced=True)
@@ -849,6 +859,7 @@ class TetrisGameJinxWidget(JinxWidget):
         else:
             self.__update_timer()
         self.__draw_all()
+        self.__update_statistics()
 
     def __update_timer(self) -> None:
         """Update the timer."""
@@ -863,7 +874,6 @@ class TetrisGameJinxWidget(JinxWidget):
         self.__draw_piece()
         self.__next_piece_widget.draw_piece(self._logic.next_piece)
         self.__stored_piece_widget.draw_piece(self._logic.stored_piece)
-        # self.__statistics_widget.draw_statistics()
         if self.debug:
             self.__draw_debug()
         if self._logic.game_over:
@@ -892,21 +902,6 @@ class TetrisGameJinxWidget(JinxWidget):
                     QtGui.QBrush(QtGui.QColor(cell.value))
                 )
 
-    def __draw_piece(self) -> None:
-        """Draw the current piece."""
-        piece = self._logic.current_piece
-        piece_cells = self._logic.current_piece_position
-        if piece_cells is not None:
-            for x_pos, y_pos in piece_cells:
-                self.__scene.addRect(
-                    x_pos * self.__cell_size[0],
-                    y_pos * self.__cell_size[1],
-                    self.__cell_size[0],
-                    self.__cell_size[1],
-                    QtGui.QPen(QtGui.QColor("black")),
-                    QtGui.QBrush(QtGui.QColor(PIECE_COLOURS[piece].value))
-                )
-
     def __draw_ghost_piece(self) -> None:
         """Draw the ghost piece."""
         piece = self._logic.current_piece
@@ -920,6 +915,21 @@ class TetrisGameJinxWidget(JinxWidget):
                     self.__cell_size[1],
                     QtGui.QPen(QtGui.QColor("black")),
                     QtGui.QBrush(QtGui.QColor(PIECE_COLOURS[piece].value).lighter(150))
+                )
+
+    def __draw_piece(self) -> None:
+        """Draw the current piece."""
+        piece = self._logic.current_piece
+        piece_cells = self._logic.current_piece_position
+        if piece_cells is not None:
+            for x_pos, y_pos in piece_cells:
+                self.__scene.addRect(
+                    x_pos * self.__cell_size[0],
+                    y_pos * self.__cell_size[1],
+                    self.__cell_size[0],
+                    self.__cell_size[1],
+                    QtGui.QPen(QtGui.QColor("black")),
+                    QtGui.QBrush(QtGui.QColor(PIECE_COLOURS[piece].value))
                 )
 
     def __draw_debug(self) -> None:
@@ -980,6 +990,11 @@ class TetrisGameJinxWidget(JinxWidget):
             ((self._logic.board_size[1] * self.__cell_size[1]) // 2)
             - (text_size.height() // 2)
         )
+
+    def __update_statistics(self) -> None:
+        """Update the statistics."""
+        self.__score_value_label.setText(str(self._logic.score))
+        self.__level_value_label.setText(str(self._logic.level))
 
 
 class TetrisPieceWidget(QtWidgets.QWidget):
