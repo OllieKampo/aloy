@@ -26,7 +26,7 @@ from typing import Any, Literal, NamedTuple, Sequence, Union, final
 from PySide6 import QtWidgets, QtCore, QtGui  # pylint: disable=unused-import
 
 from concurrency.clocks import ClockThread
-from concurrency.synchronization import atomic_update
+from concurrency.synchronization import atomic_update, sync
 import guis.observable as observable
 from guis.widgets.placeholders import PlaceholderWidget
 from moremath.mathutils import closest_integer_factors
@@ -377,17 +377,17 @@ class JinxSystemData(observable.Observable):
         "__weakref__": "Weak reference to the object.",
         "__linked_gui": "The gui object linked to this data object.",
         "__view_states": "The list of view states.",
-        "__desired_view_state": "The currently desired view state.",
-        "__data": "Arbitrary data associated with the gui.",
-        "__messages": "Log messages associated with the gui.",
+        "__desired_view_state": "The currently desired view state."
     }
 
     def __init__(
         self,
         name: str | None = None,
         gui: Union["JinxGuiWindow", None] = None,
-        data_dict: dict[str, Any] | None = None,
-        clock: ClockThread | QtCore.QTimer | None = None, *,
+        var_dict: dict[str, Any] | None = None,
+        clock: ClockThread | QtCore.QTimer | None = None,
+        tick_rate: int = 10,
+        start_clock: bool = True,
         debug: bool = False
     ) -> None:
         """
@@ -402,31 +402,39 @@ class JinxSystemData(observable.Observable):
         `gui: JinxGuiWindow | None = None` - The gui object to be
         linked to this system data object.
 
-        `data_dict: dict[str, Any] | None = None` - A data dictionary
-        to be copied into the system data object.
+        `var_dict: dict[str, Any] | None = None` - A data dictionary of
+        variables to be stored in the observable.
 
-        `clock: ClockThread | QTimer | None = None` - The clock
-        thread or timer to be used for the observable object.
-        If not given or None, a new clock thread will be created.
-        See `jinx.guis.observable.Observable` for details.
+        `clock: ClockThread | QTimer | None = None` - The clock thread or
+        timer to be used for the observable object. If not given or None, a
+        new clock thread will be created. For Qt applications, a QTimer is
+        highly recommended. See `jinx.guis.observable.Observable` for details.
+
+        `tick_rate: int = 10` - The tick rate of the clock if a new clock is
+        created. Ignored if an existing clock is given.
+
+        `start_clock: bool = True` - Whether to start the clock if an existing
+        clock is given. Ignored if a new clock is created (the clock is always
+        started in this case).
 
         `debug: bool = False`  - Whether to log debug messages.
         """
-        super().__init__(name, clock, debug=debug)
+        super().__init__(
+            name=name,
+            var_dict=var_dict,
+            clock=clock,
+            tick_rate=tick_rate,
+            start_clock=start_clock,
+            debug=debug
+        )
         self.__linked_gui: JinxGuiWindow | None = None
         if gui is not None:
             self.link_gui(gui)
         self.__desired_view_state: str | None = None
         self.__view_states: list[str] = []
-        self.__data: dict[str, Any]
-        if data_dict is None:
-            self.__data = {}
-        else:
-            self.__data = data_dict.copy()
-        self.__messages: dict[str, list[str]] = defaultdict(list)
 
-    @atomic_update("gui", method=True)
     @observable.notifies_observers()
+    @sync(group_name="__linked_gui__")
     def link_gui(self, gui: "JinxGuiWindow") -> None:
         """Connect the gui to this system data object."""
         if self.__linked_gui is not None:
@@ -434,80 +442,37 @@ class JinxSystemData(observable.Observable):
         self.__linked_gui = gui
 
     @property
-    @atomic_update("gui", method=True)
+    @sync(group_name="__linked_gui__")
     def linked_gui(self) -> Union["JinxGuiWindow", None]:
         """Get the linked gui."""
         return self.__linked_gui
 
-    @atomic_update("view_states", method=True)
     @observable.notifies_observers()
+    @sync(group_name="__view_states__")
     def update_view_states(self) -> None:
-        """Update the view states of the linked gui."""
+        """Update the view states from the linked gui."""
         if self.__linked_gui is None:
             raise RuntimeError("System data object not linked to a gui.")
         self.__view_states = self.__linked_gui.view_states
 
     @property
-    @atomic_update("view_states", method=True)
+    @sync(group_name="__view_states__")
     def view_states(self) -> list[str]:
         """Get the list of view states."""
         return self.__view_states
 
     @property
-    @atomic_update("desired_view_state", method=True)
+    @sync(group_name="__view_states__")
     def desired_view_state(self) -> str | None:
         """Get the current desired view state name."""
         return self.__desired_view_state
 
     @desired_view_state.setter
-    @atomic_update("desired_view_state", method=True)
     @observable.notifies_observers()
+    @sync(group_name="__view_states__")
     def desired_view_state(self, desired_view_state: str | None) -> None:
         """Set the current desired view state name."""
         self.__desired_view_state = desired_view_state
-
-    @atomic_update("data", method=True)
-    def get_data(self, key: str, default: Any = None) -> Any:
-        """Get the data associated with the given key."""
-        return self.__data.get(key, default)
-
-    @atomic_update("data", method=True)
-    @observable.notifies_observers()
-    def set_data(self, key: str, value: Any) -> None:
-        """Set the data associated with the given key."""
-        self.__data[key] = value
-
-    @atomic_update("data", method=True)
-    @observable.notifies_observers()
-    def del_data(self, key: str) -> None:
-        """Delete the data associated with the given key."""
-        self.__data.pop(key)
-
-    @atomic_update("messages", method=True)
-    @observable.notifies_observers()
-    def add_log_message(self, kind: str, message: str) -> None:
-        """Add a log message."""
-        self.__messages[kind].append(message)
-
-    @atomic_update("messages", method=True)
-    @observable.notifies_observers()
-    def clear_log_messages(self, kind: str | None = None) -> None:
-        """Clear log messages."""
-        if kind is None:
-            self.__messages.clear()
-        else:
-            self.__messages[kind].clear()
-
-    @atomic_update("messages", method=True)
-    def get_log_messages(
-        self,
-        kind: str | None = None
-    ) -> dict[str, list[str]] | list[str]:
-        """Get log messages."""
-        if kind is None:
-            return self.__messages
-        else:
-            return self.__messages[kind]
 
 
 class JinxWidget(observable.Observer):
