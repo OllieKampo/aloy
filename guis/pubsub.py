@@ -31,6 +31,8 @@ Subscribers are only updated when a topic or field they are subscribed to is upd
 Transmit
 Report
 Broadcast
+Emit
+Send
 """
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
@@ -68,39 +70,10 @@ class MessageTopic:
 
 
 class DataField:
-    """
-    A data field is a particular field of data. Publishers publish data to a
-    data field by sending messages to it, and subscribers subscribe to a data
-    field to receive data from it. Publishers publish data to data fields
-    without knowledge of what (if any) subscribers there may be. Similarly,
-    subscribers receive data from data fields without knowledge of what (if
-    any) publishers there are. This decoupling of publishers and subscribers
-    can allow for greater scalability and a more dynamic network topology.
-    Multiple publishers can publish data to the same data field, and multiple
-    subscribers can subscribe to the same data field, and is therefore a
-    multi-producer multi-consumer model. Each publisher and subscriber is
-    decoupled from the others, and can continue operating normally regardless
-    of the status of the others.
-    """
     pass
 
 
 class ProcedureCall:
-    """
-    A procedure call is a particular procedure that can be called. Publishers
-    publish procedure calls to a topic by sending messages to it, and
-    subscribers subscribe to a topic to receive procedure calls from it.
-    Publishers publish procedure calls to topics without knowledge of what (if
-    any) subscribers there may be. Similarly, subscribers receive procedure
-    calls from topics without knowledge of what (if any) publishers there are.
-    This decoupling of publishers and subscribers can allow for greater
-    scalability and a more dynamic network topology. Multiple publishers can
-    publish procedure calls to the same topic, and multiple subscribers can
-    subscribe to the same topic, and is therefore a multi-producer
-    multi-consumer model. Each publisher and subscriber is decoupled from the
-    others, and can continue operating normally regardless of the status of the
-    others.
-    """
     pass
 
 
@@ -138,48 +111,32 @@ class Publisher:
         pass
 
 
-def trigger_on_field_change(field_name: str) -> Any:
-    """Decorate a method to be called when a field changes."""
+def trigger_on_topic_message_added(topic: MessageTopic) -> Any:
+    """Decorate a method to be called when a message is added to a topic."""
+    pass
+
+
+def trigger_on_data_field_change(field_name: str) -> Any:
+    """Decorate a method to be called when a data field is changed."""
     pass
 
 
 class Subscriber:
-    def field_changed(
+    def topic_message_added(
         self,
-        source: "Subject",
+        source: "PubSubHub",
+        topic: MessageTopic
+    ) -> None:
+        pass
+
+    def data_field_changed(
+        self,
+        source: "PubSubHub",
         field_name: str,
         old_value: Any,
         new_value: Any
     ) -> None:
         pass
-
-
-def field(field_name: str | None = None) -> Any:
-    """Decorate a field to be tracked by a `Subject`."""
-    def decorator(func: Any) -> Any:
-        if field_name is None:
-            field_name = func.__name__
-        func.__subject_field__ = field_name
-        return func
-    return decorator
-
-
-def field_change(field_name: str | None = None) -> Any:
-    """Decorate a method to indicate that it changes a field."""
-    def decorator(func: Any) -> Any:
-        if field_name is None:
-            field_name = func.__name__
-
-        @functools.wraps(func)
-        def wrapper(self: "Subject", *args: Any, **kwargs: Any) -> Any:
-            old_value = getattr(self, field_name)
-            func(self, *args, **kwargs)
-            new_value = getattr(self, field_name)
-            if old_value != new_value:
-                self.__update_listeners(field_name, old_value, new_value)
-
-        return wrapper
-    return decorator
 
 
 class Processer:
@@ -190,42 +147,43 @@ class Processer:
     pass
 
 
-class PusSubHub:
+class PubSubHub:
     """
     A publisher-subscriber hub is a central place where publishers and
     subscribers can register themselves. It is responsible for routing messages
     from publishers to subscribers.
     """
+
+    def __new__(cls) -> "PusSubHub":
+        if not hasattr(cls, "__instance"):
+            cls.__instance = super().__new__(cls)
+        return cls.__instance
+
     def __init__(self) -> None:
-        self.__listeners = TwoWayMap[Listener, str]()
+        self.__subscribers = TwoWayMap[Subscriber, str]()
+        self.__publishers = TwoWayMap[Publisher, str]()
         self.__executor = JinxThreadPool()
 
-    @property
-    @field()
-    def value(self) -> int:
-        return self.__value
+    def register_subscriber(self, subscriber: Subscriber) -> None:
+        pass
 
-    @value.setter
-    @field_change()
-    def value(self, value: int) -> None:
-        self.__value = value
+    def unregister_subscriber(self, subscriber: Subscriber) -> None:
+        pass
 
-    def assign_listener(self, listener: Listener, fields: list[str]) -> None:
-        self.__listeners.extend(
-            (listener, set(fields))
-        )
+    def register_publisher(self, publisher: Publisher) -> None:
+        pass
 
-    def remove_listener(self, listener: Listener) -> None:
-        self.__listeners.forwards_remove(listener)
+    def unregister_publisher(self, publisher: Publisher) -> None:
+        pass
 
-    def __update_listeners(self, field_name: str, old_value: Any, new_value: Any) -> None:
+    def __update_subscribers(self, field_name: str, old_value: Any, new_value: Any) -> None:
         self.__executor.submit(
-            self.__update_listeners_async,
+            self.__update_subscribers_async,
             field_name,
             old_value,
             new_value
         )
 
-    def __update_listeners_async(self, field_name: str, old_value: Any, new_value: Any) -> None:
-        for listener in self.__listeners[field_name]:
+    def __update_subscribers_async(self, field_name: str, old_value: Any, new_value: Any) -> None:
+        for listener in self.__subscribers[field_name]:
             listener.field_changed(self, field_name, old_value, new_value)
