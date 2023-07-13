@@ -512,27 +512,88 @@ class SynchronizedMeta(type):
         lock_methods: list[str] = []
         lock_methods_groups: ReversableDict[str, str] = ReversableDict()
         all_methods: dict[str, types.FunctionType] = {}
+        methods_to_sync: dict[str, types.FunctionType] = {}
+        properties_to_sync: dict[str, tuple[types.FunctionType | None, ...]] = {}
         for attr_name, attr in class_dict.items():
-            if (isinstance(attr, types.FunctionType)  # TODO: inspect.isfunction(attr)
-                    and not (attr_name.startswith("__")
-                             and attr_name.endswith("__"))):
-                all_methods[attr_name] = attr
-                if lock_name := getattr(attr, "__sync__", False):
-                    if lock_name == "method":
-                        if ((lock_group := getattr(attr, "__group__", None))
+            if (attr_name.startswith("__")
+                    or attr_name.endswith("__")):
+                continue
+            if isinstance(attr, types.FunctionType):
+                methods_to_sync[attr_name] = attr
+            elif isinstance(attr, property):
+                properties_to_sync[attr_name] = (attr.fget, attr.fset, attr.fdel)
+        for attr_name, attr in methods_to_sync.items():
+            all_methods[attr_name] = attr
+            if lock_name := getattr(attr, "__sync__", False):
+                if lock_name == "method":
+                    if ((lock_group := getattr(attr, "__group__", None))
                             is not None):
-                            lock_methods_groups[attr_name] = lock_group
-                        else:
-                            class_dict[attr_name].__group__ = None
-                        lock_methods.append(attr_name)
+                        lock_methods_groups[attr_name] = lock_group
                     else:
-                        instance_locked_methods.add(attr_name)
-                    class_dict[attr_name] = synchronize_method(
-                        lock_name
-                    )(attr)
+                        attr.__group__ = None
+                    lock_methods.append(attr_name)
                 else:
-                    class_dict[attr_name].__sync__ = False
-                    class_dict[attr_name].__group__ = None
+                    instance_locked_methods.add(attr_name)
+                sync_with_lock = synchronize_method(lock_name)
+                class_dict[attr_name] = sync_with_lock(attr)
+            else:
+                attr.__sync__ = False
+                attr.__group__ = None
+        for attr_name, (fget, fset, fdel) in properties_to_sync.items():
+            if fget is not None:
+                all_methods[fget.__name__] = fget
+                if lock_name := getattr(fget, "__sync__", False):
+                    if lock_name == "method":
+                        if ((lock_group := getattr(fget, "__group__", None))
+                                is not None):
+                            lock_methods_groups[fget.__name__] = lock_group
+                        else:
+                            fget.__group__ = None
+                        lock_methods.append(fget.__name__)
+                    else:
+                        instance_locked_methods.add(fget.__name__)
+                    sync_with_lock = synchronize_method(lock_name)
+                    fget = sync_with_lock(fget)
+                else:
+                    fget.__sync__ = False
+                    fget.__group__ = None
+            if fset is not None:
+                all_methods[fset.__name__] = fset
+                if lock_name := getattr(fset, "__sync__", False):
+                    if lock_name == "method":
+                        if ((lock_group := getattr(fset, "__group__", None))
+                                is not None):
+                            lock_methods_groups[fset.__name__] = lock_group
+                        else:
+                            fset.__group__ = None
+                        lock_methods.append(fset.__name__)
+                    else:
+                        instance_locked_methods.add(fset.__name__)
+                    sync_with_lock = synchronize_method(lock_name)
+                    fset = sync_with_lock(fset)
+                else:
+                    fset.__sync__ = False
+                    fset.__group__ = None
+            if fdel is not None:
+                all_methods[fdel.__name__] = fdel
+                if lock_name := getattr(fdel, "__sync__", False):
+                    if lock_name == "method":
+                        if ((lock_group := getattr(fdel, "__group__", None))
+                                is not None):
+                            lock_methods_groups[fdel.__name__] = lock_group
+                        else:
+                            fdel.__group__ = None
+                        lock_methods.append(fdel.__name__)
+                    else:
+                        instance_locked_methods.add(fdel.__name__)
+                    sync_with_lock = synchronize_method(lock_name)
+                    fdel = sync_with_lock(fdel)
+                else:
+                    fdel.__sync__ = False
+                    fdel.__group__ = None
+            class_dict[attr_name] = property(fget, fset, fdel)
+        print(lock_methods)
+        input()
 
         if lock_methods:
             # Obtain a graph of which methods load each other.
@@ -610,8 +671,9 @@ class SynchronizedMeta(type):
         original_init = class_dict["__init__"]
         @functools.wraps(original_init)
         def __init__(self, *args, **kwargs) -> None:
-            self.__lock__ = OwnedRLock(lock_name="Instance lock")
-            self.__method_locks__ = {}
+            if not hasattr(self, "__lock__"):
+                self.__lock__ = OwnedRLock(lock_name="Instance lock")
+                self.__method_locks__ = {}
             loop_locks: dict[int, OwnedRLock] = {}
             group_locks: dict[str, OwnedRLock] = {}
             total_method_locks: int = 0
