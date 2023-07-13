@@ -734,43 +734,43 @@ class SnakeGameJinxWidget(JinxWidget):
 
     def update_observer(self, observable_: JinxSystemData) -> None:
         """Update the observer."""
-        self._logic.difficulty = observable_.get_data(
+        self._logic.difficulty = observable_.get_var(
             "difficulty",
             _DEFAULT_DIFFICULTY
         )
-        self._logic.show_path = observable_.get_data(
+        self._logic.show_path = observable_.get_var(
             "show_path",
             _DEFAULT_SHOW_PATH
         )
-        self._logic.walls = observable_.get_data(
+        self._logic.walls = observable_.get_var(
             "walls",
             _DEFAULT_WALLS
         )
-        self._logic.food_time_limit = observable_.get_data(
+        self._logic.food_time_limit = observable_.get_var(
             "food_time_limit",
             _DEFAULT_FOOD_TIME_LIMIT
         )
-        self._logic.food_per_level = observable_.get_data(
+        self._logic.food_per_level = observable_.get_var(
             "food_per_level",
             _DEFAULT_FOOD_PER_LEVEL
         )
-        self._logic.food_per_snake_growth = observable_.get_data(
+        self._logic.food_per_snake_growth = observable_.get_var(
             "food_per_snake_growth",
             _DEFAULT_FOOD_PER_SNAKE_GROWTH
         )
-        self._logic.initial_snake_length = observable_.get_data(
+        self._logic.initial_snake_length = observable_.get_var(
             "initial_snake_length",
             _DEFAULT_INITIAL_SNAKE_LENGTH
         )
-        self._logic.speed = observable_.get_data(
+        self._logic.speed = observable_.get_var(
             "speed",
             _DEFAULT_SPEED
         )
-        self._logic.recording_enabled = observable_.get_data(
+        self._logic.recording_enabled = observable_.get_var(
             "record",
             False
         )
-        self._logic.recording_path = observable_.get_data(
+        self._logic.recording_path = observable_.get_var(
             "record_path",
             _DEFAULT_RECORD_PATH
         )
@@ -1203,43 +1203,43 @@ class SnakeGameOptionsJinxWidget(JinxWidget):
 
     def __set_difficulty(self, value: str) -> None:
         """Update the difficulty."""
-        self.data.set_data("difficulty", value)
+        self.data.set_var("difficulty", value)
 
     def __set_snake_length(self, value: int) -> None:
         """Update the snake length."""
-        self.data.set_data("initial_snake_length", value)
+        self.data.set_var("initial_snake_length", value)
 
     def __set_food_per_snake_growth(self, value: int) -> None:
         """Update the food per snake growth."""
-        self.data.set_data("food_per_snake_growth", value)
+        self.data.set_var("food_per_snake_growth", value)
 
     def __set_speed(self, value: int) -> None:
         """Update the speed."""
-        self.data.set_data("speed", _DEFAULT_SPEED + (value / 100.0))
+        self.data.set_var("speed", _DEFAULT_SPEED + (value / 100.0))
 
     def __set_food_per_level(self, value: int) -> None:
         """Update the food per level."""
-        self.data.set_data("food_per_level", value)
+        self.data.set_var("food_per_level", value)
 
     def __set_food_time_limit(self, value: int) -> None:
         """Update the food time limit."""
-        self.data.set_data("food_time_limit", value)
+        self.data.set_var("food_time_limit", value)
 
     def __set_walls(self, value: int) -> None:
         """Update the walls."""
-        self.data.set_data("walls", value)
+        self.data.set_var("walls", value)
 
     def __set_show_path(self, value: int) -> None:
         """Update the show path."""
-        self.data.set_data("show_path", value)
+        self.data.set_var("show_path", value)
 
     def __set_record(self, value: bool) -> None:
         """Update the record."""
-        self.data.set_data("record", value)
+        self.data.set_var("record", value)
 
     def __set_record_path(self, value: str) -> None:
         """Update the record path."""
-        self.data.set_data("record_path", value)
+        self.data.set_var("record_path", value)
 
     def update_observer(self, observable_: JinxSystemData) -> None:
         """Update the observer."""

@@ -47,13 +47,15 @@ three main reasons for this:
 """
 
 from abc import abstractmethod, ABCMeta
+from collections import defaultdict
 import functools
 import logging
-from typing import Callable, Concatenate, ParamSpec, TypeVar, final
+from typing import Any, Callable, Concatenate, ParamSpec, TypeVar, final
 import threading
 from PySide6.QtCore import QTimer  # pylint: disable=E0611
 
 from concurrency.clocks import ClockThread
+from concurrency.synchronization import SynchronizedMeta, sync
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
@@ -71,7 +73,82 @@ def __dir__() -> tuple[str, ...]:
     return __all__
 
 
-class Observable(metaclass=ABCMeta):
+SP = ParamSpec("SP")
+ST = TypeVar("ST")
+
+
+def notifies_observers(
+    *names: str,
+    raise_: bool = False
+) -> Callable[
+    [Callable[Concatenate["Observable", SP], ST]],
+    Callable[Concatenate["Observable", SP], ST]
+]:
+    """
+    Decorate methods of an observable class to set the method to automatically
+    notify observers after the method has returned.
+
+    If `names` is not given, then notify all observers to be updated after
+    the method has returned. Otherwise, if `names` is given, then notify
+    observers with the given names to be updated after the method has returned.
+    If `raise_` is True, raise a ValueError if any of the given names do not
+    correspond to an observer of the observable.
+    """
+    if not names:
+        def inner(
+            function: Callable[Concatenate["Observable", SP], ST]
+        ) -> Callable[Concatenate["Observable", SP], ST]:
+            @functools.wraps(function)
+            def wrapper(
+                self: "Observable",
+                *args: SP.args,
+                **kwargs: SP.kwargs
+            ) -> ST:
+                return_value = function(self, *args, **kwargs)
+                self.notify_all()
+                return return_value
+            return wrapper
+        return inner
+    else:  # pylint: disable=no-else-return
+        def inner(
+            function: Callable[Concatenate["Observable", SP], ST]
+        ) -> Callable[Concatenate["Observable", SP], ST]:
+            @functools.wraps(function)
+            def wrapper(
+                self: "Observable",
+                *args: SP.args,
+                **kwargs: SP.kwargs
+            ) -> ST:
+                return_value = function(self, *args, **kwargs)
+                self.notify_by_name(*names, raise_=raise_)
+                return return_value
+            return wrapper
+        return inner
+
+
+def notifies_observables(
+    function: Callable[Concatenate["Observer", SP], ST]
+) -> Callable[Concatenate["Observer", SP], ST]:
+    """
+    Decorate methods of an observer class.
+
+    Schedules the observable to be updated after the method has returned.
+    """
+    @functools.wraps(function)
+    def wrapper(
+        self: "Observer",
+        *args: SP.args,
+        **kwargs: SP.kwargs
+    ) -> ST:
+        return_value = function(self, *args, **kwargs)
+        with self.__lock:  # pylint: disable=W0212
+            for observable in self.__observables:  # pylint: disable=W0212
+                observable.notify_all()
+        return return_value
+    return wrapper
+
+
+class Observable(metaclass=SynchronizedMeta):
     """
     An abstract class defining a thread safe observable object.
 
@@ -102,15 +179,18 @@ class Observable(metaclass=ABCMeta):
         "__changed": "The observers that have been notified the the state of "
                      "the observable has changed since the last update.",
         "__chained": "The observables that this observable is chained to.",
-        "__lock": "Lock ensuring atomic updates to the observable.",
+        "__vars": "Arbitrary data associated with the gui.",
+        "__messages": "Log messages associated with the gui.",
+        "__notify_update_lock": "Lock for updating the notified observers.",
         "__clock": "The clock or timer that updates the observers.",
         "__debug": "Whether to log debug messages."
     }
 
     def __init__(
         self,
-        name: str | None = None, /,
-        clock: ClockThread | QTimer | None = None, *,
+        name: str | None = None,
+        var_dict: dict[str, Any] | None = None,
+        clock: ClockThread | QTimer | None = None,
         tick_rate: int = 10,
         start_clock: bool = True,
         debug: bool = False
@@ -127,6 +207,9 @@ class Observable(metaclass=ABCMeta):
         ----------
         `name: str | None = None` - The name of the observable. If None, the
         class name and id of the object are used.
+
+        `var_dict: dict[str, Any] | None = None` - A data dictionary of
+        variables to be stored in the observable.
 
         `clock: ClockThread | QTimer | None = None` - The clock that updates
         the observers. If not given or None, a new ClockThread is created with
@@ -163,8 +246,15 @@ class Observable(metaclass=ABCMeta):
         self.__changed: set["Observer"] = set()
         self.__chained: dict[str, "Observable"] = {}
 
+        self.__vars: dict[str, Any]
+        if var_dict is None:
+            self.__vars = {}
+        else:
+            self.__vars = var_dict.copy()
+        self.__messages: dict[str, list[str]] = defaultdict(list)
+
         # The lock and clock used when updateding the observers.
-        self.__lock = threading.RLock()
+        self.__notify_update_lock = threading.Lock()
         self.__clock: ClockThread | QTimer
         if clock is None:
             if self.__debug:
@@ -198,78 +288,82 @@ class Observable(metaclass=ABCMeta):
 
     @final
     @property
+    @sync(group_name="__observable_observers__")
     def observable_name(self) -> str:
         """Return the name of this observable."""
         return self.__name
 
     @final
     @property
+    @sync(group_name="__observable_observers__")
     def observers(self) -> set["Observer"]:
         """Return the observers of this observable."""
         return self.__observers
 
     @final
+    @sync(group_name="__observable_observers__")
     def assign_observers(self, *observers: "Observer") -> None:
         """Assign observers to this observable."""
-        with self.__lock:
-            if self.__debug:
-                self.__OBSERVABLE_LOGGER.debug(
-                    "%s: Assigning observers: %s",
-                    self.__name, observers
-                )
-            for observer in observers:
-                if isinstance(observer, Observer):
-                    self.__observers.add(observer)
-                    observer._add_observable(self)  # pylint: disable=W0212
-                else:
-                    raise TypeError("Observer must be of type Observer. "
-                                    f"Got; {observer} of {type(observer)}.")
+        if self.__debug:
+            self.__OBSERVABLE_LOGGER.debug(
+                "%s: Assigning observers: %s",
+                self.__name, observers
+            )
+        for observer in observers:
+            if isinstance(observer, Observer):
+                self.__observers.add(observer)
+                observer._add_observable(self)  # pylint: disable=W0212
+            else:
+                raise TypeError("Observer must be of type Observer. "
+                                f"Got; {observer} of {type(observer)}.")
 
     @final
+    @sync(group_name="__observable_observers__")
     def remove_observers(self, *observers: "Observer") -> None:
         """Remove observers from this observable."""
-        with self.__lock:
-            if self.__debug:
-                self.__OBSERVABLE_LOGGER.debug(
-                    "%s: Removing observers: %s",
-                    self.__name, observers
-                )
-            remaining_observers = self.__observers.difference(observers)
-            removed_observers = self.__observers.intersection(observers)
-            self.__observers = remaining_observers
-            for observer in removed_observers:
-                observer._remove_observable(self)  # pylint: disable=W0212
+        if self.__debug:
+            self.__OBSERVABLE_LOGGER.debug(
+                "%s: Removing observers: %s",
+                self.__name, observers
+            )
+        remaining_observers = self.__observers.difference(observers)
+        removed_observers = self.__observers.intersection(observers)
+        self.__observers = remaining_observers
+        for observer in removed_observers:
+            observer._remove_observable(self)  # pylint: disable=W0212
 
     @final
+    @sync(group_name="__observable_observers__")
     def clear_observers(self) -> None:
         """Clear all observers from this observable."""
-        with self.__lock:
-            if self.__debug:
-                self.__OBSERVABLE_LOGGER.debug(
-                    "%s: Clearing all observers.",
-                    self.__name
-                )
-            for observer in self.__observers:
-                observer._remove_observable(self)  # pylint: disable=W0212
-            self.__observers.clear()
+        if self.__debug:
+            self.__OBSERVABLE_LOGGER.debug(
+                "%s: Clearing all observers.",
+                self.__name
+            )
+        for observer in self.__observers:
+            observer._remove_observable(self)  # pylint: disable=W0212
+        self.__observers.clear()
 
     @final
+    @sync(group_name="__observable_chain__")
     def chain_notifies_to(self, observable_: "Observable") -> None:
         """Chain notifications from this observable to another observable."""
-        with self.__lock:
-            if self.__debug:
-                self.__OBSERVABLE_LOGGER.debug(
-                    "%s: Chaining notifies to %s.",
-                    self.__name, observable_
-                )
-            self.__chained[observable_.observable_name] = observable_
+        if self.__debug:
+            self.__OBSERVABLE_LOGGER.debug(
+                "%s: Chaining notifies to %s.",
+                self.__name, observable_
+            )
+        self.__chained[observable_.observable_name] = observable_
 
     @final
+    @sync(group_name="__observable_chain__")
     def get_chained_observables(self) -> dict[str, "Observable"]:
         """Return the observables that this observable is chained to."""
         return self.__chained
 
     @property
+    @sync(group_name="__observable_tick_rate__")
     def tick_rate(self) -> int:
         """Return the tick rate of the internal update clock."""
         if isinstance(self.__clock, ClockThread):
@@ -277,6 +371,7 @@ class Observable(metaclass=ABCMeta):
         return int(1.0 / (self.__clock.interval() * 1000))
 
     @tick_rate.setter
+    @sync(group_name="__observable_tick_rate__")
     def tick_rate(self, value: int) -> None:
         """
         Set the tick rate of the internal update clock.
@@ -292,6 +387,7 @@ class Observable(metaclass=ABCMeta):
             self.__clock.tick_rate = value
 
     @final
+    @sync(group_name="__observable_notify__")
     def notify(self, *observers: "Observer", raise_: bool = False) -> None:
         """
         Notify given observers that this observable has changed.
@@ -307,12 +403,12 @@ class Observable(metaclass=ABCMeta):
         should update or not, or a separate system should handle assigning and
         removing observers to the observable as needed.
         """
-        with self.__lock:
-            if self.__debug:
-                self.__OBSERVABLE_LOGGER.debug(
-                    "%s: Notifying observers: %s",
-                    self.__name, observers
-                )
+        if self.__debug:
+            self.__OBSERVABLE_LOGGER.debug(
+                "%s: Notifying observers: %s",
+                self.__name, observers
+            )
+        with self.__notify_update_lock:
             if not raise_:
                 self.__changed.update(self.__observers.intersection(observers))
             else:
@@ -322,10 +418,11 @@ class Observable(metaclass=ABCMeta):
                     else:
                         raise ValueError(f"Observer {observer} is not "
                                          "observing this observable.")
-            for observable in self.__chained.values():
-                observable.notify(*observers, raise_=raise_)
+        for observable in self.__chained.values():
+            observable.notify(*observers, raise_=raise_)
 
     @final
+    @sync(group_name="__observable_notify__")
     def notify_by_name(self, *names: str, raise_: bool = False) -> None:
         """
         Notify observers by name that this observable has changed.
@@ -333,12 +430,12 @@ class Observable(metaclass=ABCMeta):
         If `raise_` is True, raise a ValueError if any of the given names
         do not correspond to an observer of this observable.
         """
-        with self.__lock:
-            if self.__debug:
-                self.__OBSERVABLE_LOGGER.debug(
-                    "%s: Notifying observers by name: %s",
-                    self.__name, names
-                )
+        if self.__debug:
+            self.__OBSERVABLE_LOGGER.debug(
+                "%s: Notifying observers by name: %s",
+                self.__name, names
+            )
+        with self.__notify_update_lock:
             if not raise_:
                 self.__changed.update(
                     observer
@@ -354,32 +451,34 @@ class Observable(metaclass=ABCMeta):
                     else:
                         raise ValueError(f"Observer with name {name} is not "
                                          "observing this observable.")
-            for observable_ in self.__chained.values():
-                observable_.notify_by_name(*names, raise_=raise_)
+        for observable_ in self.__chained.values():
+            observable_.notify_by_name(*names, raise_=raise_)
 
     @final
+    @sync(group_name="__observable_notify__")
     def notify_all(self) -> None:
         """Notify all observers that this observable has changed."""
-        with self.__lock:
-            if self.__debug:
-                self.__OBSERVABLE_LOGGER.debug(
-                    "%s: Notifying all observers.",
-                    self.__name
-                )
+        if self.__debug:
+            self.__OBSERVABLE_LOGGER.debug(
+                "%s: Notifying all observers.",
+                self.__name
+            )
+        with self.__notify_update_lock:
             self.__changed.update(self.__observers)
-            for observable_ in self.__chained.values():
-                observable_.notify_all()
+        for observable_ in self.__chained.values():
+            observable_.notify_all()
 
     @final
     def __update_observers(self) -> None:
         """Update all observers that have been notified."""
-        with self.__lock:
+        with self.__notify_update_lock:
             observers = self.__changed.copy()
             self.__changed.clear()
         for observer in observers:
             observer._sync_update_observer(self)  # pylint: disable=W0212
 
     @final
+    @sync(group_name="__observable_updates__")
     def enable_updates(self) -> None:
         """Enable updates to observers."""
         if self.__debug:
@@ -390,6 +489,7 @@ class Observable(metaclass=ABCMeta):
         self.__clock.start()
 
     @final
+    @sync(group_name="__observable_updates__")
     def disable_updates(self) -> None:
         """Disable updates to observers."""
         if self.__debug:
@@ -398,6 +498,55 @@ class Observable(metaclass=ABCMeta):
                 self.__name
             )
         self.__clock.stop()
+
+    @final
+    @sync(group_name="__observable_var__")
+    def get_var(self, name: str, default: Any = None) -> Any:
+        """Get the variable with the given name."""
+        return self.__vars.get(name, default)
+
+    @final
+    @notifies_observers()
+    @sync(group_name="__observable_var__")
+    def set_var(self, name: str, value: Any) -> None:
+        """Set the variable with the given name."""
+        self.__vars[name] = value
+
+    @final
+    @notifies_observers()
+    @sync(group_name="__observable_var__")
+    def del_var(self, name: str) -> None:
+        """Delete the data associated with the given name."""
+        self.__vars.pop(name)
+
+    @final
+    @sync(group_name="__observable_log__")
+    def get_log_messages(
+        self,
+        kind: str | None = None
+    ) -> dict[str, list[str]] | list[str]:
+        """Get log messages."""
+        if kind is None:
+            return self.__messages
+        else:
+            return self.__messages[kind]
+
+    @final
+    @notifies_observers()
+    @sync(group_name="__observable_log__")
+    def add_log_message(self, kind: str, message: str) -> None:
+        """Add a log message."""
+        self.__messages[kind].append(message)
+
+    @final
+    @notifies_observers()
+    @sync(group_name="__observable_log__")
+    def clear_log_messages(self, kind: str | None = None) -> None:
+        """Clear log messages."""
+        if kind is None:
+            self.__messages.clear()
+        else:
+            self.__messages[kind].clear()
 
 
 class Observer(metaclass=ABCMeta):
@@ -490,78 +639,3 @@ class Observer(metaclass=ABCMeta):
         """Remove an observable from the observer."""
         with self.__lock:
             self.__observables.remove(observable)
-
-
-SP = ParamSpec("SP")
-ST = TypeVar("ST")
-
-
-def notifies_observers(
-    *names: str,
-    raise_: bool = False
-) -> Callable[
-    [Callable[Concatenate[Observable, SP], ST]],
-    Callable[Concatenate[Observable, SP], ST]
-]:
-    """
-    Decorate methods of an observable class to set the method to automatically
-    notify observers after the method has returned.
-
-    If `names` is not given, then notify all observers to be updated after
-    the method has returned. Otherwise, if `names` is given, then notify
-    observers with the given names to be updated after the method has returned.
-    If `raise_` is True, raise a ValueError if any of the given names do not
-    correspond to an observer of the observable.
-    """
-    if not names:
-        def inner(
-            function: Callable[Concatenate[Observable, SP], ST]
-        ) -> Callable[Concatenate[Observable, SP], ST]:
-            @functools.wraps(function)
-            def wrapper(
-                self: Observable,
-                *args: SP.args,
-                **kwargs: SP.kwargs
-            ) -> ST:
-                return_value = function(self, *args, **kwargs)
-                self.notify_all()
-                return return_value
-            return wrapper
-        return inner
-    else:  # pylint: disable=no-else-return
-        def inner(
-            function: Callable[Concatenate[Observable, SP], ST]
-        ) -> Callable[Concatenate[Observable, SP], ST]:
-            @functools.wraps(function)
-            def wrapper(
-                self: Observable,
-                *args: SP.args,
-                **kwargs: SP.kwargs
-            ) -> ST:
-                return_value = function(self, *args, **kwargs)
-                self.notify_by_name(*names, raise_=raise_)
-                return return_value
-            return wrapper
-        return inner
-
-
-def notifies_observables(
-    function: Callable[Concatenate[Observer, SP], ST]
-) -> Callable[Concatenate[Observer, SP], ST]:
-    """
-    Decorate methods of an observer class.
-
-    Schedules the observable to be updated after the method has returned.
-    """
-    @functools.wraps(function)
-    def wrapper(
-        self: Observer,
-        *args: SP.args,
-        **kwargs: SP.kwargs
-    ) -> ST:
-        return_value = function(self, *args, **kwargs)
-        with self.__lock:  # pylint: disable=W0212
-            for observable in self.__observables:  # pylint: disable=W0212
-                observable.notify_all()
-        return return_value
-    return wrapper
