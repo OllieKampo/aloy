@@ -135,7 +135,7 @@ class ImageUpdaterThread(QtCore.QThread):
             QtGui.QImage.Format.Format_RGB888
         )
         if self.__display_size is not None:
-            qt_image.scaled(
+            qt_image = qt_image.scaled(
                 *self.__display_size,
                 QtCore.Qt.AspectRatioMode.KeepAspectRatio
             )
