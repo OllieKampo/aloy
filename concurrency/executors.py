@@ -53,7 +53,7 @@ class JinxThreadPool:
         """Returns a unique name for a thread pool."""
         with cls.__POOLS:
             cls.__POOLS += 1
-            return f"{cls.__name__} [{cls.__POOLS.value}]"
+            return f"{cls.__name__} [{cls.__POOLS.get_obj()}]"
 
     def __init__(
         self,
@@ -82,7 +82,8 @@ class JinxThreadPool:
             self.__max_workers = max_workers
         self.__submitted_jobs: dict[Future, Job] = {}
         self.__finished_jobs: dict[Future, FinishedJob] = {}
-        self.__active_threads: AtomicNumber[int] = AtomicNumber(0)
+        self.__queued_jobs = AtomicNumber[int](0)
+        self.__active_threads = AtomicNumber[int](0)
 
         self.__profile: bool = profile
 
@@ -108,7 +109,7 @@ class JinxThreadPool:
     @property
     def active_workers(self) -> int:
         """Return the number of active workers in the thread pool."""
-        return self.__active_threads.value
+        return self.__active_threads.get_obj()
 
     @property
     def max_workers(self) -> int:
@@ -118,11 +119,11 @@ class JinxThreadPool:
     @property
     def is_running(self) -> bool:
         """Return True if the thread pool is running, False otherwise."""
-        return self.__active_threads.value > 0
+        return self.__active_threads.get_obj() > 0
 
     @property
     def is_busy(self) -> bool:
-        return self.__active_threads.value == self.__max_workers
+        return self.__active_threads.get_obj() == self.__max_workers
 
     @functools.wraps(ThreadPoolExecutor.submit,
                      assigned=("__doc__",))
@@ -134,8 +135,11 @@ class JinxThreadPool:
         **kwargs: SP.kwargs
     ) -> Future:
         """Submits a job to the thread pool and returns a Future object."""
-        with self.__active_threads:
-            self.__active_threads += 1
+        with self.__queued_jobs, self.__active_threads:
+            self.__queued_jobs += 1
+            active_threads = min(self.__active_threads.get_obj() + 1,
+                                 self.__max_workers)
+            self.__active_threads.set_obj(active_threads)
 
         start_time: float | None = None
         if self.__profile:
@@ -172,14 +176,26 @@ class JinxThreadPool:
             elapsed_time=elapsed_time
         )
 
-        with self.__active_threads:
-            self.__active_threads -= 1
+        with self.__queued_jobs, self.__active_threads:
+            self.__queued_jobs -= 1
+            if self.__queued_jobs.get_obj() < self.__max_workers:
+                self.__active_threads -= 1
 
     def get_job(self, future: Future) -> Job | FinishedJob:
         """Returns the job associated with the given future."""
         if future in self.__finished_jobs:
             return self.__finished_jobs[future]
         return self.__submitted_jobs.pop(future)
+
+    @staticmethod
+    def __result_or_cancel(future_: Future, timeout: float | None = None) -> None:
+        try:
+            try:
+                return future_.result(timeout)
+            finally:
+                future_.cancel()
+        finally:
+            del future_
 
     @functools.wraps(ThreadPoolExecutor.map,
                      assigned=("__doc__",))
@@ -188,8 +204,7 @@ class JinxThreadPool:
         name: str,
         func: Callable[SP, ST],
         *iterables: Iterable[SP.args],
-        timeout: float | None = None,
-        chunksize: int = 1
+        timeout: float | None = None
     ) -> Iterable[Future]:
         if timeout is not None:
             end_time = timeout + time.perf_counter()
@@ -205,9 +220,9 @@ class JinxThreadPool:
                 while fs:
                     # Careful not to keep a reference to the popped future
                     if timeout is None:
-                        yield _result_or_cancel(fs.pop())
+                        yield self.__result_or_cancel(fs.pop())
                     else:
-                        yield _result_or_cancel(fs.pop(), end_time - time.monotonic())
+                        yield self.__result_or_cancel(fs.pop(), end_time - time.monotonic())
             finally:
                 for future in fs:
                     future.cancel()
