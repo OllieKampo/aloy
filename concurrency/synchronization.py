@@ -307,7 +307,7 @@ def sync(
 @typing.overload
 def sync(
     lock: typing.Literal["all", "method"],
-    group_name: str | None = None, /
+    group_name: str | None = None
 ) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
     ...
 
@@ -324,7 +324,10 @@ def sync(
     group_name: str | None = None
 ) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
     """
-    Decorate a method to declare it as synchronized in a synchronized class.
+    Decorate a method or property of a synchronized class to synchronize
+    access to the decorated method or property. A synchronized method or
+    property can only be called by one thread at a time. Dunder methods
+    cannot be synchronized.
 
     Methods can be synchronized with an instance lock or a method lock.
 
@@ -352,6 +355,14 @@ def sync(
     `group_name: str | None = None` - The name of the group to add the method
     to. If not given or None, the method is not added to a group.
     Instance-locked methods cannot be added to a group.
+
+    Raises
+    ------
+    `TypeError` - If the lock name or group names are given and not strings.
+
+    `ValueError` - If the method is a dunder method, or the lock name is given
+    and not "all" or "method", or the lock name is "all" and the group name is
+    given and not None.
     """
     if lock is None:
         if group_name is None:
@@ -392,6 +403,18 @@ def sync(
     return sync_dec
 
 
+# TODO: Problem with this, is that if a method-locked method if executing,
+# then executing another method-locked method always takes precedence over
+# executing an instance-locked method, even if the instance-locked method
+# was called first or many threads are waiting to the instance-locked method,
+# because the instance-locked method has to wait for all method-locked
+# methods to finish executing, but method-locked methods do not.
+# Solution: Keep a count of how many threads are waiting for the
+# instance-locked method, and if we reach a certain threshold, then
+# stop the method-locked methods from executing until the instance-locked
+# method has executed.
+
+
 def synchronize_method(
     lock: typing.Literal["all", "method"] = "all"
 ) -> typing.Callable[
@@ -430,13 +453,14 @@ def synchronize_method(
                 # If no method-locked methods are executing;
                 if self.__event__.is_set():
                     # If the current thread owns the instance lock, then
-                    # execute the method.
+                    # an instance-locked method is calling a method-locked
+                    # method, so simply execute the method.
                     if self.__lock__.owner is threading.current_thread():
                         with self.__lock__:
                             return method(self, *args, **kwargs)
 
-                    # Otherwise, acquire the instance lock, to prevent any
-                    # instance-locked methods executing beyond this point
+                    # Otherwise, wait to acquire the instance lock, to prevent
+                    # any instance-locked methods executing beyond this point
                     # until the method-locks are updated.
                     self.__lock__.acquire()
 
@@ -444,16 +468,33 @@ def synchronize_method(
                     self.__method_locks__[method.__name__].acquire()
 
                     # Update the state to reflect that a method-locked method
-                    # is executing.
+                    # is executing. A given thread could only ever pass this
+                    # point once, as a method-locked method would be executing
+                    # on the second call, and we'd go through the else block.
+                    # Therefore, we always acquire the semaphore here, as the
+                    # recursion depth will always be one.
                     self.__semaphore__.acquire()
                     self.__event__.clear()
 
                     # Release the instance lock, no instance-locked methods
-                    # can be executed.
+                    # can be executed, until all method locks are released.
                     self.__lock__.release()
 
+                # If a method-locked method is already executing;
                 else:
+                    # Simply acquire the method lock.
+                    # TODO: What if this is the only method-locked method
+                    # executing, and we're about to execute an instance-locked
+                    # method, and a differnt thread sets the event, and then
+                    # we release the method lock, and then the instance-locked
+                    # method executes, and then we acquire the method lock
+                    # again, and then simultaneously execute the method-locked
+                    # method with the instance-locked method?
                     self.__method_locks__[method.__name__].acquire()
+
+                    # If this is the first time the given thread has called
+                    # this method, then acquire the semaphore to show that
+                    # this method-locked method is executing.
                     if (self.__method_locks__[method.__name__].recursion_depth
                             == 1):
                         self.__semaphore__.acquire()
@@ -464,6 +505,11 @@ def synchronize_method(
 
                 # Update the state to reflect that the method-locked method
                 # has finished executing before releasing the method lock.
+                # If the current thread is about to exit its first call to
+                # the method, then release the semaphore to show that this
+                # method-locked method has finished executing. If all method
+                # locks are released, set the event to allow instance-locked
+                # methods to execute again.
                 if self.__method_locks__[method.__name__].recursion_depth == 1:
                     self.__semaphore__.release()
                 # pylint: disable=protected-access
@@ -482,6 +528,33 @@ def synchronize_method(
     return synchronize_method_decorator
 
 
+def _check_for_sync(
+    func: typing.Callable,
+    all_methods: dict[str, typing.Callable],
+    method_locked_methods: set[str],
+    method_locked_methods_groups: ReversableDict[str, str],
+    instance_locked_methods: set[str]
+) -> None:
+    if func is not None:
+        all_methods[func.__name__] = func
+        if lock_name := getattr(func, "__sync__", False):
+            if lock_name == "method":
+                if ((lock_group := getattr(func, "__group__", None))
+                        is not None):
+                    method_locked_methods_groups[func.__name__] = lock_group
+                else:
+                    func.__group__ = None
+                method_locked_methods.add(func.__name__)
+            else:
+                instance_locked_methods.add(func.__name__)
+            sync_with_lock = synchronize_method(lock_name)
+            func = sync_with_lock(func)
+        else:
+            func.__sync__ = False
+            func.__group__ = None
+    return func
+
+
 class SynchronizedMeta(type):
     """Metaclass for synchronizing method calls for a class."""
 
@@ -493,10 +566,9 @@ class SynchronizedMeta(type):
     ) -> type:
         """
         Metaclass for synchronized classes.
-
-        Ensures that if the class declares `__slots__` then it contains the
-        neccessary lock attributes.
         """
+        # Ensure that if the class declares `__slots__` then it contains the
+        # neccessary lock attributes.
         class_dict = create_if_not_exists_in_slots(
             class_dict,
             __lock__="Instance-locked method synchronization lock.",
@@ -507,13 +579,16 @@ class SynchronizedMeta(type):
                       "unlocked."
         )
 
-        # Check through the class's attributes synchronized methods.
-        instance_locked_methods: set[str] = set()
-        lock_methods: list[str] = []
-        lock_methods_groups: ReversableDict[str, str] = ReversableDict()
-        all_methods: dict[str, types.FunctionType] = {}
+        all_methods = dict[str, types.FunctionType]()
+        method_locked_methods = set[str]()
+        method_locked_methods_groups = ReversableDict[str, str]()
+        instance_locked_methods = set[str]()
+
+        # Check through the class's attributes to find methods and properties
+        # to synchronize.
         methods_to_sync: dict[str, types.FunctionType] = {}
-        properties_to_sync: dict[str, tuple[types.FunctionType | None, ...]] = {}
+        properties_to_sync: dict[
+            str, tuple[types.FunctionType | None, ...]] = {}
         for attr_name, attr in class_dict.items():
             if (attr_name.startswith("__")
                     or attr_name.endswith("__")):
@@ -522,80 +597,25 @@ class SynchronizedMeta(type):
                 methods_to_sync[attr_name] = attr
             elif isinstance(attr, property):
                 properties_to_sync[attr_name] = (attr.fget, attr.fset, attr.fdel)
-        for attr_name, attr in methods_to_sync.items():
-            all_methods[attr_name] = attr
-            if lock_name := getattr(attr, "__sync__", False):
-                if lock_name == "method":
-                    if ((lock_group := getattr(attr, "__group__", None))
-                            is not None):
-                        lock_methods_groups[attr_name] = lock_group
-                    else:
-                        attr.__group__ = None
-                    lock_methods.append(attr_name)
-                else:
-                    instance_locked_methods.add(attr_name)
-                sync_with_lock = synchronize_method(lock_name)
-                class_dict[attr_name] = sync_with_lock(attr)
-            else:
-                attr.__sync__ = False
-                attr.__group__ = None
-        for attr_name, (fget, fset, fdel) in properties_to_sync.items():
-            if fget is not None:
-                all_methods[fget.__name__] = fget
-                if lock_name := getattr(fget, "__sync__", False):
-                    if lock_name == "method":
-                        if ((lock_group := getattr(fget, "__group__", None))
-                                is not None):
-                            lock_methods_groups[fget.__name__] = lock_group
-                        else:
-                            fget.__group__ = None
-                        lock_methods.append(fget.__name__)
-                    else:
-                        instance_locked_methods.add(fget.__name__)
-                    sync_with_lock = synchronize_method(lock_name)
-                    fget = sync_with_lock(fget)
-                else:
-                    fget.__sync__ = False
-                    fget.__group__ = None
-            if fset is not None:
-                all_methods[fset.__name__] = fset
-                if lock_name := getattr(fset, "__sync__", False):
-                    if lock_name == "method":
-                        if ((lock_group := getattr(fset, "__group__", None))
-                                is not None):
-                            lock_methods_groups[fset.__name__] = lock_group
-                        else:
-                            fset.__group__ = None
-                        lock_methods.append(fset.__name__)
-                    else:
-                        instance_locked_methods.add(fset.__name__)
-                    sync_with_lock = synchronize_method(lock_name)
-                    fset = sync_with_lock(fset)
-                else:
-                    fset.__sync__ = False
-                    fset.__group__ = None
-            if fdel is not None:
-                all_methods[fdel.__name__] = fdel
-                if lock_name := getattr(fdel, "__sync__", False):
-                    if lock_name == "method":
-                        if ((lock_group := getattr(fdel, "__group__", None))
-                                is not None):
-                            lock_methods_groups[fdel.__name__] = lock_group
-                        else:
-                            fdel.__group__ = None
-                        lock_methods.append(fdel.__name__)
-                    else:
-                        instance_locked_methods.add(fdel.__name__)
-                    sync_with_lock = synchronize_method(lock_name)
-                    fdel = sync_with_lock(fdel)
-                else:
-                    fdel.__sync__ = False
-                    fdel.__group__ = None
-            class_dict[attr_name] = property(fget, fset, fdel)
-        print(lock_methods)
-        input()
 
-        if lock_methods:
+        _check_for_sync_ = functools.partial(
+            _check_for_sync,
+            all_methods=all_methods,
+            method_locked_methods=method_locked_methods,
+            method_locked_methods_groups=method_locked_methods_groups,
+            instance_locked_methods=instance_locked_methods
+        )
+
+        for func_name, func in methods_to_sync.items():
+            class_dict[func_name] = _check_for_sync_(func)
+
+        for attr_name, (fget, fset, fdel) in properties_to_sync.items():
+            fget = _check_for_sync_(fget)
+            fset = _check_for_sync_(fset)
+            fdel = _check_for_sync_(fdel)
+            class_dict[attr_name] = property(fget, fset, fdel)
+
+        if method_locked_methods:
             # Obtain a graph of which methods load each other.
             load_graph: Graph[str] = Graph(directed=True)
             for method_name, method in all_methods.items():
@@ -608,7 +628,7 @@ class SynchronizedMeta(type):
 
             # Check that no instance-locked methods are loaded by
             # method-locked methods.
-            for method_name in lock_methods:
+            for method_name in method_locked_methods:
                 instance_locked_methods_intersection = (
                     load_graph[method_name] & instance_locked_methods
                 )
@@ -635,7 +655,7 @@ class SynchronizedMeta(type):
             # Group methods that are loaded by each other.
             loop_lock_numbers: ReversableDict[str, int] = ReversableDict()
             loop_lock_number_current: int = 0
-            frontier: set[str] = set(lock_methods)
+            frontier: set[str] = method_locked_methods.copy()
             while frontier:
                 method_name = frontier.pop()
                 path = load_graph.get_path(
@@ -645,18 +665,18 @@ class SynchronizedMeta(type):
                     raise_=False
                 )
                 if (path is not None
-                        and (path := set(path[:-1]))):
-                    if looped_methods := (set(lock_methods) & path):
+                        and (path := set(path[:-1]))):  # pylint: disable=unsubscriptable-object
+                    if looped_methods := (method_locked_methods & path):
                         loop_lock_numbers.reversed_set(
                             loop_lock_number_current,
                             *looped_methods
                         )
                         while looped_methods:
                             looped_method = looped_methods.pop()
-                            if looped_method in lock_methods_groups:
+                            if looped_method in method_locked_methods_groups:
                                 lock_method_group = set(
-                                    lock_methods_groups.reversed_pop(
-                                        lock_methods_groups[looped_method]
+                                    method_locked_methods_groups.reversed_pop(
+                                        method_locked_methods_groups[looped_method]
                                     )
                                 )
                                 loop_lock_numbers.reversed_set(
@@ -677,7 +697,7 @@ class SynchronizedMeta(type):
             loop_locks: dict[int, OwnedRLock] = {}
             group_locks: dict[str, OwnedRLock] = {}
             total_method_locks: int = 0
-            for method_name in lock_methods:
+            for method_name in method_locked_methods:
                 if method_name in loop_lock_numbers:
                     loop_lock_number = loop_lock_numbers[method_name]
                     if loop_lock_number not in loop_locks:
@@ -685,10 +705,10 @@ class SynchronizedMeta(type):
                         loop_locks[loop_lock_number] = OwnedRLock(lock_name=lock_name)
                         total_method_locks += 1
                     self.__method_locks__[method_name] = loop_locks[loop_lock_number]
-                elif method_name in lock_methods_groups:
-                    lock_group = lock_methods_groups[method_name]
+                elif method_name in method_locked_methods_groups:
+                    lock_group = method_locked_methods_groups[method_name]
                     if lock_group not in group_locks:
-                        lock_name = f"Group Lock [{lock_group}]: {lock_methods_groups(lock_group)}"
+                        lock_name = f"Group Lock [{lock_group}]: {method_locked_methods_groups(lock_group)}"
                         group_locks[lock_group] = OwnedRLock(lock_name=lock_name)
                         total_method_locks += 1
                     self.__method_locks__[method_name] = group_locks[lock_group]
@@ -723,9 +743,9 @@ class SynchronizedMeta(type):
         class_dict["is_method_locked"] = is_method_locked
         class_dict["lockable_methods"] = property(lambda self: tuple(self.__method_locks__.keys()))
 
-        if lock_methods:
+        if method_locked_methods:
             class_dict["loop_locks"] = property(lambda self: loop_lock_numbers)
-            class_dict["group_locks"] = property(lambda self: lock_methods_groups)
+            class_dict["group_locks"] = property(lambda self: method_locked_methods_groups)
         else:
             class_dict["loop_locks"] = property(lambda self: ReversableDict())
             class_dict["group_locks"] = property(lambda self: ReversableDict())
