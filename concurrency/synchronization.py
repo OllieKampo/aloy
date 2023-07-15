@@ -62,7 +62,9 @@ class OwnedRLock(contextlib.AbstractContextManager):
         "__name",
         "__lock",
         "__owner",
-        "__recursion_depth"
+        "__recursion_depth",
+        "__waiting_lock",
+        "__waiting"
     )
 
     def __init__(self, lock_name: str | None = None) -> None:
@@ -78,6 +80,8 @@ class OwnedRLock(contextlib.AbstractContextManager):
         self.__lock = threading.RLock()
         self.__owner: threading.Thread | None = None
         self.__recursion_depth: int = 0
+        self.__waiting_lock = threading.Lock()
+        self.__waiting: set[threading.Thread] = set()
 
     def __str__(self) -> str:
         """Get a simple string representation of the lock."""
@@ -114,7 +118,7 @@ class OwnedRLock(contextlib.AbstractContextManager):
     @property
     def is_owner(self) -> bool:
         """Get whether the current thread owns the lock."""
-        return self.__owner is threading.current_thread()
+        return threading.current_thread() is self.__owner
 
     @property
     def recursion_depth(self) -> int:
@@ -124,6 +128,35 @@ class OwnedRLock(contextlib.AbstractContextManager):
         """
         return self.__recursion_depth
 
+    @property
+    def any_threads_waiting(self) -> bool:
+        """
+        Get whether any threads are currently waiting to acquire the lock.
+        """
+        return bool(self.__waiting)
+
+    @property
+    def num_threads_waiting(self) -> int:
+        """
+        Get the number of threads that are currently waiting to acquire the
+        lock.
+        """
+        return len(self.__waiting)
+
+    @property
+    def threads_waiting(self) -> frozenset[threading.Thread]:
+        """
+        Get the threads that are currently waiting to acquire the lock.
+        """
+        return frozenset(self.__waiting)
+
+    @property
+    def is_thread_waiting(self) -> bool:
+        """
+        Get whether the current thread is waiting to acquire the lock.
+        """
+        return threading.current_thread() in self.__waiting
+
     @functools.wraps(
         threading._RLock.acquire,  # pylint: disable=protected-access
         assigned=("__doc__",)
@@ -132,10 +165,19 @@ class OwnedRLock(contextlib.AbstractContextManager):
         """
         Acquire the lock, blocking or non-blocking, with an optional timeout.
         """
+        current_thread = threading.current_thread()
+        if self.__owner is not current_thread:
+            with self.__waiting_lock:
+                self.__waiting.add(current_thread)
         if result := self.__lock.acquire(blocking, timeout):
             if self.__owner is None:
-                self.__owner = threading.current_thread()
+                with self.__waiting_lock:
+                    self.__waiting.remove(current_thread)
+                self.__owner = current_thread
             self.__recursion_depth += 1
+        if not result:
+            with self.__waiting_lock:
+                self.__waiting.remove(current_thread)
         return result
 
     @functools.wraps(
@@ -483,13 +525,6 @@ def synchronize_method(
                 # If a method-locked method is already executing;
                 else:
                     # Simply acquire the method lock.
-                    # TODO: What if this is the only method-locked method
-                    # executing, and we're about to execute an instance-locked
-                    # method, and a differnt thread sets the event, and then
-                    # we release the method lock, and then the instance-locked
-                    # method executes, and then we acquire the method lock
-                    # again, and then simultaneously execute the method-locked
-                    # method with the instance-locked method?
                     self.__method_locks__[method.__name__].acquire()
 
                     # If this is the first time the given thread has called
@@ -509,12 +544,16 @@ def synchronize_method(
                 # the method, then release the semaphore to show that this
                 # method-locked method has finished executing. If all method
                 # locks are released, set the event to allow instance-locked
-                # methods to execute again.
+                # methods to execute again. The exception is if another thread
+                # is waiting to execute the same method, in which case, we
+                # don't want to set the event, as we want to allow the other
+                # thread to execute the method-locked method, before we allow
+                # instance-locked methods to execute again.
                 if self.__method_locks__[method.__name__].recursion_depth == 1:
                     self.__semaphore__.release()
                 # pylint: disable=protected-access
-                if (self.__semaphore__._value
-                        == self.__semaphore__._initial_value):
+                if (not self.__method_locks__[method.__name__].any_threads_waiting
+                        and self.__semaphore__._value == self.__semaphore__._initial_value):
                     self.__event__.set()
                 self.__method_locks__[method.__name__].release()
 
