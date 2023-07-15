@@ -19,15 +19,15 @@ The main Jinx GUI components are; JinxGuiWindow which wrap PySide6 QMainWindow
 and JinxWidget which wraps PySide6 QWidget. Both of these are observers.
 """
 
-from abc import abstractmethod
-from collections import defaultdict
 import itertools
+from abc import abstractmethod
 from typing import Any, Literal, NamedTuple, Sequence, Union, final
-from PySide6 import QtWidgets, QtCore, QtGui  # pylint: disable=unused-import
 
-from concurrency.clocks import ClockThread
-from concurrency.synchronization import atomic_update, sync
+from PySide6 import QtCore, QtWidgets
+
 import guis.observable as observable
+from concurrency.clocks import ClockThread
+from concurrency.synchronization import sync
 from guis.widgets.placeholders import PlaceholderWidget
 from moremath.mathutils import closest_integer_factors
 
@@ -749,6 +749,7 @@ class JinxGuiWindow(observable.Observer):
             self.__data = JinxSystemData(
                 name=f"System data for {self.window_name}",
                 gui=self,
+                clock=QtCore.QTimer(),
                 debug=debug
             )
         else:
