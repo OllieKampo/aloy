@@ -1,5 +1,5 @@
 import time
-from PySide6.QtGui import QPixmap, QColor, QPainter, QPen, Qt
+from PySide6.QtGui import QPixmap, QColor, QPainter, QPen, Qt, QFont
 from PySide6.QtWidgets import QApplication, QSplashScreen, QMainWindow, QWidget, QVBoxLayout, QPushButton, QTabWidget
 import sys
 
@@ -43,34 +43,43 @@ if __name__ == "__main__":
     screen = app.screens()[1]
 
     # Create a blank pixmap.
-    pixmap = QPixmap(100, 100)
+    pixmap = QPixmap(500, 500)
     pixmap.fill(QColor('transparent'))
 
     # Draw a red cross.
     painter = QPainter(pixmap)
     painter.setPen(QPen(QColor('red'), 2))
-    painter.drawLine(0, 0, 100, 100)
-    painter.drawLine(0, 100, 100, 0)
+    painter.drawLine(0, 0, 500, 500)
+    painter.drawLine(0, 500, 500, 0)
     painter.end()
 
     # Create and show the splash screen.
     splash = QSplashScreen(screen, pixmap)
     splash.show()
+
+    # Set the font of the text.
+    font = QFont("Arial", 20)
+    splash.setFont(font)
+
     splash.showMessage(
         "Loading...",
-        color=QColor('white'),
-        alignment=Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignCenter
+        alignment=Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignCenter,
+        color=QColor('white')
     )
     app.processEvents()
+    time.sleep(2)
 
     # Simulate something that takes time.
+    splash.showMessage(
+        "Loading more...",
+        alignment=Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignCenter,
+        color=QColor('white')
+    )
     time.sleep(2)
 
     # Load the main window.
     main_window = MainWindow()
     main_window.show()
-
-
 
     # Close the splash screen.
     splash.finish(main_window)
