@@ -41,7 +41,7 @@ __license__ = "GPL-3.0"
 __all__ = ()
 
 
-from typing import Any
+from typing import Any, Callable
 
 from concurrency.executors import JinxThreadPool
 from datastructures.mappings import TwoWayMap
@@ -113,7 +113,11 @@ class Publisher:
 
 def trigger_on_topic_message_added(topic: MessageTopic) -> Any:
     """Decorate a method to be called when a message is added to a topic."""
-    pass
+    def decorator(func: Any) -> Any:
+        hub = PubSubHub()
+        hub.subscribe(topic, func)
+        return func
+    return decorator
 
 
 def trigger_on_data_field_change(field_name: str) -> Any:
@@ -154,36 +158,37 @@ class PubSubHub:
     from publishers to subscribers.
     """
 
-    def __new__(cls) -> "PusSubHub":
+    def __new__(cls) -> "PubSubHub":
         if not hasattr(cls, "__instance"):
             cls.__instance = super().__new__(cls)
         return cls.__instance
 
     def __init__(self) -> None:
-        self.__subscribers = TwoWayMap[Subscriber, str]()
-        self.__publishers = TwoWayMap[Publisher, str]()
+        self.__subscribers_topics: dict[str, list[Callable]] = {}
+        self.__topics: dict[str, list[Any]] = {}
         self.__executor = JinxThreadPool()
 
-    def register_subscriber(self, subscriber: Subscriber) -> None:
-        pass
+    def subscribe_topic(self, topic_name: str, func: Callable) -> None:
+        if topic_name not in self.__subscribers_topics:
+            self.__subscribers_topics[topic_name] = []
+        self.__subscribers_topics[topic_name].append(func)
 
-    def unregister_subscriber(self, subscriber: Subscriber) -> None:
-        pass
-
-    def register_publisher(self, publisher: Publisher) -> None:
-        pass
-
-    def unregister_publisher(self, publisher: Publisher) -> None:
-        pass
-
-    def __update_subscribers(self, field_name: str, old_value: Any, new_value: Any) -> None:
+    def publish_topic(self, topic_name: str, messages: str) -> None:
+        if topic_name not in self.__topics:
+            self.__topics[topic_name] = []
+        self.__topics[topic_name].extend(messages)
         self.__executor.submit(
-            self.__update_subscribers_async,
-            field_name,
-            old_value,
-            new_value
+            self.__update_subscribers_topics,
+            topic_name,
+            self.__topics[topic_name][:-len(messages)],
+            self.__topics[topic_name][-len(messages):]
         )
 
-    def __update_subscribers_async(self, field_name: str, old_value: Any, new_value: Any) -> None:
-        for listener in self.__subscribers[field_name]:
-            listener.field_changed(self, field_name, old_value, new_value)
+    def __update_subscribers_topics(
+        self,
+        topic_name: str,
+        existing_messages: list[str],
+        new_messages: list[str]
+    ) -> None:
+        for func in self.__subscribers_topics[topic_name]:
+            func(topic_name, existing_messages, new_messages)

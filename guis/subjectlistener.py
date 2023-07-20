@@ -16,6 +16,7 @@
 import functools
 from typing import Any
 from concurrency.executors import JinxThreadPool
+from concurrency.synchronization import SynchronizedMeta
 
 from datastructures.mappings import TwoWayMap
 
@@ -37,7 +38,7 @@ class Listener:
 
 
 def field(field_name: str | None = None) -> Any:
-    """Decorate a field to be tracked by a `Subject`."""
+    """Decorate a field to be tracked by a Subject."""
     def decorator(func: Any) -> Any:
         if field_name is None:
             field_name = func.__name__
@@ -64,26 +65,14 @@ def field_change(field_name: str | None = None) -> Any:
     return decorator
 
 
-class Subject:
+class Subject(metaclass=SynchronizedMeta):
 
     def __init__(self) -> None:
         self.__listeners = TwoWayMap[Listener, str]()
         self.__executor = JinxThreadPool()
 
-    @property
-    @field()
-    def value(self) -> int:
-        return self.__value
-
-    @value.setter
-    @field_change()
-    def value(self, value: int) -> None:
-        self.__value = value
-
     def assign_listener(self, listener: Listener, fields: list[str]) -> None:
-        self.__listeners.extend(
-            (listener, set(fields))
-        )
+        self.__listeners.add_many(listener, fields)
 
     def remove_listener(self, listener: Listener) -> None:
         self.__listeners.forwards_remove(listener)
