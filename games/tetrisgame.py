@@ -490,7 +490,8 @@ class TetrisGameLogic:
 
     def store_piece(self) -> None:
         """Store the current piece."""
-        if (not self.__playing
+        if (not self.allow_store_piece
+            or not self.__playing
                 or self.__game_over
                 or self.__paused):
             return
@@ -786,7 +787,8 @@ class TetrisGameJinxWidget(JinxWidget):
         )
         self.__controls_layout = QtWidgets.QFormLayout()
         self.__controls_layout.setContentsMargins(0, 0, 0, 0)
-        self.__controls_layout.setSpacing(0)
+        self.__controls_layout.setVerticalSpacing(0)
+        self.__controls_layout.setHorizontalSpacing(45)
         self.__controls_layout.setFieldGrowthPolicy(
             QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
         )
