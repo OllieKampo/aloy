@@ -183,7 +183,6 @@ class Observable(metaclass=SynchronizedMeta):
         "__messages": "Log messages associated with the gui.",
         "__notify_update_lock": "Lock for updating the notified observers.",
         "__clock": "The clock or timer that updates the observers.",
-        # "__executor": "The executor that updates the observers.",
         "__debug": "Whether to log debug messages."
     }
 
@@ -511,11 +510,6 @@ class Observable(metaclass=SynchronizedMeta):
     @sync(group_name="__observable_var__")
     def set_var(self, name: str, value: Any) -> None:
         """Set the variable with the given name."""
-        # if name in self.__var_change_callbacks:
-        #     old_value = self.__vars.get(name, None)
-        #     if old_value != value:
-        #         for callback in self.__var_change_callbacks[name]:
-        #             callback(self, name, old_value, value)
         self.__vars[name] = value
 
     @final
@@ -524,26 +518,6 @@ class Observable(metaclass=SynchronizedMeta):
     def del_var(self, name: str) -> None:
         """Delete the variable associated with the given name."""
         self.__vars.pop(name)
-        # value = self.__vars.pop(name)
-        # if name in self.__var_change_callbacks:
-        #     for callback in self.__var_change_callbacks[name]:
-        #         callback(self, name, value, None)
-
-    # @final
-    # @sync(group_name="__observable_var__")
-    # def add_on_var_change_callback(
-    #     self,
-    #     name: str,
-    #     callback: Callable[["Observable", str, Any, Any], None]
-    # ) -> None:
-    #     """
-    #     Add a callback to be called when the variable with the given name
-    #     changes.
-
-    #     Callbacks are called with the observable, the name of the variable,
-    #     the old value, and the new value as arguments.
-    #     """
-    #     self.__var_change_callbacks[name].append(callback)
 
     @final
     @sync(group_name="__observable_log__")
