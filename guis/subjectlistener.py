@@ -32,9 +32,9 @@ they are listening to changes, there is less generality to the pattern than
 the observerable-observer pattern.
 """
 
+from collections import defaultdict, deque
 import inspect
 import logging
-import sys
 import time
 from typing import Any, Callable, Concatenate, Final, ParamSpec, TypeVar, final
 from concurrency.executors import JinxThreadPool
@@ -90,7 +90,8 @@ ST = TypeVar("ST")
 
 
 def field(
-    field_name: str | None = None
+    field_name: str | None = None,
+    queue_size: int | None = None
 ) -> Callable[
     [Callable[Concatenate["Subject", SP], ST]],
     Callable[Concatenate["Subject", SP], ST]
@@ -105,6 +106,7 @@ def field(
         else:
             _field_name = field_name
         func.__subject_field__ = _field_name  # type: ignore
+        func.__queue_size__ = queue_size  # type: ignore
         return sync(lock="method", group_name=f"get:({_field_name})")(func)
     return decorator
 
@@ -130,8 +132,10 @@ def field_change(
         def wrapper(self: "Subject", *args: Any, **kwargs: Any) -> Any:
             old_value = self.__get_field__(_field_name)
             func(self, *args, **kwargs)
-            new_value = self.__get_field__(_field_name)
-            if old_value != new_value:
+            new_value = self.__get_field__(_field_name, new_value=True)
+            if self.__is_queued_field__(_field_name):
+                self.__update__(_field_name, old_value, new_value)
+            elif old_value != new_value:
                 self.__update__(_field_name, old_value, new_value)
 
         return wrapper
@@ -167,14 +171,18 @@ class _SubjectSynchronizedMeta(SynchronizedMeta):
                 _get_attr = attr
             if hasattr(_get_attr, "__subject_field__"):
                 _field_name = _get_attr.__subject_field__  # type: ignore
+                _queue_size = _get_attr.__queue_size__  # type: ignore
                 if _field_name in _existing_subject_fields:
-                    continue
+                    raise ValueError(
+                        f"Field name {_field_name} was already defined in "
+                        f"a base class of {name}."
+                    )
                 if _field_name in _new_subject_fields:
                     raise ValueError(
                         f"Field name {_field_name} defined more than once in "
-                        f"class {name}."
+                        f"the class {name}."
                     )
-                _new_subject_fields[_field_name] = _get_attr
+                _new_subject_fields[_field_name] = (_get_attr, _queue_size)
         _existing_subject_fields.update(_new_subject_fields)
 
         return super().__new__(cls, name, bases, namespace)
@@ -191,12 +199,16 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
     """
 
     __SUBJECT_LOGGER = logging.getLogger("Subject")
-    __SUBJECT_FIELDS__: dict[str, Callable[["Subject"], Any]] | None = None
+    __SUBJECT_FIELDS__: (
+        dict[str, tuple[Callable[["Subject"], Any], bool]]
+        | None
+    ) = None
 
     __slots__ = {
         "__listeners": "The listeners registered with the subject.",
         "__callbacks": "The callbacks registered with the subject.",
-        "__executor": "The thread pool executor used to update listeners."
+        "__executor": "The thread pool executor used to update listeners.",
+        "__queues": "The queues used to store values of queued fields."
     }
 
     def __init__(
@@ -224,14 +236,33 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
             profile=bool(profile),
             log=bool(log)
         )
+        self.__queues: dict[str, deque[Any]] = defaultdict(deque)
+        for field_name, (_, queue_size) \
+                in self.__SUBJECT_FIELDS__.items():  # type: ignore
+            if queue_size is not None:
+                self.__queues[field_name] = deque(maxlen=queue_size)
 
-    def __get_field__(self, field_name: str) -> Any:
-        get_attr = self.__SUBJECT_FIELDS__.get(field_name)  # type: ignore
+    def __get_field__(self, field_name: str, new_value: bool = False) -> Any:
+        get_attr, queue_size = \
+            self.__SUBJECT_FIELDS__.get(field_name)  # type: ignore
         if get_attr is None:
             raise AttributeError(
                 f"Subject {self} has no field {field_name}."
             )
-        return get_attr(self)
+        value = get_attr(self)
+        if queue_size is not None:
+            if new_value:
+                self.__queues[field_name].append(value)
+                return value
+            else:
+                return list(self.__queues[field_name])
+        return value
+
+    def __is_queued_field__(self, field_name: str) -> bool:
+        return (
+            self.__SUBJECT_FIELDS__.get(field_name)[1]  # type: ignore
+            is not None
+        )
 
     def __check_callback(self, callback: Callable[..., None]) -> None:
         """Check that the callback is a function that takes four arguments."""
@@ -338,12 +369,11 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
 
 def __main():
     """Entry point of the module."""
-    # Set up with logging basic config.
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-        stream=sys.stdout
-    )
+    # logging.basicConfig(
+    #     level=logging.DEBUG,
+    #     format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    #     stream=sys.stdout
+    # )
 
     class MySubject(Subject):
         def __init__(self) -> None:
@@ -376,12 +406,14 @@ def __main():
     listener = MyListener()
     subject.register(listener)
     subject.my_field = 1
+    subject.my_field = 1
     subject.my_field = 2
     subject.my_field = 2
     subject.my_field = 3
     subject.my_field = 3
     subject.my_field = 4
     subject.my_field = 4
+    subject.my_field = 5
     subject.my_field = 5
     time.sleep(1)
 
