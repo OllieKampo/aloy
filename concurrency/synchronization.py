@@ -756,8 +756,11 @@ class SynchronizedMeta(type):
                     total_method_locks += 1
             self.__semaphore__ = threading.BoundedSemaphore(total_method_locks)
             self.__event__ = threading.Event()
+            self.__event__.set()
             original_init(self, *args, **kwargs)
         class_dict["__init__"] = __init__
+
+        class_dict["instance_lock"] = property(lambda self: self.__lock__)
 
         # Ensure that the class has lock status attributes.
         def is_instance_locked(self) -> bool:
@@ -800,3 +803,20 @@ class SynchronizedMeta(type):
             "loop_locks",
             "group_locks"
         ]
+
+
+class SynchronizedClass(metaclass=SynchronizedMeta):
+    """Base class for synchronizing a class via standard inheritance."""
+
+    __slots__ = ()
+
+    def __init__(self, *args, **kwargs) -> None:
+        """Initialize the class."""
+        super().__init__(*args, **kwargs)
+
+    instance_lock: OwnedRLock
+    is_instance_locked: typing.Callable[[], bool]
+    is_method_locked: typing.Callable[[str | None], bool]
+    lockable_methods: tuple[str, ...]
+    loop_locks: ReversableDict[str, int]
+    group_locks: ReversableDict[str, str]
