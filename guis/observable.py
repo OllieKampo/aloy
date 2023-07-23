@@ -33,8 +33,8 @@ logic. As a result of this, the manner in which data is stored and transferred
 between the observable and the observer is not specified by the pattern, and
 can be implemented in any way that is suitable for the application, making the
 pattern very general in comparison to patterns that require the observers to
-subscribe to specific fields, parameters, or topics of the observable in
-a specific way.
+subscribe to specific fields, parameters, or topics of the observable in a
+specific way.
 
 The main downside of the observable-observer pattern, is that it scales quite
 poorly to large applications. For applictions with many components that need
@@ -244,6 +244,8 @@ class Observable(SynchronizedClass):
 
         `debug: bool = False` - Whether to log debug messages.
         """
+        super().__init__()
+
         self.__debug: bool = debug
         if self.__debug:
             self.__OBSERVABLE_LOGGER.debug(
