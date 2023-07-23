@@ -125,8 +125,6 @@ class JinxThreadPool:
     def is_busy(self) -> bool:
         return self.__active_threads.get_obj() == self.__max_workers
 
-    @functools.wraps(ThreadPoolExecutor.submit,
-                     assigned=("__doc__",))
     def submit(
         self,
         name: str,
@@ -134,7 +132,12 @@ class JinxThreadPool:
         *args: SP.args,
         **kwargs: SP.kwargs
     ) -> Future:
-        """Submits a job to the thread pool and returns a Future object."""
+        """
+        Submits a job to the thread pool and returns a Future object.
+
+        The callable is scheduled to be executed as `func(*args, **kwargs)` and
+        returns a Future instance representing the execution of the callable.
+        """
         with self.__queued_jobs, self.__active_threads:
             self.__queued_jobs += 1
             active_threads = min(self.__active_threads.get_obj() + 1,
@@ -166,6 +169,11 @@ class JinxThreadPool:
     def __callback(self, future: Future) -> None:
         """Callback function for when a job finishes execution."""
         job: Job = self.__submitted_jobs.pop(future)
+        if self.__log:
+            self.__logger.debug(
+                "%s: Job %s -> %s(*%s, **%s) finished",
+                self.__name, job.name, job.func.__name__, job.args, job.kwargs
+            )
 
         elapsed_time: float | None = None
         if self.__profile:
