@@ -13,19 +13,28 @@
 # this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Module defining obversable-observer pattern interface.
+Module defining the obversable-observer design pattern.
 
-The observable-observer pattern is a single-producer multi-consumer
+The observable-observer pattern is a multi-producer multi-consumer
 communication design pattern in which an object, called the observable,
 maintains a list of its dependents, called observers, and updates them
-automatically when its state changes. The pattern is effective technique for
+automatically when its state changes. The pattern is an effective technique for
 simple GUI based applications, because it is easy to understand and implement,
 with minimal boilerplate code needed.
 
-The observable-observer pattern is unlike the publisher-subscriber pattern in
-that observers do not subscribe to specific events or topics. Instead, they
+The observable-observer pattern is unlike the publisher-subscriber pattern, in
+that observers do not subscribe to specific parameters or topics. Instead, they
 observe the whole observable, are notified when the observable changes in any
 way, and it is up to the observer to decide how to update itself accordingly.
+
+Observers are updated by a call to their `update_observer` method, which takes
+the observable as an argument, there is no further complexity to the update
+logic. As a result of this, the manner in which data is stored and transferred
+between the observable and the observer is not specified by the pattern, and
+can be implemented in any way that is suitable for the application, making the
+pattern very general in comparison to patterns that require the observers to
+subscribe to specific fields, parameters, or topics of the observable in
+a specific way.
 
 The main downside of the observable-observer pattern, is that it scales quite
 poorly to large applications. For applictions with many components that need
@@ -43,7 +52,7 @@ three main reasons for this:
   the observable as an argument. This means that all observables appear to be
   the same to the observer. This is problematic, because we typically want to
   make custom observable sub-classes, which store different sets of data,
-  this is particularly to help mitigate the prior two problems.
+  usually to help mitigate the prior two problems.
 """
 
 from abc import abstractmethod, ABCMeta
@@ -55,7 +64,7 @@ import threading
 from PySide6.QtCore import QTimer  # pylint: disable=E0611
 
 from concurrency.clocks import ClockThread
-from concurrency.synchronization import SynchronizedMeta, sync
+from concurrency.synchronization import SynchronizedClass, sync
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
@@ -96,30 +105,30 @@ def notifies_observers(
     """
     if not names:
         def inner(
-            function: Callable[Concatenate["Observable", SP], ST]
+            func: Callable[Concatenate["Observable", SP], ST]
         ) -> Callable[Concatenate["Observable", SP], ST]:
-            @functools.wraps(function)
+            @functools.wraps(func)
             def wrapper(
                 self: "Observable",
                 *args: SP.args,
                 **kwargs: SP.kwargs
             ) -> ST:
-                return_value = function(self, *args, **kwargs)
+                return_value = func(self, *args, **kwargs)
                 self.notify_all()
                 return return_value
             return wrapper
         return inner
     else:  # pylint: disable=no-else-return
         def inner(
-            function: Callable[Concatenate["Observable", SP], ST]
+            func: Callable[Concatenate["Observable", SP], ST]
         ) -> Callable[Concatenate["Observable", SP], ST]:
-            @functools.wraps(function)
+            @functools.wraps(func)
             def wrapper(
                 self: "Observable",
                 *args: SP.args,
                 **kwargs: SP.kwargs
             ) -> ST:
-                return_value = function(self, *args, **kwargs)
+                return_value = func(self, *args, **kwargs)
                 self.notify_by_name(*names, raise_=raise_)
                 return return_value
             return wrapper
@@ -127,20 +136,20 @@ def notifies_observers(
 
 
 def notifies_observables(
-    function: Callable[Concatenate["Observer", SP], ST]
+    func: Callable[Concatenate["Observer", SP], ST]
 ) -> Callable[Concatenate["Observer", SP], ST]:
     """
     Decorate methods of an observer class.
 
     Schedules the observable to be updated after the method has returned.
     """
-    @functools.wraps(function)
+    @functools.wraps(func)
     def wrapper(
         self: "Observer",
         *args: SP.args,
         **kwargs: SP.kwargs
     ) -> ST:
-        return_value = function(self, *args, **kwargs)
+        return_value = func(self, *args, **kwargs)
         with self.__lock:  # pylint: disable=W0212
             for observable in self.__observables:  # pylint: disable=W0212
                 observable.notify_all()
@@ -148,7 +157,7 @@ def notifies_observables(
     return wrapper
 
 
-class Observable(metaclass=SynchronizedMeta):
+class Observable(SynchronizedClass):
     """
     An abstract class defining a thread safe observable object.
 
@@ -169,6 +178,16 @@ class Observable(metaclass=SynchronizedMeta):
     observers. One should specify setter methods of the observable that should
     notify observers. This way, the observable can control when it notifies
     other observers, and keeps the observers decoupled from each other.
+
+    Observables expose built-in methods for storing shared variables and
+    log messages. These may be sufficient for simple applications, but for
+    more complex applications, it is recommended to sub-class the observable
+    and add custom methods and properties to store purpose specific data.
+
+    Observables are sychronized as sub-classes of `SynchronizedClass`, and
+    therefore sub-classes of `Observable` can be synchronized using the
+    `@sync` decorator. See `jinx.concurrency.synchronization` for details on
+    synchronization.
     """
 
     __OBSERVABLE_LOGGER = logging.getLogger("Observable")
@@ -198,7 +217,6 @@ class Observable(metaclass=SynchronizedMeta):
         """
         Create a new observable.
 
-        Sub-classes must always call this method in their `__init__` method.
         For Qt6 GUI applications, `clock` should always be an existing QTimer
         and `start_clock` should be False (it should be started externally
         after construction of the sub-class instance has completed).
