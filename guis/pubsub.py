@@ -1,38 +1,24 @@
-###########################################################################
-###########################################################################
-## Module defining publisher-subscriber interface pattern.               ##
-##                                                                       ##
-## Copyright (C)  2023  Oliver Michael Kamperis                          ##
-## Email: o.m.kamperis@gmail.com                                         ##
-##                                                                       ##
-## This program is free software: you can redistribute it and/or modify  ##
-## it under the terms of the GNU General Public License as published by  ##
-## the Free Software Foundation, either version 3 of the License, or     ##
-## any later version.                                                    ##
-##                                                                       ##
-## This program is distributed in the hope that it will be useful,       ##
-## but WITHOUT ANY WARRANTY; without even the implied warranty of        ##
-## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          ##
-## GNU General Public License for more details.                          ##
-##                                                                       ##
-## You should have received a copy of the GNU General Public License     ##
-## along with this program. If not, see <https://www.gnu.org/licenses/>. ##
-###########################################################################
-###########################################################################
+# Copyright (C) 2023 Oliver Michael Kamperis
+# Email: o.m.kamperis@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Module defining publisher-subscriber interface pattern.
+Module defining publisher-subscriber design pattern.
 
 An alternative to explicit naming of source and destination would be to name a port through which communication is to take place.
 
 Subscribers declare which topics they are interested in, and publishers send messages to topics without knowledge of what (if any) subscribers there may be.
 Subscribers are only updated when a topic or field they are subscribed to is updated or changed.
-
-Transmit
-Report
-Broadcast
-Emit
-Send
 """
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
@@ -52,7 +38,7 @@ def __dir__() -> tuple[str, ...]:
     return __all__
 
 
-_PUBSUBHUB_THREAD_POOL_EXECUTOR_MAX_WORKERS: Final[int] = 10
+_PUBSUBHUB_THREAD_POOL_EXECUTOR_MAX_WORKERS: Final[int | None] = None
 _PUBSUBHUB_THREAD_POOL_EXECUTOR_PROFILE: Final[bool] = False
 _PUBSUBHUB_THREAD_POOL_EXECUTOR_LOG: Final[bool] = False
 
@@ -122,14 +108,14 @@ class PubSubHub(metaclass=SynchronizedMeta):
         for func in self.__subscribers_topics[topic_name]:
             func(topic_name, existing_messages, new_messages)
 
-    def subscribe_field(
+    def subscribe_parameter(
         self,
         parameter_name: str,
         callback: Callable[[str, Any, Any], None]
     ) -> None:
         pass
 
-    def publish_field(self, parameter_name: str, value: Any) -> None:
+    def publish_parameter(self, parameter_name: str, value: Any) -> None:
         pass
 
     def register_procedure_call(
