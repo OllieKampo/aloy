@@ -33,9 +33,9 @@ the observerable-observer pattern.
 """
 
 from collections import defaultdict, deque
+import functools
 import inspect
 import logging
-import time
 from typing import Any, Callable, Concatenate, Final, ParamSpec, TypeVar, final
 from concurrency.executors import JinxThreadPool
 from concurrency.synchronization import SynchronizedMeta, sync
@@ -96,7 +96,20 @@ def field(
     [Callable[Concatenate["Subject", SP], ST]],
     Callable[Concatenate["Subject", SP], ST]
 ]:
-    """Decorate a field to be tracked by a Subject."""
+    """
+    Decorate a field to be tracked by a Subject.
+
+    The decorated method must have be callacble with no arguments and return
+    the current value of the field.
+
+    Parameters
+    ----------
+    `field_name: str | None = None` - The name of the field. If not given or
+    None, the name of the method is used.
+
+    `queue_size: int | None = None` - The size of the queue used to store
+    values of the field. If not given or None, the field is not queued.
+    """
     def decorator(
         func: Callable[Concatenate["Subject", SP], ST]
     ) -> Callable[Concatenate["Subject", SP], ST]:
@@ -117,7 +130,16 @@ def field_change(
     [Callable[Concatenate["Subject", SP], ST]],
     Callable[Concatenate["Subject", SP], ST]
 ]:
-    """Decorate a method to indicate that it changes a field."""
+    """
+    Decorate a method to indicate that it changes a field.
+
+    There are no restrictions on the method signature.
+
+    Parameters
+    ----------
+    `field_name: str | None = None` - The name of the field. If not given or
+    None, the name of the method is used.
+    """
     def decorator(
         func: Callable[Concatenate["Subject", SP], ST]
     ) -> Callable[Concatenate["Subject", SP], ST]:
@@ -127,8 +149,11 @@ def field_change(
         else:
             _field_name = field_name
 
+        func.__subject_field_change__ = _field_name  # type: ignore
+
         # pylint: disable=protected-access
         @sync(lock="method", group_name=f"update:({_field_name})")
+        @functools.wraps(func)
         def wrapper(self: "Subject", *args: Any, **kwargs: Any) -> Any:
             old_value = self.__get_field__(_field_name)
             func(self, *args, **kwargs)
@@ -167,22 +192,35 @@ class _SubjectSynchronizedMeta(SynchronizedMeta):
         for attr in namespace.values():
             if isinstance(attr, property):
                 _get_attr = attr.fget
+                _set_attr = attr.fset
             else:
                 _get_attr = attr
+                _set_attr = attr
             if hasattr(_get_attr, "__subject_field__"):
                 _field_name = _get_attr.__subject_field__  # type: ignore
                 _queue_size = _get_attr.__queue_size__  # type: ignore
                 if _field_name in _existing_subject_fields:
                     raise ValueError(
-                        f"Field name {_field_name} was already defined in "
-                        f"a base class of {name}."
+                        f"Attribute {_get_attr.__name__} defined a field "
+                        f"name '{_field_name}' which was already defined in a "
+                        f"base class of {name}."
                     )
                 if _field_name in _new_subject_fields:
                     raise ValueError(
-                        f"Field name {_field_name} defined more than once in "
+                        f"Attribute {_get_attr.__name__} defined a field "
+                        f"name '{_field_name}' which was already defined in "
                         f"the class {name}."
                     )
                 _new_subject_fields[_field_name] = (_get_attr, _queue_size)
+            if hasattr(_set_attr, "__subject_field_change__"):
+                _field_name = _set_attr.__subject_field_change__
+                if (_field_name not in _existing_subject_fields
+                        and _field_name not in _new_subject_fields):
+                    raise ValueError(
+                        f"Attribute {_set_attr.__name__} defined as changing "
+                        f"field '{_field_name}', but no field with that name "
+                        f"was defined in (or a base class of) {name}."
+                    )
         _existing_subject_fields.update(_new_subject_fields)
 
         return super().__new__(cls, name, bases, namespace)
@@ -243,12 +281,13 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
                 self.__queues[field_name] = deque(maxlen=queue_size)
 
     def __get_field__(self, field_name: str, new_value: bool = False) -> Any:
-        get_attr, queue_size = \
+        get_attr_and_queue_size = \
             self.__SUBJECT_FIELDS__.get(field_name)  # type: ignore
-        if get_attr is None:
+        if get_attr_and_queue_size is None:
             raise AttributeError(
                 f"Subject {self} has no field {field_name}."
             )
+        get_attr, queue_size = get_attr_and_queue_size
         value = get_attr(self)
         if queue_size is not None:
             if new_value:
@@ -415,7 +454,7 @@ def __main():
     subject.my_field = 4
     subject.my_field = 5
     subject.my_field = 5
-    time.sleep(1)
+    # time.sleep(1)
 
 
 if __name__ == "__main__":
