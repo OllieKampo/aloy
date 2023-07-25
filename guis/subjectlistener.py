@@ -135,6 +135,9 @@ def field_change(
 
     There are no restrictions on the method signature.
 
+    A field with the same name must have been defined prior to this decorator
+    being applied.
+
     Parameters
     ----------
     `field_name: str | None = None` - The name of the field. If not given or
@@ -196,7 +199,8 @@ class _SubjectSynchronizedMeta(SynchronizedMeta):
             else:
                 _get_attr = attr
                 _set_attr = attr
-            if hasattr(_get_attr, "__subject_field__"):
+            if (_get_attr is not None
+                    and hasattr(_get_attr, "__subject_field__")):
                 _field_name = _get_attr.__subject_field__  # type: ignore
                 _queue_size = _get_attr.__queue_size__  # type: ignore
                 if _field_name in _existing_subject_fields:
@@ -212,8 +216,10 @@ class _SubjectSynchronizedMeta(SynchronizedMeta):
                         f"the class {name}."
                     )
                 _new_subject_fields[_field_name] = (_get_attr, _queue_size)
-            if hasattr(_set_attr, "__subject_field_change__"):
-                _field_name = _set_attr.__subject_field_change__
+            if (_set_attr is not None
+                    and hasattr(_set_attr, "__subject_field_change__")):
+                _field_name = _set_attr \
+                    .__subject_field_change__  # type: ignore
                 if (_field_name not in _existing_subject_fields
                         and _field_name not in _new_subject_fields):
                     raise ValueError(
