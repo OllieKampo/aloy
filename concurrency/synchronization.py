@@ -573,7 +573,7 @@ def _check_for_sync(
     method_locked_methods: set[str],
     method_locked_methods_groups: ReversableDict[str, str],
     instance_locked_methods: set[str]
-) -> None:
+) -> typing.Callable:
     if func is not None:
         all_methods[func.__name__] = func
         if lock_name := getattr(func, "__sync__", False):
@@ -728,6 +728,7 @@ class SynchronizedMeta(type):
 
         # Wrap the init method to ensure instances get the lock attributes.
         original_init = class_dict["__init__"]
+
         @functools.wraps(original_init)
         def __init__(self, *args, **kwargs) -> None:
             if not hasattr(self, "__lock__"):
@@ -754,10 +755,17 @@ class SynchronizedMeta(type):
                 else:
                     self.__method_locks__[method_name] = OwnedRLock(lock_name=method_name)
                     total_method_locks += 1
-            self.__semaphore__ = threading.BoundedSemaphore(total_method_locks)
-            self.__event__ = threading.Event()
-            self.__event__.set()
+            if hasattr(self, "__semaphore__"):
+                self.__semaphore__ = threading.BoundedSemaphore(
+                    total_method_locks + self.__semaphore__._initial_value
+                )
+            else:
+                self.__semaphore__ = threading.BoundedSemaphore(total_method_locks)
+            if not hasattr(self, "__event__"):
+                self.__event__ = threading.Event()
+                self.__event__.set()
             original_init(self, *args, **kwargs)
+
         class_dict["__init__"] = __init__
 
         class_dict["instance_lock"] = property(lambda self: self.__lock__)
