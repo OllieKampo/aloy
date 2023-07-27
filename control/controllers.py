@@ -1,18 +1,23 @@
+# Copyright (C) 2023 Oliver Michael Kamperis
+# Email: o.m.kamperis@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
-Module defining base classes for feedback controllers.
+Module defining base and wrapper classes for feedback controllers.
 
-Copyright (C) 2023 Oliver Michael Kamperis.
-
-This program is free software: you can redistribute it and/or modify it under
-the terms of the GNU General Public License as published by the Free Software
-Foundation, either version 3 of the License, or any later version.
-
-This program is distributed in the hope that it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
+Supports both single and multi-variate controllers, including cascading
+multi-variate controllers. System controllers and automatic system controllers
+are also supported via composition with stnadard controllers.
 """
 
 from abc import ABCMeta, abstractmethod
@@ -33,7 +38,7 @@ from datastructures.views import SetView
 
 __copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = (
     "Controller",
@@ -124,23 +129,23 @@ class Controller(metaclass=ABCMeta):
 
         Parameters
         ----------
-        `input_limits : tuple[float | None, float | None]` - Input limits,
+        `input_limits: tuple[float | None, float | None]` - Input limits,
         (lower, upper). See `jinx.control.controllers.clamp()` for details.
 
-        `output_limits : tuple[float | None, float | None]` - Output limits,
+        `output_limits: tuple[float | None, float | None]` - Output limits,
         (lower, upper). See `jinx.control.controllers.clamp()` for details.
 
-        `input_trans : Callable[[float], float]` - Input transform function.
+        `input_trans: Callable[[float], float]` - Input transform function.
         This function is applied to the control input before calculating error.
 
-        `error_trans : Callable[[float], float]` - Error transform function.
+        `error_trans: Callable[[float], float]` - Error transform function.
         This function is applied to the control error before calculating the
         control output.
 
-        `output_trans : Callable[[float], float]` - Output transform function.
+        `output_trans: Callable[[float], float]` - Output transform function.
         This function is applied to the control output before returning it.
 
-        `initial_error : float | None` - The initial value of the error, None
+        `initial_error: float | None` - The initial value of the error, None
         if unknown. If None, the error value calculated on the first call to
         `control_output()` is used as the initial error, and resultantly the
         integral and derivative terms cannot be calculated until the second
@@ -159,13 +164,13 @@ class Controller(metaclass=ABCMeta):
         self.__output_limits: tuple[float | None, float | None] = output_limits
 
         # Controller input, error, and output transform functions.
-        ct = self.__check_transform
+        chk = self.__check_transform
         self.__inp_trans: Callable[[float], float] | None = \
-            ct("Input", input_trans)
+            chk("Input", input_trans)
         self.__err_trans: Callable[[float], float] | None = \
-            ct("Error", error_trans)
+            chk("Error", error_trans)
         self.__out_trans: Callable[[float], float] | None = \
-            ct("Output", output_trans)
+            chk("Output", output_trans)
 
         # Keep record of initial error for resetting.
         self.__initial_error: float | None = initial_error
@@ -304,7 +309,7 @@ class Controller(metaclass=ABCMeta):
         """
         Get or set the initial error value.
 
-        `initial_error : {float | None}` - The initial value of the error.
+        `initial_error: {float | None}` - The initial value of the error.
         Returns None if unknown.
         """
         return self.__initial_error
@@ -354,15 +359,15 @@ class Controller(metaclass=ABCMeta):
 
         Parameters
         ----------
-        `control_input : float` - The control input
+        `control_input: float` - The control input
         (the measured value of the control variable).
 
-        `setpoint : float` - The control setpoint
+        `setpoint: float` - The control setpoint
         (the desired value of the control variable).
 
-        `delta_time : float` - The time difference since the last call.
+        `delta_time: float` - The time difference since the last call.
 
-        `abs_tol : float` - The absolute tolerance for the time difference.
+        `abs_tol: float` - The absolute tolerance for the time difference.
 
         Returns
         -------
@@ -393,7 +398,7 @@ def _get_combiner_func(
 
     Parameters
     ----------
-    `mode : {"sum", "mean", "median"}` - The output combination mode.
+    `mode: {"sum", "mean", "median"}` - The output combination mode.
 
     Returns
     -------
@@ -1392,7 +1397,7 @@ class ControllerTimer:
         if self.__time_last is None:
             self.__time_last = time_now
             return 0.0
-        raw_time = (time_now - self.__time_last)
+        raw_time = time_now - self.__time_last
         self.__time_last = time_now
         return raw_time * time_factor
 
