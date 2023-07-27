@@ -19,6 +19,7 @@ import random
 import sys
 from collections import deque
 from PySide6 import QtWidgets, QtCore, QtGui
+from datastructures.views import ListView
 
 from guis.gui import JinxSystemData, JinxWidget
 
@@ -88,6 +89,7 @@ class PositionGraph(JinxWidget):
         self.__x_limits: tuple[float, float] = x_limits
         self.__y_limits: tuple[float, float] = y_limits
 
+        self.__max_history: int = max_history
         self.__history_x = deque[float](maxlen=max_history)
         self.__history_y = deque[float](maxlen=max_history)
 
@@ -135,6 +137,22 @@ class PositionGraph(JinxWidget):
         self.__y_limits = value
 
     @property
+    def max_history(self) -> int:
+        return self.__max_history
+
+    @max_history.setter
+    def max_history(self, value: int) -> None:
+        if value < 1:
+            raise ValueError("max_history must be greater than 0.")
+        self.__max_history = value
+        history_x = deque[float](maxlen=value)
+        history_x.extend(self.__history_x)
+        self.__history_x = history_x
+        history_y = deque[float](maxlen=value)
+        history_y.extend(self.__history_y)
+        self.__history_y = history_y
+
+    @property
     def history_x(self) -> deque[float]:
         return self.__history_x
 
@@ -165,18 +183,18 @@ class PositionGraph(JinxWidget):
 
     def __paint_display(self) -> None:
         self.__x_line = QtWidgets.QGraphicsLineItem(
-            self.size.width // 2,
-            self.size.height // 8,
-            self.size.width // 2,
-            self.size.height - (self.size.height // 8)
-        )
-        self.__scene.addItem(self.__x_line)
-
-        self.__y_line = QtWidgets.QGraphicsLineItem(
             self.size.width // 8,
             self.size.height // 2,
             self.size.width - (self.size.width // 8),
             self.size.height // 2
+        )
+        self.__scene.addItem(self.__x_line)
+
+        self.__y_line = QtWidgets.QGraphicsLineItem(
+            self.size.width // 2,
+            self.size.height // 8,
+            self.size.width // 2,
+            self.size.height - (self.size.height // 8)
         )
         self.__scene.addItem(self.__y_line)
 
@@ -330,23 +348,289 @@ class PositionGraph(JinxWidget):
 
 
 class ResponseGraph(JinxWidget):
-    """A graph that displays the response of the system."""
+    """A graph that displays the value of a control variable over time."""
 
-    def __init__(self, parent: QtWidgets.QWidget) -> None:
-        super().__init__(parent)
+    def __init__(
+        self,
+        parent: QtWidgets.QWidget, /,
+        name: str = "Response Graph",
+        label: str = "variable",
+        limits: tuple[float, float] = (0.0, 100.0),
+        time_period: float = 100.0,
+        size: tuple[int, int] = (400, 400), *,
+        debug: bool = False
+    ) -> None:
+        """
+        Create a new response graph Jinx widget within the given parent widget.
 
-        self.__x_label = "Time (s)"
-        self.__y_label = "Response (m)"
-        self.__x_limits = (0, 100)
-        self.__y_limits = (-1, 1)
+        A response graph is a widget that displays the value of a control
+        variable over time.
 
-        self.__history_y: list[float] = []
+        Parameters
+        ----------
+        `parent: QtWidgets.QWidget` - The parent widget to draw this widget on.
+        Note that this will modify the parent widget's layout.
 
-        self.__scene = QtWidgets.QGraphicsScene()
+        `name: str = "Response Graph"` - The name of the widget.
+
+        `label: str = "variable"` - The label for the y axis.
+
+        `limits: tuple[float, float] = (0.0, 100.0)` - The limits for the y
+        axis.
+
+        `max_history: int = 100` - The maximum number of points to display on
+        the graph.
+
+        `size: tuple[int, int] = (400, 400)` - The size of the widget in
+        pixels. The widget is resized to this size.
+
+        `debug: bool = False` - Whether to log debug messages.
+        """
+        super().__init__(
+            parent,
+            name=name,
+            size=size,
+            resize=True,
+            debug=debug
+        )
+
+        self.__label: str = label
+
+        self.__limits: tuple[float, float] = limits
+
+        self.__history: list[float] = []
+        self.__time_period: float = time_period
+        self.__times: list[float] = []
+        self.__min_time: float = 0.0
+        self.__max_time: float = 0.0
+
+        self.__create_scene()
         self.__paint_display()
 
+    @property
+    def label(self) -> str:
+        return self.__label
 
-def __test_position_graph(qwindow: QtWidgets.QMainWindow) -> None:
+    @label.setter
+    def label(self, value: str) -> None:
+        self.__label = value
+
+    @property
+    def limits(self) -> tuple[float, float]:
+        return self.__limits
+
+    @limits.setter
+    def limits(self, value: tuple[float, float]) -> None:
+        if len(value) != 2:
+            raise ValueError("limits must be a tuple of length 2.")
+        if value[0] >= value[1]:
+            raise ValueError("limits[0] must be less than limits[1].")
+        self.__limits = value
+
+    @property
+    def history(self) -> ListView[float]:
+        return ListView(self.__history)
+
+    @property
+    def time_period(self) -> float:
+        return self.__time_period
+
+    @time_period.setter
+    def time_period(self, value: float) -> None:
+        if value <= 0.0:
+            raise ValueError("time_period must be greater than 0.")
+        self.__time_period = value
+        if self.__max_time - value < self.__min_time:
+            self.__min_time = self.__max_time - value
+        history = []
+        times = []
+        for value, time in zip(self.__history, self.__times):
+            if time < self.__min_time:
+                history.append(value)
+                times.append(time)
+        self.__history = history
+        self.__times = times
+
+    @property
+    def times(self) -> ListView[float]:
+        return ListView(self.__times)
+
+    def __create_scene(self) -> None:
+        self.__layout = QtWidgets.QGridLayout()
+        self.__layout.setContentsMargins(0, 0, 0, 0)
+        self.__layout.setSpacing(0)
+        self.qwidget.setLayout(self.__layout)
+        self.qwidget.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Fixed,
+            QtWidgets.QSizePolicy.Policy.Fixed
+        )
+
+        self.__scene = QtWidgets.QGraphicsScene(0, 0, *self.size)
+        self.__view = QtWidgets.QGraphicsView(self.__scene)
+        self.__view.setStyleSheet("background-color: white;")
+        self.__view.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+        self.__view.setFixedSize(*self.size)
+        self.__view.setHorizontalScrollBarPolicy(
+            QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.__view.setVerticalScrollBarPolicy(
+            QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.__layout.addWidget(self.__view, 0, 0, 1, 1)
+
+    def __paint_display(self) -> None:
+        self.__x_line = QtWidgets.QGraphicsLineItem(
+            self.size.width // 8,
+            self.size.height // 2,
+            self.size.width - (self.size.width // 8),
+            self.size.height // 2
+        )
+        self.__scene.addItem(self.__x_line)
+
+        text = self.__scene.addText(
+            self.__label,
+            QtGui.QFont("Arial", 15)
+        )
+        rect = text.boundingRect()
+        text.setPos(
+            (self.size.width // 2) - rect.center().x(),
+            int(self.size.height * (18.75 / 20)) - rect.center().y()
+        )
+
+        # Add limits to lines.
+        text = self.__scene.addText(
+            f"{self.__limits[0]}",
+            QtGui.QFont("Arial", 15)
+        )
+        text.setPos(
+            (self.size.width // 8),
+            (self.size.height // 2)
+        )
+
+        text = self.__scene.addText(
+            f"{self.__limits[1]}",
+            QtGui.QFont("Arial", 15)
+        )
+        rect = text.boundingRect()
+        text.setPos(
+            (self.size.width - (self.size.width // 8)) - rect.right(),
+            (self.size.height // 2)
+        )
+
+        text = self.__scene.addText(
+            f"{self.__min_time}",
+            QtGui.QFont("Arial", 15)
+        )
+        rect = text.boundingRect()
+        text.setPos(
+            (self.size.width // 2) - rect.right(),
+            (self.size.height
+             - (self.size.height // 8)) - rect.center().y()
+        )
+
+        text = self.__scene.addText(
+            f"{self.__max_time}",
+            QtGui.QFont("Arial", 15)
+        )
+        rect = text.boundingRect()
+        text.setPos(
+            (self.size.width // 2) - rect.right(),
+            (self.size.height // 8) - rect.center().y()
+        )
+
+    def __convert_values_to_position(
+        self,
+        value: float,
+        time: float
+    ) -> tuple[int, int]:
+        max_, min_ = self.__limits
+        width, height = self.size
+
+        x_pos = (
+            (width / 8)
+            + ((time - self.__min_time) / (self.__max_time - self.__min_time))
+            * (width * 0.75)
+        )
+        y_pos = (
+            (height / 8)
+            + ((value - min_) / (max_ - min_))
+            * (height * 0.75)
+        )
+
+        return int(x_pos), int(y_pos)
+
+    def update_graph(self, value: float, delta_time: float) -> None:
+        self.__history.append(value)
+        self.__max_time += delta_time
+        self.__times.append(self.__max_time)
+        if len(self.__times) == 1:
+            self.__min_time = self.__max_time
+        elif self.__max_time - self.__min_time > self.__time_period:
+            self.__min_time = self.__max_time - self.__time_period
+            for value, time in zip(self.__history, self.__times):
+                if time < self.__min_time:
+                    self.__history.pop(0)
+                    self.__times.pop(0)
+                else:
+                    break
+
+        self.__scene.clear()
+        self.__paint_display()
+
+        if len(self.__history) > 1:
+            # Draw lines between points.
+            pen = QtGui.QPen(
+                QtCore.Qt.GlobalColor.cyan,
+                2,
+                QtCore.Qt.PenStyle.SolidLine
+            )
+            for (x_1, y_1), (x_2, y_2) in itertools.pairwise(
+                zip(self.__history, self.__times)
+            ):
+                x_1, y_1 = self.__convert_values_to_position(x_1, y_1)
+                x_2, y_2 = self.__convert_values_to_position(x_2, y_2)
+                self.__scene.addLine(x_1, y_1, x_2, y_2, pen)
+
+            # Draw last point.
+            pen = QtGui.QPen(
+                QtCore.Qt.GlobalColor.red,
+                2,
+                QtCore.Qt.PenStyle.SolidLine
+            )
+            brush = QtGui.QBrush(
+                QtCore.Qt.GlobalColor.red,
+                QtCore.Qt.BrushStyle.SolidPattern
+            )
+            x, y = self.__convert_values_to_position(
+                self.__history[-1],
+                self.__times[-1]
+            )
+            self.__scene.addEllipse(x - 5, y - 5, 10, 10, pen, brush)
+
+            # Draw line to highlight current value.
+            pen = QtGui.QPen(
+                QtCore.Qt.GlobalColor.magenta,
+                2,
+                QtCore.Qt.PenStyle.SolidLine
+            )
+            self.__scene.addLine(
+                int(self.size.width * 0.2), y,
+                int(self.size.width * 0.8), y,
+                pen
+            )
+
+    def clear_graph(self) -> None:
+        """Clear the graph."""
+        self.__history.clear()
+        self.__times.clear()
+        self.__min_time = 0.0
+        self.__max_time = 0.0
+        self.__scene.clear()
+        self.__paint_display()
+
+    def update_observer(self, observable_: JinxSystemData) -> None:
+        pass
+
+
+def __test_position_graph(qwindow: QtWidgets.QMainWindow) -> QtCore.QTimer:
     graph_qwidget = QtWidgets.QWidget()
     graph_jwidget = PositionGraph(graph_qwidget)
     qwindow.setCentralWidget(graph_qwidget)
@@ -385,6 +669,36 @@ def __test_position_graph(qwindow: QtWidgets.QMainWindow) -> None:
     qtimer.timeout.connect(test_update_graph)
     qtimer.setInterval(100)
     qtimer.start()
+    return qtimer
+
+
+def __test_response_graph(qwindow: QtWidgets.QMainWindow) -> QtCore.QTimer:
+    graph_qwidget = QtWidgets.QWidget()
+    graph_jwidget = ResponseGraph(graph_qwidget)
+    qwindow.setCentralWidget(graph_qwidget)
+
+    def test_update_graph() -> None:
+        """Update the graph with random jitter."""
+        point = (
+            graph_jwidget.history[-1]
+            if len(graph_jwidget.history) > 0
+            else 50
+        )
+        point = point + random.randint(-5, 5)
+        point = max(
+            graph_jwidget.limits[0],
+            min(
+                point,
+                graph_jwidget.limits[1]
+            )
+        )
+        graph_jwidget.update_graph(point, 1)
+
+    qtimer = QtCore.QTimer()
+    qtimer.timeout.connect(test_update_graph)
+    qtimer.setInterval(100)
+    qtimer.start()
+    return qtimer
 
 
 def __main() -> None:
@@ -404,9 +718,9 @@ def __main() -> None:
     qwindow = QtWidgets.QMainWindow()
 
     if args.test == "positiongraph":
-        __test_position_graph(qwindow)
+        qtimer = __test_position_graph(qwindow)
     elif args.test == "responsegraph":
-        __test_response_graph(qwindow)
+        qtimer = __test_response_graph(qwindow)
 
     qwindow.show()
     sys.exit(app.exec())
