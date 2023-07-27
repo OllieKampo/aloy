@@ -1450,18 +1450,19 @@ class MultiVariateControlTick(NamedTuple):
     -----
     `ticks: int` - The number of ticks since the last reset.
 
-    `errors: dict[str, float]` - The control errors of the control tick,
-    where the keys are the names of the input variables.
+    `errors: dict[str, dict[str, float]]` - The control errors of the control
+    tick, keyed first by the names of the input variables, and then by the
+    names of the output variables.
 
     `outputs: dict[str, float]` - The control outputs of the control tick,
-    where the keys are the names of the output variables.
+    keyed by the names of the output variables.
 
     `delta_time: float` - The time difference (in seconds) between the last
     and previous ticks.
     """
 
     ticks: int
-    error: dict[str, float]
+    error: dict[str, dict[str, float]]
     output: dict[str, float]
     delta_time: float
 
@@ -1853,8 +1854,8 @@ class SystemController:
 
         return MultiVariateControlTick(
             self.__ticks,
-            controller.latest_error,
-            controller.latest_output,
+            controller.latest_error,  # type: ignore
+            controller.latest_output,  # type: ignore
             delta_time
         )
 
@@ -1863,10 +1864,10 @@ class SystemController:
         time_factor: float = 1.0,
         abs_tol: float | None = None
     ) -> ControlTick:
-        controller: Controller = self.__controller
+        controller: Controller = self.__controller  # type: ignore
         system: ControlledSystem = self.__system
-        input_var_name: str | None = self.__input_var_names
-        output_var_name: str | None = self.__output_var_names
+        input_var_name: str | None = self.__input_var_names  # type: ignore
+        output_var_name: str | None = self.__output_var_names  # type: ignore
 
         control_input: float = system.get_control_input(input_var_name)
         setpoint: float = system.get_setpoint(input_var_name)
@@ -1927,8 +1928,8 @@ class SystemController:
 Condition: TypeAlias = Callable[
     [
         int,
+        float | dict[str, dict[str, float]] | None,
         float | dict[str, float] | None,
-        float | dict[str, float],
         float,
         float
     ],
@@ -1938,7 +1939,7 @@ Condition: TypeAlias = Callable[
 DataCallback: TypeAlias = Callable[
     [
         int,
-        float | dict[str, float],
+        float | dict[str, dict[str, float]],
         float | dict[str, float],
         float,
         float
@@ -2049,10 +2050,10 @@ class AutoSystemController:
                 system_controller = self.__system_controller
                 controller = system_controller.controller
 
-                error = controller.latest_error
-                delta_time = 0.0
-                output = 0.0
                 iterations = 0
+                error = controller.latest_error
+                output = controller.latest_output
+                delta_time = 0.0
                 total_time = 0.0
 
                 while (not stop
@@ -2067,23 +2068,34 @@ class AutoSystemController:
                             )
                        ):
 
+                    start_time = time.perf_counter()
+
+                    tick = system_controller.tick(self.__time_factor)
                     iterations, error, output, delta_time = \
-                        system_controller.tick(self.__time_factor)
+                        tick  # type: ignore
                     total_time += delta_time
                     if data is not None:
                         data(
                             iterations,
-                            error, output,
-                            delta_time, total_time
+                            error,
+                            output,
+                            delta_time,
+                            total_time
                         )
 
-                    # Preempt stop calls.
-                    stop = self.__stopped.wait(self.__sleep_time)
-
-                    # TODO: Add something to handle time errors and catch up.
+                    # Could add something to handle time errors and catch up.
                     # Keep track of actual tick rate and variance in tick
                     # rate, and number of skipped ticks. If the tick rate is
                     # too high, emit warnings and slow down the tick rate.
+                    loop_time = time.perf_counter() - start_time
+
+                    # Preempt stop calls.
+                    stop = self.__stopped.wait(
+                        max(
+                            self.__sleep_time - loop_time,
+                            0.0
+                        )
+                    )
 
             if not stop:
                 self.__stop()
