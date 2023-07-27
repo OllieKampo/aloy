@@ -327,6 +327,10 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
         ),
         *fields: str
     ) -> None:
+        """
+        Register a listener or callback with the subject. The listener or
+        callback will be called when any of the given fields change.
+        """
         if isinstance(listener_or_callback, Listener):
             listener = listener_or_callback
             if hasattr(listener, "field_changed"):
