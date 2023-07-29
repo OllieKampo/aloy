@@ -485,19 +485,28 @@ class ResponseGraph(JinxWidget):
         )
         self.__scene.addItem(self.__x_line)
 
+        self.__y_line = QtWidgets.QGraphicsLineItem(
+            self.size.width // 8,
+            self.size.height // 8,
+            self.size.width // 8,
+            self.size.height - (self.size.height // 8)
+        )
+        self.__scene.addItem(self.__y_line)
+
         text = self.__scene.addText(
             self.__label,
             QtGui.QFont("Arial", 15)
         )
         rect = text.boundingRect()
         text.setPos(
-            (self.size.width // 2) - rect.center().x(),
-            int(self.size.height * (18.75 / 20)) - rect.center().y()
+            int(self.size.width * (1.25 / 20)) - rect.center().y(),
+            (self.size.height // 2) + rect.center().x()
         )
+        text.setRotation(-90)
 
         # Add limits to lines.
         text = self.__scene.addText(
-            f"{self.__limits[0]}",
+            f"{self.__min_time}",
             QtGui.QFont("Arial", 15)
         )
         text.setPos(
@@ -506,7 +515,7 @@ class ResponseGraph(JinxWidget):
         )
 
         text = self.__scene.addText(
-            f"{self.__limits[1]}",
+            f"{self.__max_time}",
             QtGui.QFont("Arial", 15)
         )
         rect = text.boundingRect()
@@ -516,24 +525,24 @@ class ResponseGraph(JinxWidget):
         )
 
         text = self.__scene.addText(
-            f"{self.__min_time}",
+            f"{self.__limits[0]}",
             QtGui.QFont("Arial", 15)
         )
         rect = text.boundingRect()
         text.setPos(
-            (self.size.width // 2) - rect.right(),
+            (self.size.width // 16),
             (self.size.height
-             - (self.size.height // 8)) - rect.center().y()
+             - (self.size.height // 12)) - rect.center().y()
         )
 
         text = self.__scene.addText(
-            f"{self.__max_time}",
+            f"{self.__limits[1]}",
             QtGui.QFont("Arial", 15)
         )
         rect = text.boundingRect()
         text.setPos(
-            (self.size.width // 2) - rect.right(),
-            (self.size.height // 8) - rect.center().y()
+            (self.size.width // 16),
+            (self.size.height // 12) - rect.center().y()
         )
 
     def __convert_values_to_position(
@@ -607,13 +616,47 @@ class ResponseGraph(JinxWidget):
 
             # Draw line to highlight current value.
             pen = QtGui.QPen(
-                QtCore.Qt.GlobalColor.magenta,
+                QtGui.QColor(255, 0, 255, 150),
                 2,
                 QtCore.Qt.PenStyle.SolidLine
             )
             self.__scene.addLine(
-                int(self.size.width * 0.2), y,
-                int(self.size.width * 0.8), y,
+                (self.size.width // 8), y,
+                self.size.width - (self.size.width // 8), y,
+                pen
+            )
+
+            # Draw line to highlight minimum value.
+            pen = QtGui.QPen(
+                QtGui.QColor(255, 0, 0, 150),
+                2,
+                QtCore.Qt.PenStyle.SolidLine
+            )
+            index_min = min(range(len(self.__history)), key=self.__history.__getitem__)
+            y = self.__convert_values_to_position(
+                self.__history[index_min],
+                self.__times[index_min],
+            )[1]
+            self.__scene.addLine(
+                (self.size.width // 8), y,
+                self.size.width - (self.size.width // 8), y,
+                pen
+            )
+
+            # Draw line to highlight maximum value.
+            pen = QtGui.QPen(
+                QtGui.QColor(0, 255, 0, 150),
+                2,
+                QtCore.Qt.PenStyle.SolidLine
+            )
+            index_max = max(range(len(self.__history)), key=self.__history.__getitem__)
+            y = self.__convert_values_to_position(
+                self.__history[index_max],
+                self.__times[index_max],
+            )[1]
+            self.__scene.addLine(
+                (self.size.width // 8), y,
+                self.size.width - (self.size.width // 8), y,
                 pen
             )
 
