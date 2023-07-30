@@ -412,3 +412,13 @@ class BoilerSystem(DynamicSystem, ControlledSystem):
     ) -> None:
         self.heater_power = output
         self.update_system(delta_time)
+
+
+@dataclass
+class QuadCopterSystem(DynamicSystem, ControlledSystem):
+    pass
+
+
+@dataclass
+class QuadrupedRobotSystem(DynamicSystem, ControlledSystem):
+    pass
