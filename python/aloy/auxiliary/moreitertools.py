@@ -52,7 +52,7 @@ from numbers import Real
 from typing import (Callable, Generic, Iterable, Iterator, Optional, Sequence,
                     Type, TypeVar, final, overload)
 
-from auxiliary.typingutils import SupportsLenAndGetitem, SupportsRichComparison
+from aloy.auxiliary.typingutils import SupportsLenAndGetitem, SupportsRichComparison
 
 VT = TypeVar("VT")
 ST = TypeVar("ST", bound=Sequence)

@@ -83,7 +83,7 @@ class GameRegistration(NamedTuple):
     default_size: tuple[int, int]
     competitive: bool
     parameters: list[GameParam]
-    package: str = "games"
+    package: str = "aloy.games"
 
 
 __registered_games__: dict[str, GameRegistration] = {}
@@ -97,7 +97,7 @@ def register_game(
     default_size: tuple[int, int],
     competitive: bool = False,
     parameters: Iterable[GameParam] | None = None,
-    package: str = "games"
+    package: str = "aloy.games"
 ) -> None:
     """
     Register a game with the game launcher.
