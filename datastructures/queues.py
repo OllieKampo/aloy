@@ -534,6 +534,7 @@ class PriorityQueue(collections.abc.Mapping, Generic[VT, QT]):
         `Iterator[QT]` - An iterator over the items in the queue in priority
         order.
         """
+        self.clear_deletes()
         if not self:
             return
         indices: list[int] = [0]
