@@ -1,6 +1,4 @@
-# Jinx
-
-_"Jinx? Stands for Jinx! Durr."_
+# Aloy
 
 The content of this repository is currently under development. Eventually, the aim is that this repository will contain a comprehensive suite of algorithms and data structures for artificial intelligence, machine learning, and autonomous robots.
 
