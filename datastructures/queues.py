@@ -18,6 +18,9 @@ Module containing sorted and priority queue data structures.
 These data structures are for algorithmic use. They are not thread-safe, and
 not intended to be used in multi-threaded or multi-process applications. Use
 the Python standard library `queue` module instead for such purposes.
+
+The implementations of the queue types contain significant overlap, but do not
+inherit from a common base class for performance reasons.
 """
 
 import collections.abc
@@ -47,7 +50,7 @@ ST = TypeVar("ST", bound=HashableSupportsRichComparison)
 
 
 @dataclass(frozen=True, order=True)
-class QItem(Generic[ST]):
+class _SortedQueueItem(Generic[ST]):
     """Dataclass for storing custom valued sorted queue items."""
 
     value: Real
@@ -57,7 +60,7 @@ class QItem(Generic[ST]):
         return hash(self.item)
 
 
-class SortedQueue(collections.abc.Collection, Generic[ST]):
+class SortedQueue(collections.abc.Collection[ST]):
     """
     A sorted queue implementation.
 
@@ -75,7 +78,7 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
     """
 
     __slots__ = {
-        "__heap": "The heap-queue of item-priority tuple pairs.",
+        "__heap": "The heap-queue of items or value-item tuple pairs.",
         "__get": "The item getter function, accounts for key function.",
         "__set": "The item setter function, accounts for key function.",
         "__members": "Hash table for fast membership checks.",
@@ -116,12 +119,12 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
     ) -> None:
         """Create a sorted queue of items."""
         # The queue itself is a heap.
-        self.__heap: list[ST | QItem[ST]]
+        self.__heap: list[ST | _SortedQueueItem[ST]]
 
         # The get and set functions convert to and from the value-item tuples
         # if the key function is given.
-        self.__get: Callable[[ST | QItem[ST]], ST]
-        self.__set: Callable[[ST], QItem[ST] | ST]
+        self.__get: Callable[[ST | _SortedQueueItem[ST]], ST]
+        self.__set: Callable[[ST], _SortedQueueItem[ST] | ST]
 
         iterable = iter(items)
         if key is None:
@@ -139,7 +142,7 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
                 key = _key
 
             self.__heap = [
-                QItem(key(item), item)
+                _SortedQueueItem(key(item), item)
                 for item in iterable
             ]
 
@@ -147,7 +150,7 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
                 return qitem.item
 
             def _set(item):
-                return QItem(key(item), item)
+                return _SortedQueueItem(key(item), item)
 
             self.__get = _get
             self.__set = _set
@@ -218,8 +221,8 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
     def __repr__(self) -> str:
         """Return an instantiable string representation of the queue."""
         heap = ", ".join(
-            str(item_priority)
-            for item_priority in self
+            str(item)
+            for item in self
         )
         return f"{self.__class__.__name__}({heap})"
 
@@ -228,7 +231,11 @@ class SortedQueue(collections.abc.Collection, Generic[ST]):
         return item in self.__members
 
     def __iter__(self) -> Iterator[ST]:
-        """Return an iterator over the items in the queue."""
+        """
+        Return an iterator over the items in the queue.
+
+        The items are yielded in arbitrary order (not in sorted order).
+        """
         yield from self.__members
 
     def __len__(self) -> int:
@@ -408,7 +415,7 @@ VT = TypeVar("VT", bound=HashableSupportsRichComparison)
 QT = TypeVar("QT", bound=Hashable)
 
 
-class PriorityQueue(collections.abc.Mapping, Generic[VT, QT]):
+class PriorityQueue(collections.abc.Mapping[VT, QT]):
     """
     Class defining a priority queue implementation.
 
@@ -427,7 +434,7 @@ class PriorityQueue(collections.abc.Mapping, Generic[VT, QT]):
     """
 
     __slots__ = {
-        "__heap": "The heap-queue of item-priority tuple pairs.",
+        "__heap": "The heap-queue of priority-item tuple pairs.",
         "__members": "Hash table for fast membership checks.",
         "__delete": "Lazy delete 'list' (a set) for fast item removal."
     }
