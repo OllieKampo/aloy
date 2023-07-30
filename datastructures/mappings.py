@@ -168,7 +168,7 @@ class ReversableDict(collections.abc.MutableMapping, Generic[KT, VT]):
     Example Usage
     -------------
     ```
-    >>> from jinx.datastructures.mappings import ReversableDict
+    >>> from aloy.datastructures.mappings import ReversableDict
     >>> rev_dict = ReversableDict({"a": 1, "b": 2, "z": 2})
     >>> rev_dict
     ReversableDict({"a": 1, "b": 2, "z": 2})

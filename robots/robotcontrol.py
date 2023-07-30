@@ -1,18 +1,18 @@
-"""Module defining the Jinx robot control system."""
+"""Module defining the Aloy robot control system."""
 
 from typing import Any
 from PySide6.QtCore import QTimer  # pylint: disable=E0611
 
 from concurrency.clocks import ClockThread
-from guis.gui import JinxGuiWindow, JinxSystemData
+from guis.gui import AloyGuiWindow, AloySystemData
 from guis.observable import Observable, notifies_observers
 
 
-class JinxRobotControl(Observable):
-    """A class defining a Jinx robot control object."""
+class AloyRobotControl(Observable):
+    """A class defining a Aloy robot control object."""
 
     def __init__(self, qtimer: QTimer) -> None:
-        """Create a new Jinx robot control object."""
+        """Create a new Aloy robot control object."""
         super().__init__(clock=qtimer)
         self.power: bool = False
 
@@ -41,8 +41,8 @@ class JinxRobotControl(Observable):
         return self.power
 
 
-class JinxRobotControlData(JinxSystemData):
-    """A class defining a Jinx robot control data object."""
+class AloyRobotControlData(AloySystemData):
+    """A class defining a Aloy robot control data object."""
 
     __slots__ = {
         "__robot_control": "The robot control object connected to this data "
@@ -51,26 +51,26 @@ class JinxRobotControlData(JinxSystemData):
 
     def __init__(
         self,
-        robot_control: JinxRobotControl,
+        robot_control: AloyRobotControl,
         name: str | None = None,
-        gui: JinxGuiWindow | None = None,
+        gui: AloyGuiWindow | None = None,
         data_dict: dict[str, Any] | None = None,
         clock: ClockThread | QTimer | None = None, *,
         debug: bool = False
     ) -> None:
         """
-        Create a new Jinx robot control data object.
+        Create a new Aloy robot control data object.
 
         Parameters
         ----------
-        `robot_control: JinxRobotControl` - The robot control object
+        `robot_control: AloyRobotControl` - The robot control object
         connected to this data object.
 
         `name: str | None = None` - The name of the object.
         If not given or None, a unique name will be generated.
-        See `jinx.guis.observable.Observable` for details.
+        See `aloy.guis.observable.Observable` for details.
 
-        `gui: JinxGuiWindow | None = None` - The gui object to be
+        `gui: AloyGuiWindow | None = None` - The gui object to be
         connected to this system data object.
 
         `data_dict: dict[str, Any] | None = None` - A data dictionary
@@ -79,15 +79,15 @@ class JinxRobotControlData(JinxSystemData):
         `clock: ClockThread | QTimer | None = None` - The clock
         thread or timer to be used for the observable object.
         If not given or None, a new clock thread will be created.
-        See `jinx.guis.observable.Observable` for details.
+        See `aloy.guis.observable.Observable` for details.
 
         `debug: bool = False` - Whether to log debug messages.
         """
         super().__init__(name, gui, data_dict, clock, debug=debug)
-        self.__robot_control: JinxRobotControl = robot_control
+        self.__robot_control: AloyRobotControl = robot_control
         self.__robot_control.chain_notifies_to(self)
 
     @property
-    def robot_control(self) -> JinxRobotControl:
+    def robot_control(self) -> AloyRobotControl:
         """Get the robot control object connected to this data object."""
         return self.__robot_control

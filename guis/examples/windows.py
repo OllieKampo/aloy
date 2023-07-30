@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (  # pylint: disable=E0611
 from PySide6.QtCore import QSize  # pylint: disable=E0611
 from PySide6.QtGui import QAction, QActionGroup  # pylint: disable=E0611
 
-from guis.gui import JinxGuiWindow
+from guis.gui import AloyGuiWindow
 
 
 class TestWindow(QMainWindow):
@@ -234,6 +234,6 @@ class TestWindow(QMainWindow):
 if __name__ == "__main__":
     qapp = QApplication([])
     qwindow = TestWindow(qapp)
-    jgui = JinxGuiWindow(qwindow=qwindow, name="Window Test", size=(800, 600))
+    jgui = AloyGuiWindow(qwindow=qwindow, name="Window Test", size=(800, 600))
     qwindow.show()
     qapp.exec()

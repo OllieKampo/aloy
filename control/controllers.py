@@ -130,10 +130,10 @@ class Controller(metaclass=ABCMeta):
         Parameters
         ----------
         `input_limits: tuple[float | None, float | None]` - Input limits,
-        (lower, upper). See `jinx.control.controllers.clamp()` for details.
+        (lower, upper). See `aloy.control.controllers.clamp()` for details.
 
         `output_limits: tuple[float | None, float | None]` - Output limits,
-        (lower, upper). See `jinx.control.controllers.clamp()` for details.
+        (lower, upper). See `aloy.control.controllers.clamp()` for details.
 
         `input_trans: Callable[[float], float]` - Input transform function.
         This function is applied to the control input before calculating error.
@@ -469,7 +469,7 @@ class ControllerCombiner(Controller):
         as arguments, and must return updated weights. If a weight is not
         present in the returned mapping, then its old value is preserved.
 
-        For other parameters, see `jinx.control.controllers.Controller`.
+        For other parameters, see `aloy.control.controllers.Controller`.
         """
         super().__init__(
             input_limits, output_limits,
@@ -1754,7 +1754,7 @@ class SystemController:
         Takes the name of the error variable as an argument and returns the
         setpoint. Alternatively, a constant setpoint can be passed as a float.
 
-        For other parameters, see `jinx.control.controllers.SystemController`.
+        For other parameters, see `aloy.control.controllers.SystemController`.
         """
         if (not callable(getter)
                 or len(inspect.signature(getter).parameters) != 1):

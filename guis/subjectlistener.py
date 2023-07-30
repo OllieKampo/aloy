@@ -37,7 +37,7 @@ import functools
 import inspect
 import logging
 from typing import Any, Callable, Concatenate, Final, ParamSpec, TypeVar, final
-from concurrency.executors import JinxThreadPool
+from concurrency.executors import AloyThreadPool
 from concurrency.synchronization import SynchronizedMeta, sync
 
 from datastructures.mappings import TwoWayMap
@@ -273,7 +273,7 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
         """
         self.__listeners = TwoWayMap[Listener, str]()
         self.__callbacks = TwoWayMap[Callable[..., None], str]()
-        self.__executor = JinxThreadPool(
+        self.__executor = AloyThreadPool(
             pool_name="PubSubHub :: Thread Pool Executor",
             max_workers=max(max_workers, 1),
             thread_name_prefix="PubSubHub :: Thread Pool Executor :: Thread",

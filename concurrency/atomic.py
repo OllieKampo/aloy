@@ -49,7 +49,7 @@ __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
 
 __all__ = (
-    "JinxAtomicObjectError",
+    "AloyAtomicObjectError",
     "AtomicObject",
     "AtomicNumber",
     "AtomicBool",
@@ -64,7 +64,7 @@ def __dir__() -> tuple[str, ...]:
     return __all__
 
 
-class JinxAtomicObjectError(RuntimeError):
+class AloyAtomicObjectError(RuntimeError):
     """An exception raised when an error occurs in an atomic object."""
 
 
@@ -146,11 +146,11 @@ class _Atomic(Generic[AT], metaclass=ABCMeta):
     def _check_context(self) -> None:  # pylint: disable=unused-private-member
         """Check that the object is currently being updated."""
         if not self.__lock.is_locked:
-            raise JinxAtomicObjectError(
+            raise AloyAtomicObjectError(
                 "Cannot update atomic object outside of a context manager."
             )
         if not self.__lock.is_owner:
-            raise JinxAtomicObjectError(
+            raise AloyAtomicObjectError(
                 "Attempted to update atomic object from a non-owner thread."
             )
 
@@ -668,5 +668,5 @@ if __name__ == "__main__":
         print(atomic_object.get_obj())
         atomic_object.append(7)
         print(atomic_object.get_obj())
-    except JinxAtomicObjectError:
+    except AloyAtomicObjectError:
         print("Error")

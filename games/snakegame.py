@@ -26,7 +26,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from datastructures.views import ListView
 from concurrency.atomic import AtomicObject
 from games.gamerecorder import GameRecorder, GameSpec
-from guis.gui import JinxSystemData, JinxGuiWindow, JinxWidget
+from guis.gui import AloySystemData, AloyGuiWindow, AloyWidget
 from moremath.vectors import (vector_add, vector_between_torus_wrapped, vector_distance, vector_modulo,
                               vector_multiply, vector_subtract)
 
@@ -35,8 +35,8 @@ __license__ = "GPL-3.0"
 
 __all__ = (
     "SnakeGameLogic",
-    "SnakeGameJinxWidget",
-    "SnakeGameOptionsJinxWidget"
+    "SnakeGameAloyWidget",
+    "SnakeGameOptionsAloyWidget"
 )
 
 
@@ -608,9 +608,9 @@ class SnakeGameLogic:
 _CELL_SIZE: int = 20
 
 
-class SnakeGameJinxWidget(JinxWidget):
+class SnakeGameAloyWidget(AloyWidget):
     """
-    A class to represent the snake game on a Jinx widget.
+    A class to represent the snake game on a Aloy widget.
     """
 
     def __init__(
@@ -732,7 +732,7 @@ class SnakeGameJinxWidget(JinxWidget):
         if not manual_update:
             self.__timer.start()
 
-    def update_observer(self, observable_: JinxSystemData) -> None:
+    def update_observer(self, observable_: AloySystemData) -> None:
         """Update the observer."""
         self._logic.difficulty = observable_.get_var(
             "difficulty",
@@ -1013,13 +1013,13 @@ class SnakeGameJinxWidget(JinxWidget):
 
 
 # pylint: disable=W0201
-class SnakeGameOptionsJinxWidget(JinxWidget):
+class SnakeGameOptionsAloyWidget(AloyWidget):
     """A widget that allows the user to change the options for the game."""
 
     def __init__(
         self,
         parent: QtWidgets.QWidget,
-        data: JinxSystemData,
+        data: AloySystemData,
         size: tuple[int, int],
         debug: bool = False
     ) -> None:
@@ -1241,7 +1241,7 @@ class SnakeGameOptionsJinxWidget(JinxWidget):
         """Update the record path."""
         self.data.set_var("record_path", value)
 
-    def update_observer(self, observable_: JinxSystemData) -> None:
+    def update_observer(self, observable_: AloySystemData) -> None:
         """Update the observer."""
         return None
 
@@ -1257,12 +1257,12 @@ def play_snake_game(
     qapp = QtWidgets.QApplication([])
     qtimer = QtCore.QTimer()
 
-    jdata = JinxSystemData(
+    jdata = AloySystemData(
         name="Snake GUI Data",
         clock=qtimer,
         debug=debug
     )
-    jgui = JinxGuiWindow(
+    jgui = AloyGuiWindow(
         qapp=qapp,
         data=jdata,
         name="Snake GUI Window",
@@ -1271,11 +1271,11 @@ def play_snake_game(
     )
 
     snake_qwidget = QtWidgets.QWidget()
-    snake_game_jwidget = SnakeGameJinxWidget(
+    snake_game_jwidget = SnakeGameAloyWidget(
         snake_qwidget, size, debug=debug
     )
     snake_options_qwidget = QtWidgets.QWidget()
-    snake_game_options_jwidget = SnakeGameOptionsJinxWidget(
+    snake_game_options_jwidget = SnakeGameOptionsAloyWidget(
         snake_options_qwidget, jdata, size, debug=debug
     )
 

@@ -360,7 +360,7 @@ class MembershipFunction(metaclass=ABCMeta):
         Returns
         -------
         `RuleActivation` - The activation of the rule.
-        See `jinx.control.fuzzy.RuleActivation` for details.
+        See `aloy.control.fuzzy.RuleActivation` for details.
         """
         truth: float = self.fuzzify(input_)
         return RuleActivation(truth, truth * output)
@@ -990,7 +990,7 @@ class FuzzyController(Controller):
         controller. Each rule is a tuple of the form (variable name,
         membership function name, output weight).
 
-        For other parameters, see `jinx.control.controllers.Controller`.
+        For other parameters, see `aloy.control.controllers.Controller`.
 
         Notes
         -----
@@ -1074,7 +1074,7 @@ class FuzzyController(Controller):
         Return the fuzzy control terms of the latest control output.
 
         `FuzzyControllerTerms` - The fuzzy controller terms.
-        See `jinx.control.fuzzy.FuzzyControllerTerms` for details.
+        See `aloy.control.fuzzy.FuzzyControllerTerms` for details.
         """
         return FuzzyControllerTerms(
             self.__rule_truths,

@@ -29,7 +29,7 @@ __all__ = ()
 
 from typing import Any, Callable, Final
 
-from concurrency.executors import JinxThreadPool
+from concurrency.executors import AloyThreadPool
 from concurrency.synchronization import SynchronizedMeta
 
 
@@ -58,7 +58,7 @@ class PubSubHub(metaclass=SynchronizedMeta):
     def __init__(self) -> None:
         self.__subscribers_topics: dict[str, list[Callable]] = {}
         self.__topics: dict[str, list[Any]] = {}
-        self.__executor = JinxThreadPool(
+        self.__executor = AloyThreadPool(
             pool_name="PubSubHub :: Thread Pool Executor",
             max_workers=_PUBSUBHUB_THREAD_POOL_EXECUTOR_MAX_WORKERS,
             thread_name_prefix="PubSubHub :: Thread Pool Executor :: Thread",

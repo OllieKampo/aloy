@@ -125,7 +125,7 @@ def register_game(
     values are `GameParam` objects, containing the type, default value, and
     help text for the parameter. The keys must be valid Python identifiers,
     and must not be the same as any of the standard parameters, see
-    `jinx.games.standard_params()`. Note that the parameters will be passed
+    `aloy.games.standard_params()`. Note that the parameters will be passed
     to the game entry point as keyword arguments.
 
     `package: str = "games"` - The name of the package containing the game
@@ -270,7 +270,7 @@ def run_game_launcher(stdscr: curses.window) -> str | None:
     curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)
     curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_BLUE)
 
-    title = pyfiglet.figlet_format("Jinx Game Launcher", font="small")
+    title = pyfiglet.figlet_format("Aloy Game Launcher", font="small")
     title_window = curses.newwin(10, 100, 1, 2)
     title_window.addstr(0, 0, title, curses.color_pair(1))
     title_window.refresh()

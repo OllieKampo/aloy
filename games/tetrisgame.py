@@ -22,7 +22,7 @@ from concurrency.atomic import AtomicObject
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from datastructures.mappings import frozendict
-from guis.gui import JinxGuiWindow, JinxSystemData, JinxWidget
+from guis.gui import AloyGuiWindow, AloySystemData, AloyWidget
 
 @enum.unique
 class Piece(enum.Enum):
@@ -620,9 +620,9 @@ class TetrisGameLogic:
         self._reset_game_state()
 
 
-class TetrisGameJinxWidget(JinxWidget):
+class TetrisGameAloyWidget(AloyWidget):
     """
-    A class to represent the tetris game on a Jinx widget.
+    A class to represent the tetris game on a Aloy widget.
     """
 
     def __init__(
@@ -934,7 +934,7 @@ class TetrisGameJinxWidget(JinxWidget):
         display_layout.addWidget(view, 0, 0, 1, 1)
         return display_widget, scene
 
-    def update_observer(self, observable_: JinxSystemData) -> None:
+    def update_observer(self, observable_: AloySystemData) -> None:
         """Update the obaerver."""
         pass
 
@@ -1193,12 +1193,12 @@ def play_tetris_game(
     qapp = QtWidgets.QApplication([])
     qtimer = QtCore.QTimer()
 
-    jdata = JinxSystemData(
+    jdata = AloySystemData(
         name="Tetris GUI Data",
         clock=qtimer,
         debug=debug
     )
-    jgui = JinxGuiWindow(
+    jgui = AloyGuiWindow(
         qapp=qapp,
         data=jdata,
         name="Tetris GUI Window",
@@ -1208,7 +1208,7 @@ def play_tetris_game(
     )
 
     tetris_qwidget = QtWidgets.QWidget()
-    tetris_game_jwidget = TetrisGameJinxWidget(
+    tetris_game_jwidget = TetrisGameAloyWidget(
         tetris_qwidget, size, (10, 20), debug=debug
     )
 

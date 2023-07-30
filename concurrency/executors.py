@@ -38,7 +38,7 @@ class FinishedJob(Job):
 
 
 @final
-class JinxThreadPool:
+class AloyThreadPool:
     """
     A thread pool that allows perfornance profiling and logging of submitted
     jobs.
@@ -73,7 +73,7 @@ class JinxThreadPool:
         initargs: A tuple of arguments to pass to the initializer.
         """
         self.__name: str = pool_name or self.__get_pool_name()
-        self.__logger = logging.getLogger("JinxThreadPool")
+        self.__logger = logging.getLogger("AloyThreadPool")
         self.__logger.setLevel(logging.DEBUG)
         self.__log: bool = log
 
@@ -95,7 +95,7 @@ class JinxThreadPool:
             initargs
         )
 
-    def __enter__(self) -> "JinxThreadPool":
+    def __enter__(self) -> "AloyThreadPool":
         return self
 
     def __exit__(
@@ -247,7 +247,7 @@ class WebScraper:
     """
 
     def __init__(self, max_workers: int | None = None) -> None:
-        self.__thread_pool = JinxThreadPool(
+        self.__thread_pool = AloyThreadPool(
             "WebScraper",
             max_workers,
             profile=True,

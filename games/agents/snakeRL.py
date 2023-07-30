@@ -17,8 +17,8 @@ import matplotlib.pyplot as plt
 from PyQt6 import QtWidgets
 from PyQt6.QtCore import QTimer
 
-from games.snakegame import SnakeGameJinxWidget, SnakeGameLogic
-from guis.gui import JinxSystemData, JinxGuiWindow
+from games.snakegame import SnakeGameAloyWidget, SnakeGameLogic
+from guis.gui import AloySystemData, AloyGuiWindow
 from learning.convolutional import calc_conv_output_shape, calc_conv_output_shape_from, size_of_flat_layer
 from moremath.mathutils import exp_decay_between
 from moremath.vectors import vector_distance_torus_wrapped
@@ -416,12 +416,12 @@ def render(args: argparse.Namespace) -> None:
     qwindow.setWindowTitle("Snake Game")
     qwindow.resize(width, height)
 
-    jdata = JinxSystemData("Snake GUI Data", debug=debug)
-    jgui = JinxGuiWindow(qwindow, jdata, "Snake GUI Window", debug=debug)
+    jdata = AloySystemData("Snake GUI Data", debug=debug)
+    jgui = AloyGuiWindow(qwindow, jdata, "Snake GUI Window", debug=debug)
 
     snake_qwidget = QtWidgets.QWidget()
     snake_game_logic = SnakeGameLogic((10, 10))
-    snake_game_jwidget = SnakeGameJinxWidget(
+    snake_game_jwidget = SnakeGameAloyWidget(
         snake_qwidget,
         size=(width, height),
         snake_game_logic=snake_game_logic,
@@ -431,7 +431,7 @@ def render(args: argparse.Namespace) -> None:
     snake_game_logic.restart()
     print(snake_game_logic.grid_size)
     # snake_options_widget = QWidget()
-    # snake_game_options_jwidget = GamePerformanceDisplayJinxWidget(
+    # snake_game_options_jwidget = GamePerformanceDisplayAloyWidget(
     #     snake_options_widget, jdata, debug=debug
     # )
 

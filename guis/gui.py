@@ -13,10 +13,10 @@
 # this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Module defining Jinx GUI components which wrap PySide6.
+Module defining Aloy GUI components which wrap PySide6.
 
-The main Jinx GUI components are; JinxGuiWindow which wrap PySide6 QMainWindow
-and JinxWidget which wraps PySide6 QWidget. Both of these are observers.
+The main Aloy GUI components are; AloyGuiWindow which wrap PySide6 QMainWindow
+and AloyWidget which wraps PySide6 QWidget. Both of these are observers.
 """
 
 import itertools
@@ -35,16 +35,16 @@ __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
 
 __all__ = (
-    "JinxWidgetSize",
-    "JinxGridShape",
-    "JinxWidgetSpacing",
-    "JinxWidgetMargins",
+    "AloyWidgetSize",
+    "AloyGridShape",
+    "AloyWidgetSpacing",
+    "AloyWidgetMargins",
     "scale_size",
     "scale_size_for_grid",
     "GridScaler",
-    "JinxSystemData",
-    "JinxWidget",
-    "JinxGuiWindow"
+    "AloySystemData",
+    "AloyWidget",
+    "AloyGuiWindow"
 )
 
 
@@ -53,29 +53,29 @@ def __dir__() -> tuple[str, ...]:
     return __all__
 
 
-class JinxWidgetSize(NamedTuple):
-    """Tuple representing the size of a Jinx widget."""
+class AloyWidgetSize(NamedTuple):
+    """Tuple representing the size of a Aloy widget."""
 
     width: int
     height: int
 
 
-class JinxGridShape(NamedTuple):
-    """Tuple representing the shape of a Jinx grid."""
+class AloyGridShape(NamedTuple):
+    """Tuple representing the shape of a Aloy grid."""
 
     columns: int
     rows: int
 
 
-class JinxWidgetSpacing(NamedTuple):
-    """Tuple representing the spacing of a Jinx widget."""
+class AloyWidgetSpacing(NamedTuple):
+    """Tuple representing the spacing of a Aloy widget."""
 
     horizontal: int
     vertical: int
 
 
-class JinxWidgetMargins(NamedTuple):
-    """Tuple representing the margins of a Jinx widget."""
+class AloyWidgetMargins(NamedTuple):
+    """Tuple representing the margins of a Aloy widget."""
 
     left: int
     top: int
@@ -86,9 +86,9 @@ class JinxWidgetMargins(NamedTuple):
 def scale_size(
     size: tuple[int, int],
     scale: tuple[float, float]
-) -> JinxWidgetSize:
+) -> AloyWidgetSize:
     """Scale a size by the given factor."""
-    return JinxWidgetSize(
+    return AloyWidgetSize(
         int(round(size[0] * scale[0])),
         int(round(size[1] * scale[1]))
     )
@@ -100,7 +100,7 @@ def scale_size_for_grid(
     widget_shape: tuple[int, int] = (1, 1),
     spacing: tuple[int, int] = (10, 10),
     margins: tuple[int, int, int, int] = (10, 10, 10, 10)
-) -> JinxWidgetSize:
+) -> AloyWidgetSize:
     """
     Scale a size to find the size of a grid cell.
 
@@ -175,32 +175,32 @@ class GridScaler:
         `margins: tuple[int, int, int, int] = (10, 10, 10, 10)` - The margins
         in pixels around the grid. The order is left, top, right, bottom.
         """
-        self.__size = JinxWidgetSize(*size)
-        self.__grid_shape = JinxGridShape(*grid_shape)
-        self.__spacing = JinxWidgetSpacing(*spacing)
-        self.__margins = JinxWidgetMargins(*margins)
+        self.__size = AloyWidgetSize(*size)
+        self.__grid_shape = AloyGridShape(*grid_shape)
+        self.__spacing = AloyWidgetSpacing(*spacing)
+        self.__margins = AloyWidgetMargins(*margins)
 
     @property
-    def size(self) -> JinxWidgetSize:
+    def size(self) -> AloyWidgetSize:
         """Get the size of the grid in pixels."""
         return self.__size
 
     @property
-    def grid_shape(self) -> JinxGridShape:
+    def grid_shape(self) -> AloyGridShape:
         """Get the shape of the grid, i.e. the number of rows and columns."""
         return self.__grid_shape
 
     @property
-    def spacing(self) -> JinxWidgetSpacing:
+    def spacing(self) -> AloyWidgetSpacing:
         """Get the spacing in pixels between grid cells."""
         return self.__spacing
 
     @property
-    def margins(self) -> JinxWidgetMargins:
+    def margins(self) -> AloyWidgetMargins:
         """Get the margins in pixels around the grid."""
         return self.__margins
 
-    def get_size(self, widget_shape: tuple[int, int]) -> JinxWidgetSize:
+    def get_size(self, widget_shape: tuple[int, int]) -> AloyWidgetSize:
         """
         Get the size of a widget of the given shape in the grid.
 
@@ -222,8 +222,8 @@ class GridScaler:
         )
 
 
-def combine_jinx_widgets(
-    jwidgets: Sequence["JinxWidget"],
+def combine_aloy_widgets(
+    jwidgets: Sequence["AloyWidget"],
     kind: Literal["horizontal", "vertical", "grid"] = "vertical",
     stretches: (Sequence[int] | tuple[Sequence[int], Sequence[int]]
                 | None) = None,
@@ -234,11 +234,11 @@ def combine_jinx_widgets(
     grid_size_max: tuple[int, int] | None = None
 ) -> QtWidgets.QWidget | QtWidgets.QMainWindow:
     """
-    Combine a sequence of Jinx widgets onto a single widget.
+    Combine a sequence of Aloy widgets onto a single widget.
 
     Parameters
     ----------
-    `jwidgets: Sequence[JinxWidget]` - The Jinx widgets to combine.
+    `jwidgets: Sequence[AloyWidget]` - The Aloy widgets to combine.
 
     `kind: Literal["horizontal", "vertical", "grid"]` - The kind of layout to
     use. If "grid", the widgets will be initially placed along the columns of
@@ -370,8 +370,8 @@ def combine_jinx_widgets(
     return parent
 
 
-class JinxSystemData(observable.Observable):
-    """A class defining a Jinx system data object."""
+class AloySystemData(observable.Observable):
+    """A class defining a Aloy system data object."""
 
     __slots__ = {
         "__weakref__": "Weak reference to the object.",
@@ -383,7 +383,7 @@ class JinxSystemData(observable.Observable):
     def __init__(
         self,
         name: str | None = None,
-        gui: Union["JinxGuiWindow", None] = None,
+        gui: Union["AloyGuiWindow", None] = None,
         var_dict: dict[str, Any] | None = None,
         clock: ClockThread | QtCore.QTimer | None = None,
         tick_rate: int = 10,
@@ -391,15 +391,15 @@ class JinxSystemData(observable.Observable):
         debug: bool = False
     ) -> None:
         """
-        Create a new Jinx system data object.
+        Create a new Aloy system data object.
 
         Parameters
         ----------
         `name: str | None = None` - The name of the object.
         If not given or None, a unique name will be generated.
-        See `jinx.guis.observable.Observable` for details.
+        See `aloy.guis.observable.Observable` for details.
 
-        `gui: JinxGuiWindow | None = None` - The gui object to be
+        `gui: AloyGuiWindow | None = None` - The gui object to be
         linked to this system data object.
 
         `var_dict: dict[str, Any] | None = None` - A data dictionary of
@@ -408,7 +408,7 @@ class JinxSystemData(observable.Observable):
         `clock: ClockThread | QTimer | None = None` - The clock thread or
         timer to be used for the observable object. If not given or None, a
         new clock thread will be created. For Qt applications, a QTimer is
-        highly recommended. See `jinx.guis.observable.Observable` for details.
+        highly recommended. See `aloy.guis.observable.Observable` for details.
 
         `tick_rate: int = 10` - The tick rate of the clock if a new clock is
         created. Ignored if an existing clock is given.
@@ -427,7 +427,7 @@ class JinxSystemData(observable.Observable):
             start_clock=start_clock,
             debug=debug
         )
-        self.__linked_gui: JinxGuiWindow | None = None
+        self.__linked_gui: AloyGuiWindow | None = None
         if gui is not None:
             self.link_gui(gui)
         self.__desired_view_state: str | None = None
@@ -435,7 +435,7 @@ class JinxSystemData(observable.Observable):
 
     @observable.notifies_observers()
     @sync(group_name="__linked_gui__")
-    def link_gui(self, gui: "JinxGuiWindow") -> None:
+    def link_gui(self, gui: "AloyGuiWindow") -> None:
         """Connect the gui to this system data object."""
         if self.__linked_gui is not None:
             raise RuntimeError("System data object already linked to a gui.")
@@ -443,7 +443,7 @@ class JinxSystemData(observable.Observable):
 
     @property
     @sync(group_name="__linked_gui__")
-    def linked_gui(self) -> Union["JinxGuiWindow", None]:
+    def linked_gui(self) -> Union["AloyGuiWindow", None]:
         """Get the linked gui."""
         return self.__linked_gui
 
@@ -475,15 +475,15 @@ class JinxSystemData(observable.Observable):
         self.__desired_view_state = desired_view_state
 
 
-class JinxWidget(observable.Observer):
+class AloyWidget(observable.Observer):
     """
-    Class defining Jinx GUI widgets.
+    Class defining Aloy GUI widgets.
 
-    Jinx widgets are wrappers around PySide6 Qt widgets. Jinx widgets are
+    Aloy widgets are wrappers around PySide6 Qt widgets. Aloy widgets are
     observer objects and can be assigned to system data objects, and are
     notified when the data objects are changed. Similarly, data objects can be
-    attached to Jinx widgets, so that they can directly access or modify the
-    data objects. A Jinx widget can also be directly added to a Jinx gui
+    attached to Aloy widgets, so that they can directly access or modify the
+    data objects. A Aloy widget can also be directly added to a Aloy gui
     window as a view.
     """
 
@@ -497,7 +497,7 @@ class JinxWidget(observable.Observer):
     def __init__(
         self,
         qwidget: QtWidgets.QWidget | None = None,
-        data: JinxSystemData | None = None,
+        data: AloySystemData | None = None,
         name: str | None = None,
         size: tuple[int, int] | None = None,
         resize: bool = True,
@@ -515,18 +515,18 @@ class JinxWidget(observable.Observer):
         debug: bool = False
     ) -> None:
         """
-        Create a new Jinx GUI widget wrapping the given PySide6 Qt widget.
+        Create a new Aloy GUI widget wrapping the given PySide6 Qt widget.
 
         Parameters
         ----------
         `qwidget: QtWidgets.QWidget | None = None` - The parent widget to
         be wrapped. If None, a new widget will be created.
 
-        `data: JinxSystemData | None = None` - The system data object to be
+        `data: AloySystemData | None = None` - The system data object to be
         attached to the widget. If None, no system data object will be
         attached. System data objects can be attached later using the
         `attach_data()` method. System data is automatically attached to
-        the widget when the widget is added to a Jinx GUI window.
+        the widget when the widget is added to a Aloy GUI window.
 
         `name: str | None = None` - The name of the object. If None, the
         class name and id of the object are used.
@@ -553,13 +553,13 @@ class JinxWidget(observable.Observer):
             qwidget = QtWidgets.QWidget()
         self.__qwidget: QtWidgets.QWidget = qwidget
 
-        self.__data: JinxSystemData | None = None
+        self.__data: AloySystemData | None = None
         if data is not None:
             self.attach_data(data)
 
-        self.__size: JinxWidgetSize | None = None
+        self.__size: AloyWidgetSize | None = None
         if size is not None:
-            self.__size = JinxWidgetSize(*size)
+            self.__size = AloyWidgetSize(*size)
             if resize:
                 qwidget.resize(*size)
             if set_size is not None:
@@ -597,16 +597,16 @@ class JinxWidget(observable.Observer):
         return self.__qwidget
 
     @property
-    def data(self) -> JinxSystemData | None:
+    def data(self) -> AloySystemData | None:
         """Get the data object."""
         return self.__data
 
     @property
-    def size(self) -> JinxWidgetSize | None:
+    def size(self) -> AloyWidgetSize | None:
         """Get the size of the widget."""
         return self.__size
 
-    def attach_data(self, data: JinxSystemData) -> None:
+    def attach_data(self, data: AloySystemData) -> None:
         """Attach the given data object to the widget."""
         if self.__data is not None:
             self.__data.remove_observers(self)
@@ -620,16 +620,16 @@ class JinxWidget(observable.Observer):
             self.__data = None
 
     @abstractmethod
-    def update_observer(self, observable_: JinxSystemData) -> None:
+    def update_observer(self, observable_: AloySystemData) -> None:
         """Update the observer."""
         return super().update_observer(observable_)
 
 
-class JinxGuiWindow(observable.Observer):
+class AloyGuiWindow(observable.Observer):
     """
-    A class defining a PySide6 window used by Jinx.
+    A class defining a PySide6 window used by Aloy.
 
-    A Jinx window is a window that can contain multiple views. The views
+    A Aloy window is a window that can contain multiple views. The views
     can optionally be selected using a combo box or a tab bar, or a custom
     interface can be used to select the views. In the case where a custom
     interface is desired, the window object emites the following signals;
@@ -647,7 +647,7 @@ class JinxGuiWindow(observable.Observer):
         "__kind": "Whether the views are tabbed or not.",
         "__combo_box": "The combo box for the views selection.",
         "__tab_bar": "The tab bar for the views selection.",
-        "__data": "The Jinx system data for the window.",
+        "__data": "The Aloy system data for the window.",
         "__views": "The views of the window.",
         "__current_view_state": "The current view state of the window.",
         "__default_qwidget": "The default widget."
@@ -657,7 +657,7 @@ class JinxGuiWindow(observable.Observer):
         self,
         qapp: QtWidgets.QApplication | None = None,
         qwindow: QtWidgets.QMainWindow | None = None,
-        data: JinxSystemData | None = None,
+        data: AloySystemData | None = None,
         name: str | None = None,
         size: tuple[int, int] | None = None, *,
         kind: Literal["tabbed", "combo"] | None = "tabbed",
@@ -666,7 +666,7 @@ class JinxGuiWindow(observable.Observer):
         debug: bool = False
     ) -> None:
         """
-        Create a new Jinx window within the given main window.
+        Create a new Aloy window within the given main window.
 
         This creates a new widget and sets it as the central widget of
         the main window.
@@ -678,8 +678,8 @@ class JinxGuiWindow(observable.Observer):
         `qwindow: QtWidgets.QMainWindow | None = None` - The main window.
         If not given or None, a new main window is created.
 
-        `data: JinxSystemData | None = None` - The Jinx system data for the
-        window. If not given or None, a new Jinx system data object is
+        `data: AloySystemData | None = None` - The Aloy system data for the
+        window. If not given or None, a new Aloy system data object is
         created.
 
         `name: str | None = None` - The name of the window. If not given or
@@ -744,9 +744,9 @@ class JinxGuiWindow(observable.Observer):
         self.__vbox.addWidget(self.__stack)
         self.__main_qwidget.setLayout(self.__vbox)
 
-        self.__data: JinxSystemData
+        self.__data: AloySystemData
         if data is None:
-            self.__data = JinxSystemData(
+            self.__data = AloySystemData(
                 name=f"System data for {self.window_name}",
                 gui=self,
                 clock=QtCore.QTimer(),
@@ -757,7 +757,7 @@ class JinxGuiWindow(observable.Observer):
             self.__data.link_gui(self)
         self.__data.assign_observers(self)
 
-        self.__views: dict[str, JinxWidget] = {}
+        self.__views: dict[str, AloyWidget] = {}
         self.__current_view_state: str | None = None
         self.__default_qwidget = PlaceholderWidget(
             text="No views have been added to this window."
@@ -794,8 +794,8 @@ class JinxGuiWindow(observable.Observer):
         return self.__qwindow
 
     @property
-    def data(self) -> JinxSystemData:
-        """Get the Jinx system data for the window."""
+    def data(self) -> AloySystemData:
+        """Get the Aloy system data for the window."""
         return self.__data
 
     @property
@@ -828,14 +828,14 @@ class JinxGuiWindow(observable.Observer):
 
     def add_view(
         self,
-        jwidget: JinxWidget,
+        jwidget: AloyWidget,
         name: str | None = None
     ) -> None:
         """
-        Add a Jinx widget as a new view state to the window.
+        Add a Aloy widget as a new view state to the window.
 
-        If `name` is None, the name of the Jinx widget is used. This window's
-        linked data object will be attached to the Jinx widget. The Jinx
+        If `name` is None, the name of the Aloy widget is used. This window's
+        linked data object will be attached to the Aloy widget. The Aloy
         widget is then added to the window's view stack. If this is the first
         view state added to the window, it will be set as the current view
         state.
@@ -878,7 +878,7 @@ class JinxGuiWindow(observable.Observer):
             else:
                 self.__data.desired_view_state = None
 
-    def update_observer(self, observable_: JinxSystemData) -> None:
+    def update_observer(self, observable_: AloySystemData) -> None:
         """Update the observer."""
         if observable_ is not self.__data:
             return

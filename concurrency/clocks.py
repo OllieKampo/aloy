@@ -83,7 +83,7 @@ class ClockThread:
         `*items: Tickable | Callable[[], None]` - The items to tick.
         Must be either;
             - A tickable object implementing `tick()`, see the protocol
-              `jinx.concurrency.clocks.Tickable`,
+              `aloy.concurrency.clocks.Tickable`,
             - A callable object that takes no parameters.
 
         `tick_rate: int = 10` - The tick rate of the clock (ticks/second).

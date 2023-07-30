@@ -116,7 +116,7 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
     Example Usage
     -------------
     ```
-    from jinx.datastructures.disjointset import DisjointSet
+    from aloy.datastructures.disjointset import DisjointSet
 
     # Construct a disjoint-set with integer elements from
     # an iterable, its is initially fully-disjoint, such that

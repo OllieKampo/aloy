@@ -12,7 +12,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-"""Module for Jinx widgets that display control variables."""
+"""Module for Aloy widgets that display control variables."""
 
 import itertools
 import random
@@ -21,7 +21,7 @@ from collections import deque
 from PySide6 import QtWidgets, QtCore, QtGui
 from datastructures.views import ListView
 
-from guis.gui import JinxSystemData, JinxWidget
+from guis.gui import AloySystemData, AloyWidget
 
 
 # TODO: Change to normal qwidget, we would update this from the same thread
@@ -29,7 +29,7 @@ from guis.gui import JinxSystemData, JinxWidget
 # A thread continuously runs the simulation, and a separate thread updates the
 # simulation view by directly grabbing the simulation state, so the simulation
 # view needs to take the simulation logic as argument.
-class PositionGraph(JinxWidget):
+class PositionGraph(AloyWidget):
     """A widget that displays a radial graph of two control variables."""
 
     def __init__(
@@ -45,7 +45,7 @@ class PositionGraph(JinxWidget):
         debug: bool = False
     ) -> None:
         """
-        Create a new position graph Jinx widget within the given parent widget.
+        Create a new position graph Aloy widget within the given parent widget.
 
         A position graph is a widget that displays a radial graph of the values
         of two control variables over time.
@@ -343,11 +343,11 @@ class PositionGraph(JinxWidget):
         self.__scene.clear()
         self.__paint_display()
 
-    def update_observer(self, observable_: JinxSystemData) -> None:
+    def update_observer(self, observable_: AloySystemData) -> None:
         pass
 
 
-class ResponseGraph(JinxWidget):
+class ResponseGraph(AloyWidget):
     """A graph that displays the value of a control variable over time."""
 
     def __init__(
@@ -361,7 +361,7 @@ class ResponseGraph(JinxWidget):
         debug: bool = False
     ) -> None:
         """
-        Create a new response graph Jinx widget within the given parent widget.
+        Create a new response graph Aloy widget within the given parent widget.
 
         A response graph is a widget that displays the value of a control
         variable over time.
@@ -686,7 +686,7 @@ class ResponseGraph(JinxWidget):
         self.__scene.clear()
         self.__paint_display()
 
-    def update_observer(self, observable_: JinxSystemData) -> None:
+    def update_observer(self, observable_: AloySystemData) -> None:
         pass
 
 

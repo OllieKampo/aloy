@@ -186,7 +186,7 @@ class Observable(SynchronizedClass):
 
     Observables are sychronized as sub-classes of `SynchronizedClass`, and
     therefore sub-classes of `Observable` can be synchronized using the
-    `@sync` decorator. See `jinx.concurrency.synchronization` for details on
+    `@sync` decorator. See `aloy.concurrency.synchronization` for details on
     synchronization.
     """
 
@@ -232,7 +232,7 @@ class Observable(SynchronizedClass):
         `clock: ClockThread | QTimer | None = None` - The clock that updates
         the observers. If not given or None, a new ClockThread is created with
         the given tick rate. Otherwise, updates from this observable are
-        scheduled on the given clock. See `jinx.concurrency.clocks.ClockThread`
+        scheduled on the given clock. See `aloy.concurrency.clocks.ClockThread`
         for details on clock threads.
 
         `tick_rate: int = 10` - The tick rate of the clock if a new clock is

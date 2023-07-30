@@ -4,7 +4,7 @@ __all__ = ("NQueensPuzzle", "EightPuzzle")
 from typing import Iterable, Literal, Sequence
 import numpy as np
 import networkx.classes.graph as nxgraph
-import datastructures.graph as jinxgraph
+import datastructures.graph as aloygraph
 from datastructures.disjointset import DisjointSet
 
 
@@ -224,7 +224,7 @@ class TravellingSalesman:
                  end: int | str | None = None,
                  size: tuple[float, float] = (100.0, 100.0),
                  seed: int | None = None,
-                 backend: Literal["jinx", "networkx"] = "networkx"
+                 backend: Literal["aloy", "networkx"] = "networkx"
                  ) -> None:
         """
         Create a new travelling salesman problem with the given number of cities.
@@ -232,7 +232,7 @@ class TravellingSalesman:
         If a seed is given, the cities are created deterministically.
         """
         graph = self.__create_graph(cities, start, end, size, seed, backend)
-        self.__graph: jinxgraph.Graph | nxgraph.Graph = graph
+        self.__graph: aloygraph.Graph | nxgraph.Graph = graph
 
     @staticmethod
     def __create_graph(cities: int | Sequence[str],
@@ -240,8 +240,8 @@ class TravellingSalesman:
                        end: int | str | None = None,
                        size: tuple[float, float] = (100.0, 100.0),
                        seed: int | None = None,
-                       backend: Literal["jinx", "networkx"] = "jinx"
-                       ) -> jinxgraph.Graph | nxgraph.Graph:
+                       backend: Literal["aloy", "networkx"] = "aloy"
+                       ) -> aloygraph.Graph | nxgraph.Graph:
         """Create a new graph for the travelling salesman problem."""
         if isinstance(cities, int):
             num_cities = cities
@@ -252,8 +252,8 @@ class TravellingSalesman:
         rng = np.random.default_rng(seed)
         positions = rng.uniform(size[0], size[1], size=(num_cities, 2))
 
-        if backend == "jinx":
-            graph = jinxgraph.Graph(vertices=cities)
+        if backend == "aloy":
+            graph = aloygraph.Graph(vertices=cities)
             for city, position in zip(cities, positions):
                 graph.set_vertex_data(city, "position", position)
         elif backend == "networkx":
@@ -301,14 +301,14 @@ class TravellingSalesman:
 
     def get_position(self, city: str | int) -> np.ndarray:
         """Return the position of the given city."""
-        if self.__backend == "jinx":
+        if self.__backend == "aloy":
             return self.__graph.get_vertex_data(city, "position")
         else:
             return self.__graph.nodes[city]["position"]
 
     def get_distance(self, i: str, j: str) -> float:
         """Return the distance between the two given cities."""
-        if self.__backend == "jinx":
+        if self.__backend == "aloy":
             return self.__graph.get_edge_weight(i, j)
         else:
             return self.__graph.edges[i, j]["weight"]

@@ -153,7 +153,7 @@ class PIDController(Controller):
         the last `n` gradients of each consecutive pair of points in the last
         `n + 1` error points.
 
-        For other parameters, see `jinx.control.controllers.Controller`.
+        For other parameters, see `aloy.control.controllers.Controller`.
 
         Notes
         -----
