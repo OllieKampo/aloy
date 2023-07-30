@@ -403,6 +403,8 @@ class ResponseGraph(JinxWidget):
         self.__times: list[float] = []
         self.__min_time: float = 0.0
         self.__max_time: float = 0.0
+        self.__min_value_index: int = 0
+        self.__max_value_index: int = 0
 
         self.__create_scene()
         self.__paint_display()
@@ -506,7 +508,7 @@ class ResponseGraph(JinxWidget):
 
         # Add limits to lines.
         text = self.__scene.addText(
-            f"{self.__min_time}",
+            f"{self.__min_time:.3f}",
             QtGui.QFont("Arial", 15)
         )
         text.setPos(
@@ -515,7 +517,7 @@ class ResponseGraph(JinxWidget):
         )
 
         text = self.__scene.addText(
-            f"{self.__max_time}",
+            f"{self.__max_time:.3f}",
             QtGui.QFont("Arial", 15)
         )
         rect = text.boundingRect()
@@ -525,7 +527,7 @@ class ResponseGraph(JinxWidget):
         )
 
         text = self.__scene.addText(
-            f"{self.__limits[0]}",
+            f"{self.__limits[0]:.3f}",
             QtGui.QFont("Arial", 15)
         )
         rect = text.boundingRect()
@@ -536,7 +538,7 @@ class ResponseGraph(JinxWidget):
         )
 
         text = self.__scene.addText(
-            f"{self.__limits[1]}",
+            f"{self.__limits[1]:.3f}",
             QtGui.QFont("Arial", 15)
         )
         rect = text.boundingRect()
@@ -555,7 +557,7 @@ class ResponseGraph(JinxWidget):
 
         x_pos = (
             (width / 8)
-            + ((time - self.__min_time) / (self.__max_time - self.__min_time))
+            + ((time - self.__min_time) / self.__time_period)
             * (width * 0.75)
         )
         y_pos = (
@@ -567,19 +569,36 @@ class ResponseGraph(JinxWidget):
         return int(x_pos), int(y_pos)
 
     def update_graph(self, value: float, delta_time: float) -> None:
+        if delta_time <= 0.0:
+            raise ValueError("delta_time must be greater than 0.")
+
         self.__history.append(value)
+        if value < self.__history[self.__min_value_index]:
+            self.__min_value_index = len(self.__history) - 1
+        elif value > self.__history[self.__max_value_index]:
+            self.__max_value_index = len(self.__history) - 1
+
         self.__max_time += delta_time
         self.__times.append(self.__max_time)
-        if len(self.__times) == 1:
-            self.__min_time = self.__max_time
-        elif self.__max_time - self.__min_time > self.__time_period:
+        if len(self.__times) != 1 and self.__max_time - self.__min_time > self.__time_period:
             self.__min_time = self.__max_time - self.__time_period
-            for value, time in zip(self.__history, self.__times):
-                if time < self.__min_time:
-                    self.__history.pop(0)
-                    self.__times.pop(0)
-                else:
-                    break
+            time_ = self.__times[0]
+            while time_ < self.__min_time:
+                self.__history.pop(0)
+                self.__times.pop(0)
+                self.__min_value_index -= 1
+                self.__max_value_index -= 1
+                time_ = self.__times[0]
+            if self.__min_value_index < 0:
+                self.__min_value_index = min(
+                    range(len(self.__history)),
+                    key=self.__history.__getitem__
+                )
+            if self.__max_value_index < 0:
+                self.__max_value_index = max(
+                    range(len(self.__history)),
+                    key=self.__history.__getitem__
+                )
 
         self.__scene.clear()
         self.__paint_display()
@@ -632,10 +651,9 @@ class ResponseGraph(JinxWidget):
                 2,
                 QtCore.Qt.PenStyle.SolidLine
             )
-            index_min = min(range(len(self.__history)), key=self.__history.__getitem__)
             y = self.__convert_values_to_position(
-                self.__history[index_min],
-                self.__times[index_min],
+                self.__history[self.__min_value_index],
+                self.__times[self.__min_value_index]
             )[1]
             self.__scene.addLine(
                 (self.size.width // 8), y,
@@ -649,10 +667,9 @@ class ResponseGraph(JinxWidget):
                 2,
                 QtCore.Qt.PenStyle.SolidLine
             )
-            index_max = max(range(len(self.__history)), key=self.__history.__getitem__)
             y = self.__convert_values_to_position(
-                self.__history[index_max],
-                self.__times[index_max],
+                self.__history[self.__max_value_index],
+                self.__times[self.__max_value_index]
             )[1]
             self.__scene.addLine(
                 (self.size.width // 8), y,
@@ -735,7 +752,8 @@ def __test_response_graph(qwindow: QtWidgets.QMainWindow) -> QtCore.QTimer:
                 graph_jwidget.limits[1]
             )
         )
-        graph_jwidget.update_graph(point, 1)
+        delta_time = random.randint(1, 10) / 10
+        graph_jwidget.update_graph(point, delta_time)
 
     qtimer = QtCore.QTimer()
     qtimer.timeout.connect(test_update_graph)
