@@ -5,8 +5,8 @@ from typing import Any
 from matplotlib import pyplot as plt
 import numpy as np
 import gymnasium as gym
-from gym import spaces
-from gym.utils import seeding
+from gymnasium import spaces
+from gymnasium.utils import seeding
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -14,8 +14,8 @@ import torch.nn.functional as F
 import random
 import math
 import matplotlib.pyplot as plt
-from PyQt6 import QtWidgets
-from PyQt6.QtCore import QTimer
+from PySide6 import QtWidgets
+from PySide6.QtCore import QTimer
 
 from aloy.games.snakegame import SnakeGameAloyWidget, SnakeGameLogic
 from aloy.guis.gui import AloySystemData, AloyGuiWindow

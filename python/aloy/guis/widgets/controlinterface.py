@@ -13,24 +13,24 @@
 # this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Module containing Jinx PyQt6 widgets defining interfaces for teleoperate
+Module containing Aloy PySide6 widgets defining interfaces for teleoperate
 control of robots.
 """
 
 from PySide6 import QtWidgets, QtCore
 
 from guis.gui import (
-    JinxSystemData,
-    JinxWidget,
-    JinxWidgetSize,
-    combine_jinx_widgets,
+    AloySystemData,
+    AloyWidget,
+    AloyWidgetSize,
+    combine_aloy_widgets,
     scale_size,
     scale_size_for_grid
 )
-from robots.robotcontrol import JinxRobotControlData, JinxRobotControl
+from robots.robotcontrol import AloyRobotControlData, AloyRobotControl
 
 
-class EstopInterface(JinxWidget):
+class EstopInterface(AloyWidget):
     """
     Widget defining an emergency stop interface for teleoperation of robots.
     """
@@ -38,13 +38,13 @@ class EstopInterface(JinxWidget):
     def __init__(
         self,
         qwidget: QtWidgets.QWidget | None = None,
-        data: JinxRobotControlData | None = None,
+        data: AloyRobotControlData | None = None,
         name: str = "E-Stop Interface",
         size: tuple[int, int] | None = None,
         resize: bool = True,
         debug: bool = False
     ) -> None:
-        """Create a new emergency stop interface Jinx widget."""
+        """Create a new emergency stop interface Aloy widget."""
         super().__init__(
             qwidget=qwidget,
             data=data,
@@ -253,7 +253,7 @@ class EstopInterface(JinxWidget):
         self.qwidget.setLayout(self.__layout)
 
     @property
-    def data(self) -> JinxRobotControlData:
+    def data(self) -> AloyRobotControlData:
         return super().data
 
     def __update_clock(self) -> None:
@@ -308,7 +308,7 @@ class EstopInterface(JinxWidget):
             return True
         return False
 
-    def update_observer(self, observable_: JinxSystemData) -> None:
+    def update_observer(self, observable_: AloySystemData) -> None:
         """Update the observer."""
         if self.data is observable_:
             if self.__waiting_for_power_on:
@@ -320,7 +320,7 @@ class EstopInterface(JinxWidget):
                     button.setEnabled(True)
 
 
-class DirectionalControlInterface(JinxWidget):
+class DirectionalControlInterface(AloyWidget):
     """
     Widget defining a directional control interface for teleoperation of
     robots.
@@ -329,13 +329,13 @@ class DirectionalControlInterface(JinxWidget):
     def __init__(
         self,
         qwidget: QtWidgets.QWidget | None = None,
-        data: JinxSystemData | None = None,
+        data: AloySystemData | None = None,
         name: str = "Directional Control Interface",
         size: tuple[int, int] | None = None,
         resize: bool = True,
         debug: bool = False
     ) -> None:
-        """Create a new directional control interface Jinx widget."""
+        """Create a new directional control interface Aloy widget."""
         super().__init__(
             qwidget=qwidget,
             data=data,
@@ -443,7 +443,7 @@ class DirectionalControlInterface(JinxWidget):
     def __set_size(
         self,
         button: QtWidgets.QWidget,
-        size: JinxWidgetSize
+        size: AloyWidgetSize
     ) -> None:
         """Connect slots and set the size of the button."""
         def get_size() -> QtCore.QSize:
@@ -454,7 +454,7 @@ class DirectionalControlInterface(JinxWidget):
             QtWidgets.QSizePolicy.Policy.Expanding
         )
 
-    def update_observer(self, observable_: JinxSystemData) -> None:
+    def update_observer(self, observable_: AloySystemData) -> None:
         """Update the observer with the latest data."""
         pass
 
@@ -486,8 +486,8 @@ def __main() -> None:
     qwindow.resize(*size)
 
     qtimer = QtCore.QTimer()
-    jrobotcontrol = JinxRobotControl(qtimer=qtimer)
-    jrobotcontroldata = JinxRobotControlData(jrobotcontrol, clock=qtimer)
+    jrobotcontrol = AloyRobotControl(qtimer=qtimer)
+    jrobotcontroldata = AloyRobotControlData(jrobotcontrol, clock=qtimer)
     estop_jwidget = EstopInterface(
         data=jrobotcontroldata,
         size=scale_size(size, (1.0, 0.45))
@@ -497,7 +497,7 @@ def __main() -> None:
         size=scale_size(size, (1.0, 0.55))
     )
 
-    combine_jinx_widgets(
+    combine_aloy_widgets(
         jwidgets=[
             estop_jwidget,
             control_jwidget
