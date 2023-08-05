@@ -411,11 +411,11 @@ class SortedQueue(collections.abc.Collection[ST]):
             raise KeyError(f"The item {item} is not in the sorted queue.")
 
 
-VT = TypeVar("VT", bound=HashableSupportsRichComparison)
 QT = TypeVar("QT", bound=Hashable)
+VT = TypeVar("VT", bound=HashableSupportsRichComparison)
 
 
-class PriorityQueue(collections.abc.Mapping[VT, QT]):
+class PriorityQueue(collections.abc.Mapping[QT, VT]):
     """
     Class defining a priority queue implementation.
 
@@ -463,7 +463,7 @@ class PriorityQueue(collections.abc.Mapping[VT, QT]):
     def from_iterable(
         cls,
         iterable: Iterable[tuple[QT, VT]], /
-    ) -> "PriorityQueue[VT, QT]":
+    ) -> "PriorityQueue[QT, VT]":
         """
         Create a priority queue from an iterable of item-priority tuple pairs.
 
@@ -472,9 +472,9 @@ class PriorityQueue(collections.abc.Mapping[VT, QT]):
         return cls(*iterable)
 
     # pylint: disable=W0212,W0238
-    def copy(self) -> "PriorityQueue[VT, QT]":
+    def copy(self) -> "PriorityQueue[QT, VT]":
         """Return a shallow copy of the queue."""
-        heap: "PriorityQueue[VT, QT]" = self.__class__()
+        heap: "PriorityQueue[QT, VT]" = self.__class__()
         heap.__members = self.__members.copy()
         heap.__heap = self.__heap.copy()
         heap.__delete = self.__delete.copy()

@@ -485,8 +485,8 @@ class FrozenReversableDict(collections.abc.Mapping, Generic[KT, VT]):
         value: VT, /, *,  # type: ignore
         max_: Optional[int] = None
     ) -> ListView[KT]:
-        return self.__reversable_dict.reversed_get(value, max_=max_)
-    __call__.__doc__ = ReversableDict.reversed_get.__doc__
+        return self.__reversable_dict(value, max_=max_)
+    __call__.__doc__ = ReversableDict.__call__.__doc__
 
     def __hash__(self) -> int:
         """Get the hash of the dictionary."""
@@ -516,7 +516,7 @@ class FrozenReversableDict(collections.abc.Mapping, Generic[KT, VT]):
         value: VT,  # type: ignore
         default: Optional[list[KT]] = None, /, *,
         max_: Optional[int] = None
-    ) -> Optional[list[KT]]:
+    ) -> Optional[ListView[KT]]:
         return self.__reversable_dict.reversed_get(value, default, max_)
     reversed_get.__doc__ = ReversableDict.reversed_get.__doc__
 
@@ -865,14 +865,14 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[FK, BK]):
                 side = self.__forwards
                 other_side = self.__backwards
             else:
-                side = self.__backwards
-                other_side = self.__forwards
-            other_keys = side[key]
+                side = self.__backwards  # type: ignore
+                other_side = self.__forwards  # type: ignore
+            other_keys = side[key]  # type: ignore
             for other_key in other_keys:
-                other_side[other_key].remove(key)
+                other_side[other_key].remove(key)  # type: ignore
                 if not other_side[other_key]:
                     del other_side[other_key]
-            del side[key]
+            del side[key]  # type: ignore
         elif isinstance(key_or_keys, tuple):
             if len(key_or_keys) != 2:
                 raise ValueError("Key pair must be a tuple of length 2."
@@ -1184,7 +1184,8 @@ class LayerMap(collections.abc.Mapping, Generic[MT]):
             self.__layers[layer_2][key_2][1] = key_1
 
 
-if __name__ == "__main__":
+def __main() -> None:
+    """Execute the main routine."""
     twm = TwoWayMap({"parent_1": ["child_1", "child_2"],
                      "parent_2": ["child_1"],
                      "parent_3": ["child_2"]})
@@ -1205,3 +1206,7 @@ if __name__ == "__main__":
     twm.add("parent_4", "child_1")
     print(forwards)
     print(twm)
+
+
+if __name__ == "__main__":
+    __main()
