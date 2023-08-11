@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "aloy"
-version = "0.1.0"
+version = "0.1.1"
 description = "A Python package containing algorithms and data structures for AI, ML, and Robotics."
 readme = "README.md"
 authors = [

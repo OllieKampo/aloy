@@ -9,7 +9,7 @@ from aloy.auxiliary.getters import default_get
 from aloy.auxiliary.progressbars import ResourceProgressBar
 from aloy.datastructures.disjointset import DisjointSet
 from aloy.datastructures.mappings import TwoWayMap
-from aloy.datastructures.queues import PriorityQueue
+from aloy.datastructures.queues import PriorityQueue, SortedQueue
 from aloy.datastructures.views import SetView
 
 
@@ -184,35 +184,37 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         self.__directed: bool = directed
         self.__allow_loops: bool = allow_loops
 
-        self.__adjacency_mapping: dict[VT, set[VT]] = {}
-        self.__vertex_tags: TwoWayMap[VT] = TwoWayMap()
-        self.__edge_tags: TwoWayMap[tuple[VT, VT]] = TwoWayMap()
+        self.__adjacency_mapping = dict[VT, set[VT]]()
+        self.__vertex_tags = TwoWayMap[VT, str]()
+        self.__edge_tags = TwoWayMap[tuple[VT, VT], str]()
+
+        self.__vertex_values = dict[VT, WT]()
+        self.__edge_weights = dict[tuple[VT, VT], WT]()
+
+        self.__vertex_data = dict[VT, dict[str, Any]]()
+        self.__edge_data = dict[tuple[VT, VT], dict[str, Any]]()
 
         for node, connections in graph.items():
             self[node] = connections
         if isinstance(vertices, collections.abc.Mapping):
             for tag, vertices in vertices.items():
-                self.add_vertices(vertex, tag=tag)
+                self.add_vertices(*vertices, tags=[tag])
         else:
             for vertex in vertices:
                 self.add_vertex(vertex)
         if isinstance(edges, collections.abc.Mapping):
             for tag, edges in edges.items():
                 for start, ends in edges:
-                    self.add_edges(start, ends, tag=tag)
+                    self.add_edges(*zip(itertools.repeat(start), ends), tags=[tag])
         else:
             for start, ends in edges:
                 self[start] = ends
 
-        self.__vertex_values: dict[VT, WT] = {}
-        self.__edge_weights: dict[tuple[VT, VT], WT] = {}
         for vertex, value in vertex_values.items():
             self.set_vertex_value(vertex, value)
         for edge, weight in edge_weights.items():
             self.set_edge_weight(*edge, weight)
 
-        self.__vertex_data: dict[VT, dict[str, Any]] = {}
-        self.__edge_data: dict[tuple[VT, VT], dict[str, Any]] = {}
         for vertex, data in vertex_data.items():
             self.update_vertex_data(vertex, data)
         for edge, data in edge_data.items():
@@ -281,12 +283,21 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         if not self.__directed:
             for connected_vertex in new_connections:
                 adj_map.setdefault(connected_vertex, set()).add(vertex)
-                edge_ws.setdefault((connected_vertex, vertex), None)
-                edge_ws.setdefault((vertex, connected_vertex), None)
+                edge_ws.setdefault(
+                    (connected_vertex, vertex),
+                    0.0  # type: ignore
+                )
+                edge_ws.setdefault(
+                    (vertex, connected_vertex),
+                    0.0  # type: ignore
+                )
         else:
             for connected_vertex in new_connections:
                 adj_map.setdefault(connected_vertex, set())
-                edge_ws.setdefault((vertex, connected_vertex), None)
+                edge_ws.setdefault(
+                    (vertex, connected_vertex),
+                    0.0  # type: ignore
+                )
 
     def __delitem__(
         self,
@@ -496,7 +507,7 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         vertex: VT, /
     ) -> SetView[str] | None:
         """Get the set of tags for the given vertex."""
-        return self.__vertex_tags.fowards_get(vertex)
+        return self.__vertex_tags.forwards_get(vertex)
 
     def get_tagged_vertices(
         self,
@@ -558,7 +569,9 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
     ) -> None:
         """Update the data attributes of the given vertex from a mapping."""
         if not isinstance(data, Mapping):
-            raise TypeError(f"The data must be a mapping. Got; {data!r} of type {type(data)}.")
+            raise TypeError(
+                "The data must be a mapping. "
+                f"Got; {data!r} of type {type(data)!r}.")
         self.__vertex_data.setdefault(vertex, {}).update(data)
 
     @overload
@@ -616,7 +629,9 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
     ) -> None:
         """Update the data attributes of the given edge from a mapping."""
         if not isinstance(data, Mapping):
-            raise TypeError(f"The data must be a mapping. Got; {data!r} of type {type(data)}.")
+            raise TypeError(
+                "The data must be a mapping. "
+                f"Got; {data!r} of type {type(data)!r}.")
         self.__edge_data.setdefault((vertex, adjacent), {}).update(data)
 
     @overload
@@ -703,7 +718,11 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
                 yield vertex, self.__vertex_data[vertex]
         else:
             for vertex in vertices:
-                yield vertex, {name: self.__vertex_data[vertex][name] for name in names}
+                data = {
+                    name: self.__vertex_data[vertex][name]
+                    for name in names
+                }
+                yield vertex, data
 
     def set_vertex_value(
         self,
@@ -716,7 +735,7 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
     def get_vertex_value(
         self,
         vertex: VT,
-        default: WT = 0.0
+        default: WT = 0.0  # type: ignore
     ) -> WT:
         """Get the value of the given vertex."""
         return self.__vertex_values.get(vertex, default)
@@ -741,14 +760,14 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         self,
         start: VT,
         end: VT,
-        default: WT = 0.0
+        default: WT = 0.0  # type: ignore
     ) -> WT:
         """Get the weight of the given edge."""
         return self.__edge_weights.get((start, end), default)
 
     def as_disjoint_set(self) -> DisjointSet[VT]:
         """Get the disjoint set representation of this graph."""
-        dset = DisjointSet()
+        dset = DisjointSet[VT]()
         frontier = set(self)
 
         while frontier:
@@ -757,7 +776,7 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
             connected_to: set[VT] = self[element]
             frontier -= connected_to
 
-            dset.add(element, connected_to)
+            dset.add(element, *connected_to)
 
         return DisjointSet(self)
 
@@ -952,19 +971,26 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         >>> graph.get_minimal_path("A", "C")
         ["A", "B", "C"]
 
-        >>> graph = Graph.grid_graph(dim=(3, 3), connect_diagonally=True)  # TODO: set so can be initially disconnected
-        >>> graph.get_minimal_path((0, 0), (2, 2), heuristic=Graph.manhattan_distance)
+        # TODO: set so can be initially disconnected
+        >>> graph = Graph.grid_graph(dim=(3, 3), connect_diagonally=True)
+        >>> graph.get_minimal_path((0, 0), (2, 2),
+                heuristic=Graph.manhattan_distance)
         [(0, 0), (1, 1), (2, 2)]
 
         >>> graph = Graph.world_map_graph(
         ...     names=("London", "Dublin", "Paris", "Berlin", "Rome", "Madrid"),
-        ...     coords=((51.5074, 0.1278), (53.3498, 6.2603), (48.8566, 2.3522),
-        ...             (52.5200, 13.4050), (41.9028, 12.4964), (40.4168, 3.7038),
-        ...     set_weights=Graph.euclidean_distance(data="coords")  # Calculate all edge weights using Euclidean distance.
+        ...     coords=(
+        ...         (51.5074, 0.1278), (53.3498, 6.2603), (48.8566, 2.3522),
+        ...         (52.5200, 13.4050), (41.9028, 12.4964), (40.4168, 3.7038)
+        ...     ),
+        ...     # Calculate all edge weights using Euclidean distance.
+        ...     set_weights=Graph.euclidean_distance(data="coords")
         ... )
+        >>> # Calculate heuristic between any two (possibly non-adjacent)
+        >>> # vertices using Euclidean distance.
         >>> graph.get_minimal_path(
         ...     "London", "Rome",
-        ...     heuristic=Graph.euclidean_distance(data="coords")  # Calculate heuristic between any two (possibly non-adjacent) vertices using Euclidean distance.
+        ...     heuristic=Graph.euclidean_distance(data="coords")
         ... )
         ['London', 'Paris', 'Rome']
         """
@@ -992,7 +1018,10 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
                     return self.get_edge_data(v1, v2, weight)
 
         counter = itertools.count()
-        frontier = PriorityQueue(
+        frontier = PriorityQueue[
+            tuple[VT, VT | None],
+            tuple[float, float, int]
+        ](
             ((start_vertex, None),       # (vertex, parent)
              (0.0, 0.0, next(counter)))  # (heuristic value, backwards cost, n)
         )
@@ -1064,28 +1093,27 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
             raise ValueError(f"No path between {start_vertex} and {end_vertex}.")
         return None
 
-    # def minimum_spanning_tree(self) -> "Graph[VT]":
-    #     """Get the minimum spanning tree of the graph."""
-    #     if not self.__directed:
-    #         return self
+    def minimum_spanning_tree(self) -> "Graph[VT]":
+        """Get the minimum spanning tree of the graph."""
+        mst = Graph[VT](directed=False)
+        frontier = set(self)
+        edges = SortedQueue(
+            *self.edges,
+            key=lambda x: self.get_edge_weight(*x)
+        )
 
-    #     mst = Graph(directed=False)
-    #     frontier = set(self)
-    #     edges = self.get_edges()
+        while edges:
+            start_vertex, end_vertex = edges.pop()
 
-    #     while frontier:
-    #         edge = min(edges, key=lambda x: x.weight)
-    #         edges.remove(edge)
+            if start_vertex not in mst or end_vertex not in mst:
+                mst.add_edge(start_vertex, end_vertex)
 
-    #         if edge.start_vertex in frontier:
-    #             mst.add_edge(edge)
-    #             frontier.remove(edge.start_vertex)
+                frontier.discard(start_vertex)
+                frontier.discard(end_vertex)
+                if not frontier:
+                    break
 
-    #         if edge.end_vertex in frontier:
-    #             mst.add_edge(edge)
-    #             frontier.remove(edge.end_vertex)
-
-    #     return mst
+        return mst
 
     # def hamiltonian_path(self) -> list[VT] | None:
     #     """Get a Hamiltonian path of the graph."""

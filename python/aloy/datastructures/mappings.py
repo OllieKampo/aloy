@@ -731,7 +731,7 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[FK, BK]):
         """
         return types.MappingProxyType(SetValuedMappingView(self.__backwards))
 
-    def fowards_get(
+    def forwards_get(
         self,
         key: FK,
         default: Iterable[BK] | None = None, /
