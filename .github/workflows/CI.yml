@@ -21,7 +21,6 @@ permissions:
 jobs:
   linux:
     runs-on: ubuntu-latest
-    environment: publish
     strategy:
       matrix:
         target: [x86_64, x86, aarch64, armv7, s390x, ppc64le]
@@ -45,7 +44,6 @@ jobs:
 
   windows:
     runs-on: windows-latest
-    environment: publish
     strategy:
       matrix:
         target: [x64, x86]
@@ -69,7 +67,6 @@ jobs:
 
   macos:
     runs-on: macos-latest
-    environment: publish
     strategy:
       matrix:
         target: [x86_64, aarch64]
@@ -92,7 +89,6 @@ jobs:
 
   sdist:
     runs-on: ubuntu-latest
-    environment: publish
     steps:
       - uses: actions/checkout@v3
       - name: Build sdist
