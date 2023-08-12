@@ -362,7 +362,7 @@ def main() -> int:
             print(f"\t{_name}: {_game.description}")
             print(f"\t\tDefault size: {_game.default_size}")
             print(f"\t\tCompetitive: {_game.competitive}")
-            print(f"\t\tParameters:")
+            print("\t\tParameters:")
             for parameter in _game.parameters:
                 print(f"\t\t\t{parameter}")
         return 0
