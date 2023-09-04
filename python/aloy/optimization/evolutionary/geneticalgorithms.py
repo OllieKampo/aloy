@@ -38,7 +38,7 @@ from numpy.random import Generator, choice, default_rng, random_integers
 from typing_extensions import override
 
 from aloy.auxiliary.moreitertools import (arg_max_n, chunk, cycle_for,
-                                          getitem_zip, index_sequence, max_n)
+                                          getitem_zip, index_sequence)
 from aloy.auxiliary.progressbars import ResourceProgressBar
 from aloy.moremath.mathutils import normalize_to_sum
 from aloy.optimization.decayfunctions import get_decay_function
@@ -1273,7 +1273,6 @@ class GeneticSystem:
         survival_elitism_factor_growth_end: int | Literal["threshold", "stagnation"] | None = None,
         survival_elitism_factor_growth_rate: float | None = None,
 
-        replacement: bool = True,
         reproduction_elitism_factor: float = 0.0,
         reproduction_elitism_factor_final: float = 0.25,
         reproduction_elitism_factor_growth_type: Literal["lin", "pol", "exp", "sin"] = "sin",
@@ -1327,12 +1326,6 @@ class GeneticSystem:
         `survival_factor_change: Literal["decrease", "increase"]` - Usually, if replacement is enabled, it is desirable to start with a high survive factor to promote early exploration of the search space and decrease the factor to promote greater exploitation
         as the search progresses, focusing search towards the very best solutions it has found.
 
-        `replacement: bool = True` - Defines whether parents are replaced by their offspring, or the parents survive to the next generation along with their offspring.
-        If they are allowed to survive then a survival factor of 1.0 would mean recombination/reproduction would stop happening after reaching the maximum population size.
-        If replacement is allowed, then the problem may be that our solutions might actually get worse if our exploration did not go well.
-        If the survival factor is high, then reproducing without replacement is a problem, since we get much more limited to how much we can explore the search space and the population approaches its max size,
-        so a high survival factor later in the search (when all the solutions are very similar) may discourage exploration (similar to how we want to use creep mutation later in the search to deal with the last little bit of optimisation to reach the exact global optimum).
-
         `stagnation_proportion: Fraction` - If given and not none, return if the average fitness of the best fitting fraction of the population is stagnated (does not increase) for a number of generations equal to the stagnation limit.
         This intuition is that the search should stop only if a "large" proportion of the best quality candidates are not making significant improvement for a "long" time.
         Otherwise, return of the fitness of the best fitting individual is stagenated for the stagnation limit.
@@ -1365,15 +1358,14 @@ class GeneticSystem:
         -----
         To perform steady state selection for reproduction set;
             - survival_factor = 1.0 - X, where X is fraction of individuals to be culled,
-            - survival_elitism_factor = 1.0, such that only the best survive (and the worst are culled) deterministically,
-            - disable replacement.
+            - survival_elitism_factor = 1.0, such that only the best survive (and the worst are culled) deterministically.
         """
         ## TODO Add logging, data collection, and data visualisation.
         if survival_factor >= Fraction(1.0):
             raise ValueError("Survival factor must be less than 1.0."
                              f"Got; {survival_factor=}.")
 
-        if replacement and (expansion_factor * survival_factor) <= 1.0:
+        if expansion_factor * survival_factor <= 1.0:
             raise ValueError("Population size would shrink or not grow "
                              f"with; {expansion_factor=}, {survival_factor=}."
                              "Their multiple must be greater than 1.0.")
@@ -1664,7 +1656,7 @@ class GeneticSystem:
         population: list[CT],
         fitness_values: list[float],
         survival_factor: float,
-        elitism_factor: float | None
+        survival_elitism_factor: float | None
     ) -> tuple[list[CT], list[float]]:
         """
         Select individuals from the current population to survive to and
@@ -1728,7 +1720,7 @@ class GeneticSystem:
 
         # If elitism factor is not given or None then always choose randomly
         # with probability proportion.
-        if elitism_factor is None:
+        if survival_elitism_factor is None:
             indices = self.__selector.select(
                 population,
                 fitness_values,
@@ -1739,7 +1731,7 @@ class GeneticSystem:
             return (population, fitness_values)
 
         # The quantity of elite individuals that are guaranteed to survive.
-        elite_quantity: int = math.ceil(survive_quantity * elitism_factor)
+        elite_quantity: int = math.ceil(survive_quantity * survival_elitism_factor)
 
         # If all surviving are elite, then skip random selection phase,
         # simply select deterministically the best individuals from the
