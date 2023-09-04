@@ -27,7 +27,7 @@ __license__ = "GPL-3.0"
 __all__ = ()
 
 
-from typing import Any, Callable, Final
+from typing import Any, Callable, Final, Mapping
 
 from aloy.concurrency.executors import AloyThreadPool
 from aloy.concurrency.synchronization import SynchronizedMeta
@@ -121,22 +121,24 @@ class PubSubHub(metaclass=SynchronizedMeta):
     def register_procedure_call(
         self,
         procedure_name: str,
-        callback: Callable[[str, Any], None]
+        parameters: dict[str, type],
+        callback: Callable[..., None]
     ) -> None:
         pass
 
     def request_procedure(
         self,
         procedure_name: str,
-        parameters: dict[str, Any]
+        arguments: dict[str, type]
     ) -> None:
         pass
 
     def register_command_channel(
         self,
         channel_name: str,
-        parameters: dict[str, Any],
-        callback: Callable[..., None]
+        parameters: Mapping[str, Any],
+        command_callback: Callable[..., None],
+        event_callbacks: Mapping[str, Mapping[str, type]]
     ) -> None:
         """
         A channel is a virtual pipe that allows a publisher to send commands and
@@ -164,9 +166,7 @@ class PubSubHub(metaclass=SynchronizedMeta):
         self,
         channel_name: str,
         arguments: dict[str, Any],
-        response_callback: Callable[[str, Any], None],
-        feedback_callback: Callable[[str, Any], None],
-        complete_callback: Callable[[str, Any], None]
+        event_callbacks: Callable[..., None]
     ) -> None:
         pass
 

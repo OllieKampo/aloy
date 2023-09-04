@@ -4,7 +4,7 @@ import argparse
 import importlib
 import importlib.util
 import sys
-from typing import Any, Callable, Final, Iterable, NamedTuple
+from typing import Any, Final, Iterable, NamedTuple
 
 import curses
 import pyfiglet
