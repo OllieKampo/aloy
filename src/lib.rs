@@ -1,15 +1,48 @@
 use pyo3::prelude::*;
+use pyo3::{wrap_pyfunction, wrap_pymodule};
 
-/// Formats the sum of two numbers as string.
 #[pyfunction]
-fn sum_as_string(a: usize, b: usize) -> PyResult<String> {
-    Ok((a + b).to_string())
+fn vector_add(
+    py: Python,
+    vector_a: Vec<f64>,
+    vector_b: PyObject,
+) -> PyResult<Vec<f64>> {
+    if vector_a.len() == 0 {
+        return Ok(Vec::new());
+    }
+    let vector_b = if let Ok(b) = vector_b.extract::<f64>(py) {
+        vec![b; vector_a.len()]
+    } else {
+        vector_b.extract::<Vec<f64>>(py)?
+    };
+    let result = vector_a
+        .iter()
+        .zip(vector_b.iter())
+        .map(|(&a, &b)| a + b)
+        .collect();
+    return Ok(result);
 }
 
-/// A Python module implemented in Rust.
+
+#[pymodule]
+#[pyo3(name="vectors")]
+fn vectors(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(vector_add, m)?)?;
+    Ok(())
+}
+
+
+#[pymodule]
+#[pyo3(name="moremath")]
+fn moremath(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_wrapped(wrap_pymodule!(vectors))?;
+    Ok(())
+}
+
+
 #[pymodule]
 #[pyo3(name="rost")]
-fn aloy(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(sum_as_string, m)?)?;
+fn rost(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_wrapped(wrap_pymodule!(moremath))?;
     Ok(())
 }

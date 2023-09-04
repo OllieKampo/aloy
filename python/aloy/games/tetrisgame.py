@@ -274,8 +274,7 @@ class TetrisGameLogic:
                              f"Got; {cells_grid_size}.")
 
         # Actions
-        self.__direction: AtomicObject[Direction]
-        self.__direction = AtomicObject(_INITIAL_DIRECTION)
+        self.__direction = AtomicObject[Direction](_INITIAL_DIRECTION)
 
         # Game state
         self.__playing = False

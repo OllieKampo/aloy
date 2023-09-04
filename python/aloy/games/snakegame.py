@@ -16,19 +16,20 @@
 
 import random
 import sys
+import time
 from itertools import count
 from math import copysign
-import time
 
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from aloy.datastructures.views import ListView
 from aloy.concurrency.atomic import AtomicObject
+from aloy.datastructures.views import ListView
 from aloy.games.gamerecorder import GameRecorder, GameSpec
-from aloy.guis.gui import AloySystemData, AloyGuiWindow, AloyWidget
-from aloy.moremath.vectors import (vector_add, vector_between_torus_wrapped, vector_distance, vector_modulo,
-                              vector_multiply, vector_subtract)
+from aloy.guis.gui import AloyGuiWindow, AloySystemData, AloyWidget
+from aloy.moremath.vectors import (vector_add, vector_between_torus_wrapped,
+                                   vector_cast, vector_distance, vector_modulo,
+                                   vector_multiply, vector_subtract)
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
@@ -408,7 +409,12 @@ class SnakeGameLogic:
             directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
             random.shuffle(directions)
             for direction in directions:
-                next_cell = tuple(vector_add(self.__snake[0], direction))
+                next_cell = tuple(
+                    vector_cast(
+                        vector_add(self.__snake[0], direction),
+                        int
+                    )
+                )
                 if next_cell not in self.__snake:
                     with self.__direction:
                         self.__direction.set_obj(direction)
@@ -442,7 +448,7 @@ class SnakeGameLogic:
                              self.__snake[0],
                              food,
                              manhattan=True
-                         ) > 10)):
+                         ) > 10.0)):
                 self.__food = food
                 break
             if i > limit:
@@ -526,16 +532,19 @@ class SnakeGameLogic:
         """Get the cells infront of the snake's head."""
         direction = self.direction.get_obj()
         return [
-            tuple(  # type: ignore
-                vector_modulo(
-                    vector_add(
-                        head,
-                        vector_multiply(
-                            direction,
-                            _distance
-                        )
+            tuple(
+                vector_cast(
+                    vector_modulo(
+                        vector_add(
+                            head,
+                            vector_multiply(
+                                direction,
+                                _distance
+                            )
+                        ),
+                        self.grid_size
                     ),
-                    self.grid_size
+                    int
                 )
             )
             for _distance in range(1, distance + 1)
@@ -595,7 +604,7 @@ class SnakeGameLogic:
         if self.obstacles:
             obs[tuple(obstacle for obstacle in zip(*self.obstacles))] = 4
         next_head = vector_add(self.snake[0], self.direction.get_obj())
-        next_head = tuple(vector_modulo(next_head, self.grid_size))
+        next_head = tuple(vector_cast(vector_modulo(next_head, self.grid_size), int))
         if obs[next_head] == 1:
             obs[next_head] = 6
         elif obs[next_head] == 4:
@@ -920,7 +929,7 @@ class SnakeGameAloyWidget(AloyWidget):
             path.append((path[-1][0], path[-1][1] + add_y))
         if not self._logic.walls:
             for index, step in enumerate(path):
-                path[index] = vector_modulo(step, self._logic.grid_size)
+                path[index] = vector_cast(vector_modulo(step, self._logic.grid_size), int)
         return path
 
     def __draw_food(self) -> None:
