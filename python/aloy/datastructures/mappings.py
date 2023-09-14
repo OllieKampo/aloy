@@ -527,6 +527,7 @@ class FrozenReversableDict(collections.abc.Mapping, Generic[KT, VT]):
 
 FK = TypeVar("FK", bound=Hashable)
 BK = TypeVar("BK", bound=Hashable)
+DK = TypeVar("DK")
 TwoWayMapInit: TypeAlias = Mapping[FK, Iterable[BK]] | Iterable[tuple[FK, BK]]
 
 
@@ -757,8 +758,8 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[FK, BK]):
     def backwards_get(
         self,
         key: BK,
-        default: Iterable[FK] | None = None, /
-    ) -> SetView[FK] | None:
+        default: DK | None = None, /
+    ) -> SetView[FK] | DK | None:
         """
         Get the set of forwards keys that map to the given key in the backwards
         mapping, or the default value if the key is not present.
@@ -775,7 +776,7 @@ class TwoWayMap(collections.abc.MutableMapping, Generic[FK, BK]):
         forwards = self.__backwards.get(key)
         if forwards is not None:
             return SetView(forwards)
-        return SetView(set(default)) if default is not None else None
+        return default
 
     def maps_to(self, forwards_key: FK, backwards_key: BK, /) -> bool:
         """Check if the forwards key maps to the backwards key."""

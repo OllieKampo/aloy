@@ -36,7 +36,8 @@ import functools
 import inspect
 import logging
 from collections import defaultdict, deque
-from typing import Any, Callable, Concatenate, Final, ParamSpec, TypeVar, final
+from typing import (Any, Callable, Concatenate, Final, NamedTuple, ParamSpec,
+                    TypeVar, final)
 
 from aloy.concurrency.executors import AloyThreadPool
 from aloy.concurrency.synchronization import SynchronizedMeta, sync
@@ -120,7 +121,8 @@ def field(
             _field_name = field_name
         func.__subject_field__ = _field_name  # type: ignore
         func.__queue_size__ = queue_size  # type: ignore
-        return sync(lock="method", group_name=f"get:({_field_name})")(func)
+        sync_dec = sync(lock="method", group_name=f"get:({_field_name})")
+        return sync_dec(func)  # type: ignore
     return decorator
 
 
@@ -160,14 +162,19 @@ def field_change(
         def wrapper(self: "Subject", *args: Any, **kwargs: Any) -> Any:
             old_value = self.__get_field__(_field_name)
             func(self, *args, **kwargs)
-            new_value = self.__get_field__(_field_name, new_value=True)
-            if self.__is_queued_field__(_field_name):
-                self.__update__(_field_name, old_value, new_value)
-            elif old_value != new_value:
-                self.__update__(_field_name, old_value, new_value)
+            new_value = self.__get_field__(_field_name)
+            self.__update__(_field_name, old_value, new_value)
 
         return wrapper
     return decorator
+
+
+class _SubjectField(NamedTuple):
+    get_attr: Callable[["Subject"], Any]
+    queue_size: int | None
+
+
+_NO_FIELDS: Final[dict[str, _SubjectField]] = {}
 
 
 @final
@@ -183,22 +190,28 @@ class _SubjectSynchronizedMeta(SynchronizedMeta):
     def __new__(
         cls,
         name: str,
-        bases: tuple[type, ...],
+        bases: tuple[str, ...],
         namespace: dict[str, Any]
     ) -> type:
         """Create a new synchronized subject class."""
-        _existing_subject_fields = namespace.get("__SUBJECT_FIELDS__")
-        if _existing_subject_fields is None:
+        _existing_subject_fields: dict[str, _SubjectField] = \
+            namespace.get("__SUBJECT_FIELDS__")  # type: ignore
+
+        if (_existing_subject_fields is _NO_FIELDS
+                or _existing_subject_fields is None):
             _existing_subject_fields = {}
             namespace["__SUBJECT_FIELDS__"] = _existing_subject_fields
+
         _new_subject_fields = {}
         for attr in namespace.values():
+
             if isinstance(attr, property):
                 _get_attr = attr.fget
                 _set_attr = attr.fset
             else:
                 _get_attr = attr
                 _set_attr = attr
+
             if (_get_attr is not None
                     and hasattr(_get_attr, "__subject_field__")):
                 _field_name = _get_attr.__subject_field__  # type: ignore
@@ -215,7 +228,10 @@ class _SubjectSynchronizedMeta(SynchronizedMeta):
                         f"name '{_field_name}' which was already defined in "
                         f"the class {name}."
                     )
-                _new_subject_fields[_field_name] = (_get_attr, _queue_size)
+
+                subject_field = _SubjectField(_get_attr, _queue_size)
+                _new_subject_fields[_field_name] = subject_field
+
             if (_set_attr is not None
                     and hasattr(_set_attr, "__subject_field_change__")):
                 _field_name = _set_attr \
@@ -227,14 +243,10 @@ class _SubjectSynchronizedMeta(SynchronizedMeta):
                         f"field '{_field_name}', but no field with that name "
                         f"was defined in (or a base class of) {name}."
                     )
+
         _existing_subject_fields.update(_new_subject_fields)
 
         return super().__new__(cls, name, bases, namespace)
-
-
-_SUBJECT_DEFAULT_THREAD_POOL_EXECUTOR_MAX_WORKERS: Final[int] = 10
-_SUBJECT_DEFAULT_THREAD_POOL_EXECUTOR_PROFILE: Final[bool] = False
-_SUBJECT_DEFAULT_THREAD_POOL_EXECUTOR_LOG: Final[bool] = False
 
 
 class Subject(metaclass=_SubjectSynchronizedMeta):
@@ -243,10 +255,7 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
     """
 
     __SUBJECT_LOGGER = logging.getLogger("Subject")
-    __SUBJECT_FIELDS__: (
-        dict[str, tuple[Callable[["Subject"], Any], bool]]
-        | None
-    ) = None
+    __SUBJECT_FIELDS__: dict[str, _SubjectField] = _NO_FIELDS
 
     __slots__ = {
         "__listeners": "The listeners registered with the subject.",
@@ -257,9 +266,9 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
 
     def __init__(
         self,
-        max_workers: int = _SUBJECT_DEFAULT_THREAD_POOL_EXECUTOR_MAX_WORKERS,
-        profile: bool = _SUBJECT_DEFAULT_THREAD_POOL_EXECUTOR_PROFILE,
-        log: bool = _SUBJECT_DEFAULT_THREAD_POOL_EXECUTOR_LOG
+        max_workers: int = 10,
+        profile: bool = False,
+        log: bool = False
     ) -> None:
         """
         Create a new subject.
@@ -282,41 +291,29 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
         )
         self.__queues: dict[str, deque[Any]] = defaultdict(deque)
         for field_name, (_, queue_size) \
-                in self.__SUBJECT_FIELDS__.items():  # type: ignore
+                in self.__SUBJECT_FIELDS__.items():
             if queue_size is not None:
                 self.__queues[field_name] = deque(maxlen=queue_size)
 
-    def __get_field__(self, field_name: str, new_value: bool = False) -> Any:
-        get_attr_and_queue_size = \
-            self.__SUBJECT_FIELDS__.get(field_name)  # type: ignore
-        if get_attr_and_queue_size is None:
-            raise AttributeError(
-                f"Subject {self} has no field {field_name}."
-            )
-        get_attr, queue_size = get_attr_and_queue_size
-        value = get_attr(self)
-        if queue_size is not None:
-            if new_value:
-                self.__queues[field_name].append(value)
-                return value
-            else:
-                return list(self.__queues[field_name])
-        return value
-
-    def __is_queued_field__(self, field_name: str) -> bool:
-        return (
-            self.__SUBJECT_FIELDS__.get(field_name)[1]  # type: ignore
-            is not None
-        )
+    def __get_field__(self, field_name: str) -> Any:
+        subject_field = self.__SUBJECT_FIELDS__.get(field_name)
+        if subject_field is None:
+            raise AttributeError(f"Subject {self} has no field {field_name}.")
+        return subject_field.get_attr(self)
 
     def __check_callback(self, callback: Callable[..., None]) -> None:
         """Check that the callback is a function that takes four arguments."""
         if not inspect.ismethod(callback) and not inspect.isfunction(callback):
             raise TypeError(
-                f"Callback must be a method or function. Got; {callback}.")
+                "Callback must be a method or function. "
+                f"Got; {callback} of type {type(callback)}."
+            )
         if len(inspect.signature(callback).parameters) != 4:
             raise TypeError(
-                f"Callback must take four arguments. Got: {callback}.")
+                "Callback must take four arguments. "
+                f"Got: {callback} of type {type(callback)} "
+                f"with signature {inspect.signature(callback)}."
+            )
 
     @sync(lock="all")
     def register(
@@ -354,6 +351,7 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
 
     @sync(lock="method", group_name="__update__")
     def update(self, *field_names: str) -> None:
+        """Update all listeners and callbacks of the given fields."""
         for field_name in field_names:
             current_value = self.__get_field__(field_name)
             self.__update__(field_name, None, current_value)
@@ -364,13 +362,19 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
         old_value: Any,
         new_value: Any
     ) -> None:
-        self.__executor.submit(
-            f"Subject Update ({field_name})",
-            self.__update_async,
-            field_name,
-            old_value,
-            new_value
-        )
+        subject_field: _SubjectField = \
+            self.__SUBJECT_FIELDS__.get(field_name)  # type: ignore
+        if old_value != new_value:
+            if subject_field.queue_size is not None:
+                old_value = list(self.__queues[field_name])
+                self.__queues[field_name].append(new_value)
+            self.__executor.submit(  # TODO: Updates to field must be atomic and in order.
+                f"Subject Update ({field_name})",
+                self.__update_async,
+                field_name,
+                old_value,
+                new_value
+            )
 
     def __update_async(
         self,
@@ -378,22 +382,48 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
         old_value: Any,
         new_value: Any
     ) -> None:
-        for listener in self.__listeners.backwards_get(field_name, []):
-            try:
-                value = listener.field_changed(
-                    self, field_name, old_value, new_value)
-                if value is NotImplemented:
-                    with self.instance_lock:  # type: ignore
-                        self.__listeners.remove(listener, field_name)
-            except Exception as err:  # pylint: disable=broad-except
-                self.__log_exception(
-                    listener, field_name, old_value, new_value, err)
-        for callback in self.__callbacks.backwards_get(field_name, []):
-            try:
-                callback(self, field_name, old_value, new_value)
-            except Exception as err:  # pylint: disable=broad-except
-                self.__log_exception(
-                    callback, field_name, old_value, new_value, err)
+        """
+        Asynchronously update all listeners and callbacks of a field.
+
+        If a listener's `field_changed()` method returns `NotImplemented`, the
+        listener is unregistered from the subject. If a listener or callback
+        raises an exception, the exception is logged.
+        """
+        listeners = self.__listeners.backwards_get(field_name)
+        if listeners is not None:
+            for listener in listeners:
+                try:
+                    value = listener.field_changed(  # type: ignore
+                        source=self,
+                        field_name=field_name,
+                        old_value=old_value,
+                        new_value=new_value
+                    )
+                    if value is NotImplemented:
+                        with self.instance_lock:  # type: ignore
+                            self.__listeners.remove(listener, field_name)
+                except Exception as err:  # pylint: disable=broad-except
+                    self.__log_exception(
+                        listener_or_callback=listener,
+                        field_name=field_name,
+                        old_value=old_value,
+                        new_value=new_value,
+                        exc_info=err
+                    )
+
+        callbacks = self.__callbacks.backwards_get(field_name)
+        if callbacks is not None:
+            for callback in callbacks:
+                try:
+                    callback(self, field_name, old_value, new_value)
+                except Exception as err:  # pylint: disable=broad-except
+                    self.__log_exception(
+                        listener_or_callback=callback,
+                        field_name=field_name,
+                        old_value=old_value,
+                        new_value=new_value,
+                        exc_info=err
+                    )
 
     def __log_exception(
         self,
@@ -430,7 +460,7 @@ def __main():
             self.__my_field = 0
 
         @property
-        @field()
+        @field(queue_size=3)
         def my_field(self) -> int:
             return self.__my_field
 
