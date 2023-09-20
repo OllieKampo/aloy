@@ -1,6 +1,10 @@
 use pyo3::prelude::*;
 use pyo3::{wrap_pyfunction, wrap_pymodule};
 
+
+mod planning;
+
+
 #[pyfunction]
 fn vector_add(
     py: Python,
@@ -41,8 +45,17 @@ fn moremath(_py: Python, m: &PyModule) -> PyResult<()> {
 
 
 #[pymodule]
+#[pyo3(name="rrt")]
+fn rrt(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(planning::rrt::rapidly_exploring_random_tree, m)?)?;
+    Ok(())
+}
+
+
+#[pymodule]
 #[pyo3(name="rost")]
 fn rost(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(moremath))?;
+    m.add_wrapped(wrap_pymodule!(rrt))?;
     Ok(())
 }
