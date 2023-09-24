@@ -3,17 +3,21 @@ from numbers import Number
 from typing import Iterable, Sequence, SupportsFloat, TypeVar
 
 
-NT = TypeVar("NT", bound=SupportsFloat)
+_NT = TypeVar("_NT", bound=SupportsFloat)
+_NTC = TypeVar("_NTC", bound=Number)
 
 
-def vector_cast(vector: Iterable[NT], type_: type[NT]) -> list[NT]:
+def vector_cast(
+    vector: Iterable[_NT],
+    type_: type[_NTC]
+) -> list[_NT] | list[_NTC]:
     """Cast a vector to a different type."""
     return [type_(item) for item in vector]
 
 
 def vector_add(
-    vector_a: Iterable[NT],
-    vector_b: Iterable[NT] | NT
+    vector_a: Iterable[_NT],
+    vector_b: Iterable[_NT] | _NT
 ) -> list[float]:
     """Add two vectors together."""
     if isinstance(vector_b, Number):
@@ -22,8 +26,8 @@ def vector_add(
 
 
 def vector_subtract(
-    vector_a: Iterable[NT],
-    vector_b: Iterable[NT] | NT
+    vector_a: Iterable[_NT],
+    vector_b: Iterable[_NT] | _NT
 ) -> list[float]:
     """Subtract two vectors from each other."""
     if isinstance(vector_b, Number):
@@ -32,8 +36,8 @@ def vector_subtract(
 
 
 def vector_multiply(
-    vector_a: Iterable[NT],
-    vector_b: Iterable[NT] | NT
+    vector_a: Iterable[_NT],
+    vector_b: Iterable[_NT] | _NT
 ) -> list[float]:
     """Multiply two vectors together."""
     if isinstance(vector_b, Number):
@@ -42,8 +46,8 @@ def vector_multiply(
 
 
 def vector_divide(
-    vector_a: Iterable[NT],
-    vector_b: Iterable[NT] | NT
+    vector_a: Iterable[_NT],
+    vector_b: Iterable[_NT] | _NT
 ) -> list[float]:
     """Divide two vectors from each other."""
     if isinstance(vector_b, Number):
@@ -52,8 +56,8 @@ def vector_divide(
 
 
 def vector_modulo(
-    vector_a: Iterable[NT],
-    vector_b: Iterable[NT] | NT
+    vector_a: Iterable[_NT],
+    vector_b: Iterable[_NT] | _NT
 ) -> list[float]:
     """Get the modulo of two vectors."""
     if isinstance(vector_b, Number):
@@ -62,16 +66,16 @@ def vector_modulo(
 
 
 def vector_dot(
-    vector_a: Iterable[NT],
-    vector_b: Iterable[NT]
+    vector_a: Iterable[_NT],
+    vector_b: Iterable[_NT]
 ) -> float:
     """Dot two vectors together."""
     return sum(vector_multiply(vector_a, vector_b))
 
 
 def vector_cross(
-    vector_a: Sequence[NT],
-    vector_b: Sequence[NT]
+    vector_a: Sequence[_NT],
+    vector_b: Sequence[_NT]
 ) -> list[float]:
     """
     Cross two vectors together.
@@ -88,14 +92,14 @@ def vector_cross(
     ]
 
 
-def vector_magnitude(vector: Iterable[NT]) -> float:
+def vector_magnitude(vector: Iterable[_NT]) -> float:
     """Get the magnitude of a vector."""
     return math.sqrt(sum([item ** 2 for item in vector]))
 
 
 def vector_distance(
-    vector_a: Iterable[NT],
-    vector_b: Iterable[NT],
+    vector_a: Iterable[_NT],
+    vector_b: Iterable[_NT],
     manhattan: bool = False
 ) -> float:
     """Get the distance between two vectors."""
@@ -105,9 +109,9 @@ def vector_distance(
 
 
 def vector_distance_torus_wrapped(
-    vector_a: Iterable[NT],
-    vector_b: Iterable[NT],
-    size: Sequence[NT],
+    vector_a: Iterable[_NT],
+    vector_b: Iterable[_NT],
+    size: Sequence[_NT],
     manhattan: bool = False
 ) -> float:
     """Get the distance between two vectors on a torus."""
@@ -121,9 +125,9 @@ def vector_distance_torus_wrapped(
 
 
 def vector_between_torus_wrapped(
-    vector_a: Iterable[NT],
-    vector_b: Iterable[NT],
-    size: Sequence[NT]
+    vector_a: Iterable[_NT],
+    vector_b: Iterable[_NT],
+    size: Sequence[_NT]
 ) -> list[float]:
     """Get the shortest vector between two vectors on a torus."""
     delta = vector_multiply(vector_subtract(vector_a, vector_b), -1.0)
@@ -136,27 +140,27 @@ def vector_between_torus_wrapped(
 
 
 def vector_midpoint(
-    vector_a: Iterable[NT],
-    vector_b: Iterable[NT]
+    vector_a: Iterable[_NT],
+    vector_b: Iterable[_NT]
 ) -> list[float]:
     """Get the midpoint between two vectors."""
     return vector_divide(vector_add(vector_a, vector_b), 2.0)
 
 
-def vector_normalize(vector: Iterable[NT]) -> list[float]:
+def vector_normalize(vector: Iterable[_NT]) -> list[float]:
     """Normalize a vector."""
     magnitude = vector_magnitude(vector)
     return [item / magnitude for item in vector]
 
 
-def vector_abs(vector: Iterable[NT]) -> list[float]:
+def vector_abs(vector: Iterable[_NT]) -> list[float]:
     """Get the absolute value of a vector."""
     return [float(abs(item)) for item in vector]
 
 
 def vector_angle_around_point(
-    vector_a: Iterable[NT],
-    point: Iterable[NT]
+    vector_a: Iterable[_NT],
+    point: Iterable[_NT]
 ) -> float:
     """
     Get the angle of a vector around a point in radians.
@@ -170,8 +174,8 @@ def vector_angle_around_point(
 
 
 def vector_angle_between(
-    vector_a: Iterable[NT],
-    vector_b: Iterable[NT]
+    vector_a: Iterable[_NT],
+    vector_b: Iterable[_NT]
 ) -> float:
     """Get the angle between two vectors in radians."""
     return math.acos(
@@ -183,9 +187,9 @@ def vector_angle_between(
 
 
 def vector_angle_between_around_point(
-    vector_a: Iterable[NT],
-    vector_b: Iterable[NT],
-    point: Iterable[NT]
+    vector_a: Iterable[_NT],
+    vector_b: Iterable[_NT],
+    point: Iterable[_NT]
 ) -> float:
     """Get the angle between two vectors around a point in radians."""
     return vector_angle_between(
@@ -195,9 +199,9 @@ def vector_angle_between_around_point(
 
 
 def vector_angle_between_around_axis(
-    vector_a: Iterable[NT],
-    vector_b: Iterable[NT],
-    axis: Iterable[NT]
+    vector_a: Iterable[_NT],
+    vector_b: Iterable[_NT],
+    axis: Iterable[_NT]
 ) -> float:
     """
     Get the angle between two vectors around an axis.
@@ -216,9 +220,9 @@ def vector_angle_between_around_axis(
 
 
 def vector_rotate_around_origin(
-    vector: Iterable[NT],
-    axis: Iterable[NT],
-    angle: NT
+    vector: Iterable[_NT],
+    axis: Iterable[_NT],
+    angle: _NT
 ) -> list[float]:
     """
     Rotate a vector around the origin by a given angle.
@@ -236,10 +240,10 @@ def vector_rotate_around_origin(
 
 
 def vector_rotate_around_point(
-    vector: Iterable[NT],
-    point: Iterable[NT],
-    axis: Iterable[NT],
-    angle: NT
+    vector: Iterable[_NT],
+    point: Iterable[_NT],
+    axis: Iterable[_NT],
+    angle: _NT
 ) -> list[float]:
     """
     Rotate a vector around an axis through a point by a given angle.
@@ -259,9 +263,9 @@ def vector_rotate_around_point(
 
 
 def vector_rotate_around_axis(
-    vector: Iterable[NT],
-    axis: Iterable[NT],
-    angle: NT
+    vector: Iterable[_NT],
+    axis: Iterable[_NT],
+    angle: _NT
 ) -> list[float]:
     """
     Rotate a vector around an axis by a given angle.
@@ -292,9 +296,9 @@ def vector_rotate_around_axis(
 
 
 def vector_rotate(
-    vector: Iterable[NT],
-    axis: Iterable[NT],
-    angle: NT
+    vector: Iterable[_NT],
+    axis: Iterable[_NT],
+    angle: _NT
 ) -> list[float]:
     """
     Rotate a vector around an axis by a given angle.
@@ -325,8 +329,8 @@ def vector_rotate(
 
 
 def vector_reflect(
-    vector: Iterable[NT],
-    normal: Iterable[NT]
+    vector: Iterable[_NT],
+    normal: Iterable[_NT]
 ) -> list[float]:
     """Reflect a vector off a normal."""
     return vector_subtract(
@@ -339,8 +343,8 @@ def vector_reflect(
 
 
 def vector_project_onto(
-    vector_a: Iterable[NT],
-    vector_b: Iterable[NT]
+    vector_a: Iterable[_NT],
+    vector_b: Iterable[_NT]
 ) -> list[float]:
     """Project a vector onto another vector."""
     return vector_multiply(
@@ -351,9 +355,9 @@ def vector_project_onto(
 
 
 def enlarge_vector_through_point(
-    vector: Iterable[NT],
-    point: Iterable[NT],
-    factor: NT
+    vector: Iterable[_NT],
+    point: Iterable[_NT],
+    factor: _NT
 ) -> list[float]:
     """Enlarge a vector through a point by a given factor."""
     return vector_add(
@@ -363,9 +367,9 @@ def enlarge_vector_through_point(
 
 
 def vector_refraction(
-    vector: Iterable[NT],
-    normal: Iterable[NT],
-    ratio: NT
+    vector: Iterable[_NT],
+    normal: Iterable[_NT],
+    ratio: _NT
 ) -> list[float]:
     """Get the refraction of a vector off a normal."""
     dot = vector_dot(vector, normal)
@@ -376,17 +380,17 @@ def vector_refraction(
 
 
 def vector_reject(
-    vector_a: Iterable[NT],
-    vector_b: Iterable[NT]
+    vector_a: Iterable[_NT],
+    vector_b: Iterable[_NT]
 ) -> list[float]:
     """Reject a vector from another vector."""
     return vector_subtract(vector_a, vector_project_onto(vector_a, vector_b))
 
 
 def vector_interpolate(
-    vector_a: Iterable[NT],
-    vector_b: Iterable[NT],
-    factor: NT
+    vector_a: Iterable[_NT],
+    vector_b: Iterable[_NT],
+    factor: _NT
 ) -> list[float]:
     """Interpolate between two vectors."""
     return vector_add(

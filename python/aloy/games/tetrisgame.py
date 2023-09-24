@@ -23,6 +23,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from aloy.concurrency.atomic import AtomicObject
 from aloy.datastructures.mappings import frozendict
 from aloy.guis.gui import AloyGuiWindow, AloySystemData, AloyWidget
+from aloy.games._game_errors import AloyGameInternalError
 
 
 @enum.unique
@@ -123,7 +124,12 @@ def _rotate_piece_left(
     """
     new_piece_rotation = (piece_rotation - 1) % 4
     return (
-        _rotate_piece(piece, piece_position, piece_rotation, new_piece_rotation),
+        _rotate_piece(
+            piece,
+            piece_position,
+            piece_rotation,
+            new_piece_rotation
+        ),
         new_piece_rotation
     )
 
@@ -140,7 +146,12 @@ def _rotate_piece_right(
     """
     new_piece_rotation = (piece_rotation + 1) % 4
     return (
-        _rotate_piece(piece, piece_position, piece_rotation, new_piece_rotation),
+        _rotate_piece(
+            piece,
+            piece_position,
+            piece_rotation,
+            new_piece_rotation
+        ),
         new_piece_rotation
     )
 
@@ -286,7 +297,8 @@ class TetrisGameLogic:
         self.__score: int = _INITIAL_SCORE
         self.__level: int = _INITIAL_LEVEL
         self.__lines_filled: dict[str, int] = _INITIAL_LINES_FILLED.copy()
-        self.__pieces_used: dict[Piece | str, int] = _INITIAL_PIECES_USED.copy()
+        self.__pieces_used: dict[Piece | str, int] \
+            = _INITIAL_PIECES_USED.copy()
         self.__seconds_per_move: float = _INITIAL_SECONDS_PER_MOVE
         self.__game_over: bool = False
         self.__paused: bool = False
@@ -342,7 +354,7 @@ class TetrisGameLogic:
         return self.__lines_filled
 
     @property
-    def pieces_used(self) -> dict[str, int]:
+    def pieces_used(self) -> dict[Piece | str, int]:
         """Get the number of pieces used."""
         return self.__pieces_used
 
@@ -412,6 +424,14 @@ class TetrisGameLogic:
         with self.__direction:
             self.__direction.set_obj(Direction.DOWN)
 
+        if self.__current_piece is None:
+            raise AloyGameInternalError(
+                "Current piece was None when trying to move piece.")
+
+        if self.__current_piece_position is None:
+            raise AloyGameInternalError(
+                "Current piece position was None when trying to move piece.")
+
         # Get theoretical new piece position
         new_piece_position = self.__current_piece_position
         new_piece_rotation = self.__current_piece_rotation
@@ -465,11 +485,12 @@ class TetrisGameLogic:
             self.__ticks_since_last_move_down = 0
 
         # Check if the new piece position is valid
-        if direction == Direction.DROP or self.__can_move_piece(new_piece_position):
+        if (direction == Direction.DROP
+                or self.__can_move_piece(new_piece_position)):
             self.__current_piece_position = new_piece_position
             self.__current_piece_rotation = new_piece_rotation
         elif direction in (Direction.ROTATE_LEFT, Direction.ROTATE_RIGHT):
-            # Try moving the piece left 
+            # Try moving the piece left
             new_piece_position = tuple(
                 (x_pos - 1, y_pos)
                 for x_pos, y_pos in new_piece_position
@@ -482,7 +503,8 @@ class TetrisGameLogic:
         if (direction == Direction.DROP
             or ((direction == Direction.FAST_DOWN
                  or forced_down)
-                and not self.__can_move_piece_down(self.__current_piece_position))):
+                and not self.__can_move_piece_down(
+                    self.__current_piece_position))):
             self.__land_piece()
 
         # Set the ghost piece position
@@ -491,7 +513,7 @@ class TetrisGameLogic:
     def store_piece(self) -> None:
         """Store the current piece."""
         if (not self.allow_store_piece
-            or not self.__playing
+                or not self.__playing
                 or self.__game_over
                 or self.__paused):
             return
@@ -506,16 +528,25 @@ class TetrisGameLogic:
 
         self.__set_initial_piece_position_and_rotation()
 
-    def __can_move_piece(self, piece_position: tuple[tuple[int, int], ...]) -> bool:
+    def __can_move_piece(
+        self,
+        piece_position: tuple[tuple[int, int], ...]
+    ) -> bool:
         """Check if the piece can move to the given position."""
         for x_pos, y_pos in piece_position:
-            if x_pos < 0 or x_pos >= self.__board_size[0] or y_pos < 0 or y_pos >= self.__board_size[1]:
+            if (x_pos < 0
+                    or x_pos >= self.__board_size[0]
+                    or y_pos < 0
+                    or y_pos >= self.__board_size[1]):
                 return False
             if self.__board_cells[y_pos][x_pos] != PieceColor.WHITE:
                 return False
         return True
 
-    def __can_move_piece_down(self, piece_position: tuple[tuple[int, int], ...]) -> bool:
+    def __can_move_piece_down(
+        self,
+        piece_position: tuple[tuple[int, int], ...]
+    ) -> bool:
         """Check if the piece can move down."""
         return self.__can_move_piece(tuple(
             (x_pos, y_pos + 1)
@@ -524,9 +555,18 @@ class TetrisGameLogic:
 
     def __land_piece(self) -> None:
         """Land the current piece."""
+        if self.__current_piece is None:
+            raise AloyGameInternalError(
+                "Current piece was None when trying to land piece.")
+
+        if self.__current_piece_position is None:
+            raise AloyGameInternalError(
+                "Current piece position was None when trying to land piece.")
+
         # Fix the current piece position on the board.
         for x_pos, y_pos in self.__current_piece_position:
-            self.__board_cells[y_pos][x_pos] = PIECE_COLOURS[self.__current_piece]
+            color = PIECE_COLOURS[self.__current_piece]
+            self.__board_cells[y_pos][x_pos] = color
 
         # Set the current piece to the next piece and get a new next piece.
         self.__current_piece = self.__next_piece
@@ -544,8 +584,16 @@ class TetrisGameLogic:
         """
         Clear any lines that have been filled.
 
-        Updat the score, level, lines filled, and pieces used.
+        Update the score, level, lines filled, and pieces used.
         """
+        if self.__current_piece is None:
+            raise AloyGameInternalError(
+                "Current piece was None when trying to land piece.")
+
+        if self.__current_piece_position is None:
+            raise AloyGameInternalError(
+                "Current piece position was None when trying to land piece.")
+
         lines_filled = 0
         for index, row in enumerate(self.__board_cells):
             if all(cell != PieceColor.WHITE for cell in row):
@@ -570,6 +618,10 @@ class TetrisGameLogic:
 
     def __set_initial_piece_position_and_rotation(self) -> None:
         """Set the initial position and rotation of the current piece."""
+        if self.__current_piece is None:
+            raise AloyGameInternalError(
+                "Current piece was None when trying to set initial piece "
+                "position and rotation.")
         self.__current_piece_position = tuple(
             (x_pos + (self.__board_size[0] // 2) - 1, y_pos)
             for x_pos, y_pos in PIECE_SHAPES[self.__current_piece][0]
@@ -579,6 +631,10 @@ class TetrisGameLogic:
     def __set_ghost_piece_position(self) -> None:
         """Set the ghost piece position."""
         if self.ghost_piece_enabled:
+            if self.__current_piece_position is None:
+                raise AloyGameInternalError(
+                    "Current piece position was None when trying to set ghost "
+                    "piece position.")
             ghost_piece_position = self.__current_piece_position
             while self.__can_move_piece_down(ghost_piece_position):
                 ghost_piece_position = tuple(
@@ -657,12 +713,13 @@ class TetrisGameAloyWidget(AloyWidget):
             raise ValueError("Widget size must be divisible by board size")
 
         # Size of an individual cell
-        _SPACING: int = 5
-        _WIDTH_SIZE_RATIO: float = (1.0 - (3 / (board_size[0] + 3)))
+        _spacing: int = 5
+        _width_size_ratio: float = (1.0 - (3 / (board_size[0] + 3)))
+        _width: int = int((widget_size[0] - _spacing) * _width_size_ratio)
+        _height: int = widget_size[1]
         self.__cell_size: tuple[int, int] = (
-            ((self.size.width - _SPACING)
-             * _WIDTH_SIZE_RATIO) // board_size[0],
-            self.size.height // board_size[1]
+            _width // board_size[0],
+            _height // board_size[1]
         )
 
         # Set up the game logic
@@ -683,7 +740,7 @@ class TetrisGameAloyWidget(AloyWidget):
         # Widget and layout
         self.__layout = QtWidgets.QGridLayout()
         self.__layout.setContentsMargins(0, 0, 0, 0)
-        self.__layout.setSpacing(_SPACING)
+        self.__layout.setSpacing(_spacing)
         self.qwidget.setLayout(self.__layout)
         self.qwidget.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Expanding,
@@ -691,9 +748,9 @@ class TetrisGameAloyWidget(AloyWidget):
         )
         self.qwidget.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
 
-        side_bar_width: int = (
-            (self.size.width - _SPACING)
-            * (1.0 - _WIDTH_SIZE_RATIO)
+        side_bar_width: int = int(
+            (widget_size[0] - _spacing)
+            * (1.0 - _width_size_ratio)
         )
 
         # Next and stored piece widgets
@@ -852,7 +909,8 @@ class TetrisGameAloyWidget(AloyWidget):
         )
 
         # Add speed slider
-        self.__speed_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self.__speed_slider = QtWidgets.QSlider(
+            QtCore.Qt.Orientation.Horizontal)
         self.__speed_slider.setRange(0, 10)
         self.__speed_slider.setValue(5)
         self.__speed_slider.setTickPosition(
@@ -897,15 +955,16 @@ class TetrisGameAloyWidget(AloyWidget):
 
         # Tetris grid display widget
         display_widget, graphics_scene = self.__create_display(
-            (self.size.width - _SPACING)
-            * _WIDTH_SIZE_RATIO,
-            self.size.height
+            (self.size.width - _spacing)  # type: ignore[union-attr]
+            * _width_size_ratio,
+            self.size.height  # type: ignore[union-attr]
         )
         self.__scene = graphics_scene
         self.__layout.addWidget(display_widget, 0, 1, 5, 1)
 
         # Set up the key press event
-        self.qwidget.keyPressEvent = self.__key_press_event
+        event = self.__key_press_event
+        self.qwidget.keyPressEvent = event  # type: ignore[assignment]
 
         self._logic.restart()
         if not manual_update:
@@ -990,8 +1049,10 @@ class TetrisGameAloyWidget(AloyWidget):
         self.__draw_grid()
         self.__draw_ghost_piece()
         self.__draw_piece()
-        self.__next_piece_widget.draw_piece(self._logic.next_piece)
-        self.__stored_piece_widget.draw_piece(self._logic.stored_piece)
+        self.__next_piece_widget.draw_piece(
+            self._logic.next_piece)  # type: ignore[arg-type]
+        self.__stored_piece_widget.draw_piece(
+            self._logic.stored_piece)  # type: ignore[arg-type]
         if self.debug:
             self.__draw_debug()
         if self._logic.game_over:
@@ -1032,7 +1093,11 @@ class TetrisGameAloyWidget(AloyWidget):
                     self.__cell_size[0],
                     self.__cell_size[1],
                     QtGui.QPen(QtGui.QColor("black")),
-                    QtGui.QBrush(QtGui.QColor(PIECE_COLOURS[piece].value).lighter(150))
+                    QtGui.QBrush(
+                        QtGui.QColor(
+                            PIECE_COLOURS[piece].value  # type: ignore[index]
+                        ).lighter(150)
+                    )
                 )
 
     def __draw_piece(self) -> None:
@@ -1047,7 +1112,11 @@ class TetrisGameAloyWidget(AloyWidget):
                     self.__cell_size[0],
                     self.__cell_size[1],
                     QtGui.QPen(QtGui.QColor("black")),
-                    QtGui.QBrush(QtGui.QColor(PIECE_COLOURS[piece].value))
+                    QtGui.QBrush(
+                        QtGui.QColor(
+                            PIECE_COLOURS[piece].value  # type: ignore[index]
+                        )
+                    )
                 )
 
     def __draw_debug(self) -> None:
@@ -1122,11 +1191,13 @@ class TetrisGameAloyWidget(AloyWidget):
         self.__score_value_label.setText(str(self._logic.score))
         self.__level_value_label.setText(str(self._logic.level))
         for lines_type, num_lines in self._logic.lines_filled.items():
-            self.__lines_cleared_value_labels[lines_type].setText(str(num_lines))
+            self.__lines_cleared_value_labels[lines_type].setText(
+                str(num_lines))
         for piece_type, num_pieces in self._logic.pieces_used.items():
             if isinstance(piece_type, Piece):
                 piece_type = piece_type.value
-            self.__pieces_used_value_labels[piece_type].setText(str(num_pieces))
+            self.__pieces_used_value_labels[piece_type].setText(
+                str(num_pieces))
 
 
 class TetrisPieceWidget(QtWidgets.QWidget):
@@ -1193,14 +1264,14 @@ def play_tetris_game(
     qapp = QtWidgets.QApplication([])
     qtimer = QtCore.QTimer()
 
-    jdata = AloySystemData(
+    aloy_data = AloySystemData(
         name="Tetris GUI Data",
         clock=qtimer,
         debug=debug
     )
-    jgui = AloyGuiWindow(
+    aloy_gui = AloyGuiWindow(
         qapp=qapp,
-        data=jdata,
+        data=aloy_data,
         name="Tetris GUI Window",
         size=size,
         kind=None,
@@ -1208,11 +1279,11 @@ def play_tetris_game(
     )
 
     tetris_qwidget = QtWidgets.QWidget()
-    tetris_game_jwidget = TetrisGameAloyWidget(
+    tetris_game_aloy_widget = TetrisGameAloyWidget(
         tetris_qwidget, size, (10, 20), debug=debug
     )
 
-    jgui.add_view(tetris_game_jwidget)
+    aloy_gui.add_view(tetris_game_aloy_widget)
 
-    jgui.qwindow.show()
+    aloy_gui.qwindow.show()
     sys.exit(qapp.exec())
