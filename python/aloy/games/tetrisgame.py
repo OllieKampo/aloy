@@ -17,6 +17,7 @@
 import enum
 import random
 import sys
+from typing import overload
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -270,29 +271,29 @@ class TetrisGameLogic:
 
     def __init__(
         self,
-        cells_grid_size: tuple[int, int],
+        board_size: tuple[int, int],
         manual_udpate: bool = False
     ) -> None:
         """Initialize the tetris game logic."""
-        if not isinstance(cells_grid_size, tuple):
+        if not isinstance(board_size, tuple):
             raise TypeError("The grid size must be a tuple. "
-                            f"Got; {type(cells_grid_size)!r}.")
-        if len(cells_grid_size) != 2:
+                            f"Got; {type(board_size)!r}.")
+        if len(board_size) != 2:
             raise ValueError("The grid size must be a tuple of length 2. "
-                             f"Got; {len(cells_grid_size)}.")
-        if any(size <= 0 for size in cells_grid_size):
+                             f"Got; {len(board_size)}.")
+        if any(size <= 0 for size in board_size):
             raise ValueError("The grid size must be positive. "
-                             f"Got; {cells_grid_size}.")
+                             f"Got; {board_size}.")
 
         # Actions
         self.__direction = AtomicObject[Direction](_INITIAL_DIRECTION)
 
         # Game state
         self.__playing = False
-        self.__board_size = cells_grid_size
+        self.__board_size = board_size
         self.__board_cells: list[list[PieceColor]] = [
-            [PieceColor.WHITE for _ in range(cells_grid_size[0])]
-            for _ in range(cells_grid_size[1])
+            [PieceColor.WHITE for _ in range(board_size[0])]
+            for _ in range(board_size[1])
         ]
         self.__score: int = _INITIAL_SCORE
         self.__level: int = _INITIAL_LEVEL
@@ -681,12 +682,34 @@ class TetrisGameAloyWidget(AloyWidget):
     A class to represent the tetris game on a Aloy widget.
     """
 
+    @overload
     def __init__(
         self,
         parent: QtWidgets.QWidget,
         widget_size: tuple[int, int],
-        board_size: tuple[int, int],
-        tetris_game_logic: TetrisGameLogic | None = None,
+        board_size: tuple[int, int], *,
+        manual_update: bool = False,
+        debug: bool = False
+    ) -> None:
+        ...
+
+    @overload
+    def __init__(
+        self,
+        parent: QtWidgets.QWidget,
+        widget_size: tuple[int, int],
+        tetris_game_logic: TetrisGameLogic, *,
+        manual_update: bool = False,
+        debug: bool = False
+    ) -> None:
+        ...
+
+    def __init__(
+        self,
+        parent: QtWidgets.QWidget,
+        widget_size: tuple[int, int],
+        board_size: tuple[int, int] | None = None,
+        tetris_game_logic: TetrisGameLogic | None = None, *,
         manual_update: bool = False,
         debug: bool = False
     ) -> None:
@@ -702,9 +725,23 @@ class TetrisGameAloyWidget(AloyWidget):
             ),
             debug=debug
         )
-        if (board_size[0] <= 0
-                or board_size[1] <= 0):
-            raise ValueError("Board size must be positive")
+
+        # Set up the game logic
+        self._logic: TetrisGameLogic
+        if tetris_game_logic is None:
+            if board_size is None:
+                raise ValueError("Board size must be given if game logic is "
+                                 "not given.")
+            self._logic = TetrisGameLogic(board_size)
+        else:
+            self._logic = tetris_game_logic
+            if board_size is not None and board_size != self._logic.board_size:
+                raise ValueError("Board size must be the same as the game "
+                                 "logic board size.")
+            else:
+                board_size = self._logic.board_size
+
+        # Check the widget size is valid
         if (widget_size[0] < board_size[0]
                 or widget_size[1] < board_size[1]):
             raise ValueError("Widget size must be greater than board size")
@@ -721,14 +758,6 @@ class TetrisGameAloyWidget(AloyWidget):
             _width // board_size[0],
             _height // board_size[1]
         )
-
-        # Set up the game logic
-        self._logic: TetrisGameLogic
-        if tetris_game_logic is None:
-            self._logic = TetrisGameLogic(board_size)
-        else:
-            self._logic = tetris_game_logic
-            self._logic.board_size = board_size
 
         # Set up the timer to update the game
         self.__manual_update: bool = manual_update
@@ -1256,6 +1285,8 @@ class TetrisPieceWidget(QtWidgets.QWidget):
 def play_tetris_game(
     width: int,
     height: int,
+    ghost_piece_enabled: bool = _DEFAULT_GHOST_PIECE_ENABLED,
+    allow_store_piece: bool = _DEFAULT_ALLOW_STORE_PIECE,
     debug: bool = False
 ) -> None:
     """Play the tetris game."""
@@ -1279,8 +1310,18 @@ def play_tetris_game(
     )
 
     tetris_qwidget = QtWidgets.QWidget()
+    tetris_game_logic = TetrisGameLogic(
+        board_size=(10, 20)
+    )
+    tetris_game_logic.ghost_piece_enabled = ghost_piece_enabled
+    tetris_game_logic.allow_store_piece = allow_store_piece
+
     tetris_game_aloy_widget = TetrisGameAloyWidget(
-        tetris_qwidget, size, (10, 20), debug=debug
+        parent=tetris_qwidget,
+        widget_size=size,
+        board_size=(10, 20),
+        tetris_game_logic=tetris_game_logic,
+        debug=debug
     )
 
     aloy_gui.add_view(tetris_game_aloy_widget)
