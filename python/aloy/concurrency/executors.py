@@ -9,6 +9,7 @@ import types
 from typing import Any, Callable, Iterable, ParamSpec, TypeVar, final
 
 import urllib.request
+from PySide6.QtCore import QThreadPool, QRunnable, QObject, Signal, Slot
 
 from aloy.concurrency.atomic import AtomicNumber
 
@@ -17,8 +18,71 @@ SP = ParamSpec("SP")
 ST = TypeVar("ST")
 
 
+@final
+class _AloyQRunnableSignals(QObject):
+    """Signals emitted by the _AloyQRunnable class."""
+
+    start = Signal()
+    result = Signal(object)
+    error = Signal(tuple[Any, ...])
+
+
+@final
+class _AloyQRunnable(QRunnable):
+    def __init__(
+        self,
+        func: Callable[SP, ST],
+        *args: SP.args,
+        **kwargs: SP.kwargs
+    ) -> None:
+        super().__init__()
+        self.__func = func
+        self.__args = args
+        self.__kwargs = kwargs
+        self._signals = _AloyQRunnableSignals()
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            self._signals.start.emit()
+            result = self.__func(*self.__args, **self.__kwargs)
+        except Exception as exc:  # pylint: disable=broad-except
+            self._signals.error.emit(exc)
+        else:
+            self._signals.result.emit(result)
+
+
+@final
+class AloyQThreadPoolExecutor:
+    """An executor that calls functions on a QThread."""
+
+    def __init__(self, max_workers: int | None = None) -> None:
+        self.__thread_pool = QThreadPool()
+        self.__thread_pool.setMaxThreadCount(max_workers or 1)
+
+    def submit(
+        self,
+        func: Callable[SP, ST],
+        *args: SP.args,
+        start_callback: Callable[[], None] | None = None,
+        result_callback: Callable[[ST], None] | None = None,
+        error_callback: Callable[[tuple[Any, ...]], None] | None = None,
+        **kwargs: SP.kwargs
+    ) -> None:
+        runnable = _AloyQRunnable(func, *args, **kwargs)
+        # pylint: disable=protected-access
+        if start_callback is not None:
+            runnable._signals.start.connect(start_callback)
+        if result_callback is not None:
+            runnable._signals.result.connect(result_callback)
+        if error_callback is not None:
+            runnable._signals.error.connect(error_callback)
+        # pylint: enable=protected-access
+        self.__thread_pool.start(runnable)
+
+
 @dataclass(frozen=True)
-class Job:
+class AloyThreadJob:
     """A class that represents a job submitted to a thread pool."""
 
     name: str | None
@@ -32,7 +96,7 @@ class Job:
 
 
 @dataclass(frozen=True)
-class FinishedJob(Job):
+class AloyThreadFinishedJob(AloyThreadJob):
     """A class that represents a job that has finished execution."""
     elapsed_time: float | None = field(default=None, hash=False)
 
@@ -80,8 +144,8 @@ class AloyThreadPool:
         self.__max_workers: int = 1
         if max_workers is not None:
             self.__max_workers = max_workers
-        self.__submitted_jobs: dict[Future, Job] = {}
-        self.__finished_jobs: dict[Future, FinishedJob] = {}
+        self.__submitted_jobs: dict[Future, AloyThreadJob] = {}
+        self.__finished_jobs: dict[Future, AloyThreadFinishedJob] = {}
         self.__queued_jobs = AtomicNumber[int](0)
         self.__active_threads = AtomicNumber[int](0)
 
@@ -155,7 +219,7 @@ class AloyThreadPool:
             )
 
         future = self.__thread_pool.submit(func, *args, **kwargs)
-        self.__submitted_jobs[future] = Job(
+        self.__submitted_jobs[future] = AloyThreadJob(
             name=name,
             func=func,
             args=args,
@@ -168,7 +232,7 @@ class AloyThreadPool:
 
     def __callback(self, future: Future) -> None:
         """Callback function for when a job finishes execution."""
-        job: Job = self.__submitted_jobs.pop(future)
+        job: AloyThreadJob = self.__submitted_jobs.pop(future)
         if self.__log:
             self.__logger.debug(
                 "%s: Job %s -> %s(*%s, **%s) finished",
@@ -179,7 +243,7 @@ class AloyThreadPool:
         if self.__profile:
             elapsed_time = time.perf_counter() - job.start_time  # type: ignore
 
-        self.__finished_jobs[future] = FinishedJob(  # type: ignore
+        self.__finished_jobs[future] = AloyThreadFinishedJob(  # type: ignore
             *job,
             elapsed_time=elapsed_time
         )
@@ -189,14 +253,17 @@ class AloyThreadPool:
             if self.__queued_jobs.get_obj() < self.__max_workers:
                 self.__active_threads -= 1
 
-    def get_job(self, future: Future) -> Job | FinishedJob:
+    def get_job(self, future: Future) -> AloyThreadJob | AloyThreadFinishedJob:
         """Returns the job associated with the given future."""
         if future in self.__finished_jobs:
             return self.__finished_jobs[future]
         return self.__submitted_jobs.pop(future)
 
     @staticmethod
-    def __result_or_cancel(future_: Future, timeout: float | None = None) -> None:
+    def __result_or_cancel(
+        future_: Future,
+        timeout: float | None = None
+    ) -> None:
         try:
             try:
                 return future_.result(timeout)
