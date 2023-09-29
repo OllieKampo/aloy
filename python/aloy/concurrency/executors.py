@@ -3,6 +3,7 @@ from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, fields, field
 import functools
 import logging
+import os
 import threading
 import time
 import types
@@ -29,38 +30,65 @@ class _AloyQRunnableSignals(QObject):
 
 @final
 class _AloyQRunnable(QRunnable):
+    """A QRunnable that calls a function."""
+
+    __slots__ = {
+        "__func": "The function to call.",
+        "__args": "The positional arguments to pass to the function.",
+        "__kwargs": "The keyword arguments to pass to the function.",
+        "_signals": "The signals emitted by the runnable."
+    }
+
     def __init__(
         self,
         func: Callable[SP, ST],
         *args: SP.args,
+        add_signals: bool,
         **kwargs: SP.kwargs
     ) -> None:
         super().__init__()
         self.__func = func
         self.__args = args
         self.__kwargs = kwargs
-        self._signals = _AloyQRunnableSignals()
+        if add_signals:
+            self._signals = _AloyQRunnableSignals()
+        else:
+            self._signals = None
 
     @Slot()
     def run(self) -> None:
-        try:
-            self._signals.start.emit()
-            result = self.__func(*self.__args, **self.__kwargs)
-        except Exception as exc:  # pylint: disable=broad-except
-            self._signals.error.emit(exc)
+        if self._signals is None:
+            self.__func(*self.__args, **self.__kwargs)
         else:
-            self._signals.result.emit(result)
+            try:
+                self._signals.start.emit()
+                result = self.__func(*self.__args, **self.__kwargs)
+            except Exception as exc:  # pylint: disable=broad-except
+                self._signals.error.emit(exc)
+            else:
+                self._signals.result.emit(result)
 
 
 @final
-class AloyQThreadPoolExecutor:
+class AloyQThreadPool:
     """An executor that calls functions on a QThread."""
 
     def __init__(self, max_workers: int | None = None) -> None:
+        if max_workers is None:
+            max_workers = os.cpu_count()
         self.__thread_pool = QThreadPool()
-        self.__thread_pool.setMaxThreadCount(max_workers or 1)
+        self.__thread_pool.setMaxThreadCount(max_workers)
 
     def submit(
+        self,
+        func: Callable[SP, ST],
+        *args: SP.args,
+        **kwargs: SP.kwargs
+    ) -> None:
+        runnable = _AloyQRunnable(func, *args, add_signals=False, **kwargs)
+        self.__thread_pool.start(runnable)
+
+    def submit_with_callbacks(
         self,
         func: Callable[SP, ST],
         *args: SP.args,
@@ -69,7 +97,7 @@ class AloyQThreadPoolExecutor:
         error_callback: Callable[[tuple[Any, ...]], None] | None = None,
         **kwargs: SP.kwargs
     ) -> None:
-        runnable = _AloyQRunnable(func, *args, **kwargs)
+        runnable = _AloyQRunnable(func, *args, add_signals=True, **kwargs)
         # pylint: disable=protected-access
         if start_callback is not None:
             runnable._signals.start.connect(start_callback)
@@ -187,6 +215,12 @@ class AloyThreadPool:
 
     @property
     def is_busy(self) -> bool:
+        """
+        Return True if the thread pool is busy, False otherwise.
+
+        A thread pool is considered busy if all of its workers are actively
+        executing a job.
+        """
         return self.__active_threads.get_obj() == self.__max_workers
 
     def submit(
