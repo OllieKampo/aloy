@@ -600,7 +600,7 @@ class SynchronizedMeta(type):
     def __new__(
         cls,
         cls_name: str,
-        bases: tuple[str, ...],
+        bases: tuple[typing.Type, ...],
         class_dict: dict[str, typing.Any]
     ) -> type:
         """
@@ -703,9 +703,11 @@ class SynchronizedMeta(type):
                     find_cycle=True,
                     raise_=False
                 )
-                if (path is not None
-                        and (path := set(path[:-1]))):  # pylint: disable=unsubscriptable-object
-                    if looped_methods := (method_locked_methods & path):
+                if path is None:
+                    continue
+                path_set = set(path)
+                if path_set:
+                    if looped_methods := (method_locked_methods & path_set):
                         loop_lock_numbers.reversed_set(
                             loop_lock_number_current,
                             *looped_methods
@@ -715,7 +717,8 @@ class SynchronizedMeta(type):
                             if looped_method in method_locked_methods_groups:
                                 lock_method_group = set(
                                     method_locked_methods_groups.reversed_pop(
-                                        method_locked_methods_groups[looped_method]
+                                        method_locked_methods_groups[looped_method],
+                                        ()
                                     )
                                 )
                                 loop_lock_numbers.reversed_set(
@@ -724,7 +727,7 @@ class SynchronizedMeta(type):
                                 )
                                 looped_methods -= lock_method_group
                         loop_lock_number_current += 1
-                    frontier -= path
+                    frontier -= path_set
 
         # Wrap the init method to ensure instances get the lock attributes.
         original_init = class_dict["__init__"]
@@ -789,7 +792,8 @@ class SynchronizedMeta(type):
             if method_name in self.__method_locks__:
                 return self.__method_locks__[method_name].is_locked
             else:
-                raise AttributeError(f"Method '{method_name}' is not method-locked.")
+                raise AttributeError(
+                    f"Method '{method_name}' is not method-locked.")
         class_dict["is_method_locked"] = is_method_locked
         class_dict["lockable_methods"] = property(lambda self: tuple(self.__method_locks__.keys()))
 
@@ -804,7 +808,7 @@ class SynchronizedMeta(type):
 
     def __dir__(self) -> typing.Iterable[str]:
         """Return the attributes of the class."""
-        return super().__dir__() + [
+        return list(super().__dir__()) + [
             "is_instance_locked",
             "is_method_locked",
             "lockable_methods",

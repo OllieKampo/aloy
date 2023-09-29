@@ -283,9 +283,9 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
         self.__listeners = TwoWayMap[Listener, str]()
         self.__callbacks = TwoWayMap[Callable[..., None], str]()
         self.__executor = AloyThreadPool(
-            pool_name="PubSubHub :: Thread Pool Executor",
+            pool_name="Subject :: Thread Pool Executor",
             max_workers=max(max_workers, 1),
-            thread_name_prefix="PubSubHub :: Thread Pool Executor :: Thread",
+            thread_name_prefix="Subject :: Thread Pool Executor :: Thread",
             profile=bool(profile),
             log=bool(log)
         )

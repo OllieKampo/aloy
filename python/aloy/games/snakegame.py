@@ -929,7 +929,13 @@ class SnakeGameAloyWidget(AloyWidget):
             path.append((path[-1][0], path[-1][1] + add_y))
         if not self._logic.walls:
             for index, step in enumerate(path):
-                path[index] = vector_cast(vector_modulo(step, self._logic.grid_size), int)
+                path[index] = vector_cast(
+                    vector_modulo(
+                        step,
+                        self._logic.grid_size
+                    ),
+                    int
+                )
         return path
 
     def __draw_food(self) -> None:
@@ -1258,6 +1264,8 @@ class SnakeGameOptionsAloyWidget(AloyWidget):
 def play_snake_game(
     width: int,
     height: int,
+    walls: bool = _DEFAULT_WALLS,
+    show_path: bool = _DEFAULT_SHOW_PATH,
     debug: bool = False
 ) -> None:
     """Play the snake game."""

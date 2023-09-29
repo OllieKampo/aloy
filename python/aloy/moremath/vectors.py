@@ -79,7 +79,7 @@ def vector_cross(
 ) -> list[float]:
     """
     Cross two vectors together.
- 
+
     The cross product of two vectors is a vector perpendicular to both.
     This is only valid for 3D vectors.
     """
@@ -375,7 +375,12 @@ def vector_refraction(
     dot = vector_dot(vector, normal)
     return vector_subtract(
         vector_multiply(vector, ratio),
-        vector_multiply(normal, ratio * dot + math.sqrt(1.0 - ratio ** 2 * (1.0 - dot ** 2)))
+        vector_multiply(
+            normal,
+            ratio * dot + math.sqrt(
+                1.0 - ratio ** 2 * (1.0 - dot ** 2)
+            )
+        )
     )
 
 
