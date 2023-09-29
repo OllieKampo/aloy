@@ -1,26 +1,20 @@
-###########################################################################
-###########################################################################
-## Module containing classes defining mutable atomic objects.            ##
-##                                                                       ##
-## Copyright (C) 2023 Oliver Michael Kamperis                            ##
-##                                                                       ##
-## This program is free software: you can redistribute it and/or modify  ##
-## it under the terms of the GNU General Public License as published by  ##
-## the Free Software Foundation, either version 3 of the License, or     ##
-## any later version.                                                    ##
-##                                                                       ##
-## This program is distributed in the hope that it will be useful,       ##
-## but WITHOUT ANY WARRANTY; without even the implied warranty of        ##
-## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          ##
-## GNU General Public License for more details.                          ##
-##                                                                       ##
-## You should have received a copy of the GNU General Public License     ##
-## along with this program. If not, see <https://www.gnu.org/licenses/>. ##
-###########################################################################
-###########################################################################
+###############################################################################
+# Copyright (C) 2023 Oliver Michael Kamperis
+# Email: olliekampo@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Module containing classes defining mutable atomic objects.
+Module containing classes mutable atomic object types.
 
 Atomic objects are thread-safe objects whose updates are atomic.
 They are useful for concurrent programming, where multiple threads
@@ -44,9 +38,11 @@ from typing import (
     Mapping, ParamSpec, TypeVar, final, overload
 )
 from aloy.concurrency.synchronization import OwnedRLock
+from aloy.datastructures.views import DictView, ListView, SetView
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
+__version__ = "0.1.0"
 
 __all__ = (
     "AloyAtomicObjectError",
@@ -416,9 +412,9 @@ class AtomicList(_Atomic[list[LT]], collections.abc.MutableSequence):
             self.__list = []
 
     @_atomic_require_lock
-    def get_obj(self) -> list[LT]:
-        """Returns the current list."""
-        return self.__list
+    def get_obj(self) -> ListView[LT]:
+        """Returns a view of the current list."""
+        return ListView(self.__list)
 
     @_atomic_require_context
     def set_obj(self, value: Iterable[LT], /) -> None:
@@ -567,14 +563,28 @@ class AtomicDict(_Atomic[dict[KT, VT]], collections.abc.MutableMapping):
         "__dict": "The wrapped dictionary."
     }
 
-    def __init__(self, mapping: Mapping[KT, VT]) -> None:
+    @overload
+    def __init__(self) -> None:
+        """Create a new empty atomic dict."""
+        ...
+
+    @overload
+    def __init__(self, __mapping: Iterable[LT], /) -> None:
+        """Create a new atomic dict with given initial value."""
+        ...
+
+    def __init__(self, __mapping: Mapping[KT, VT] | None = None, /) -> None:
         super().__init__()
-        self.__dict: dict[KT, VT] = dict(mapping)
+        self.__dict: dict[KT, VT]
+        if __mapping is None:
+            self.__dict = {}
+        else:
+            self.__dict = dict(__mapping)
 
     @_atomic_require_lock
-    def get_obj(self) -> dict[KT, VT]:
-        """Returns the current dictionary."""
-        return self.__dict
+    def get_obj(self) -> DictView[KT, VT]:
+        """Returns a view of the current dictionary."""
+        return DictView(self.__dict)
 
     @_atomic_require_context
     def set_obj(self, value: Mapping[KT, VT], /) -> None:
@@ -616,9 +626,23 @@ class AtomicSet(_Atomic[set[ET]], collections.abc.MutableSet):
         "__set": "The wrapped set."
     }
 
-    def __init__(self, iterable: Iterable[ET]) -> None:
+    @overload
+    def __init__(self) -> None:
+        """Create a new empty atomic set."""
+        ...
+
+    @overload
+    def __init__(self, __iterable: Iterable[LT], /) -> None:
+        """Create a new atomic set with given initial value."""
+        ...
+
+    def __init__(self, __iterable: Iterable[ET] | None = None, /) -> None:
         super().__init__()
-        self.__set: set[ET] = set(iterable)
+        self.__set: set[ET]
+        if __iterable is None:
+            self.__set = set()
+        else:
+            self.__set = set(__iterable)
 
     def __str__(self) -> str:
         return f"AtomicSet: {self.__set!s}"
@@ -627,9 +651,9 @@ class AtomicSet(_Atomic[set[ET]], collections.abc.MutableSet):
         return f"AtomicSet({self.__set!r})"
 
     @_atomic_require_lock
-    def get_obj(self) -> set[ET]:
-        """Returns the current set."""
-        return self.__set
+    def get_obj(self) -> SetView[ET]:
+        """Returns a view of the current set."""
+        return SetView(self.__set)
 
     @_atomic_require_context
     def set_obj(self, value: Iterable[ET], /) -> None:
@@ -655,18 +679,3 @@ class AtomicSet(_Atomic[set[ET]], collections.abc.MutableSet):
     @_atomic_require_context
     def discard(self, value: ET) -> None:
         self.__set.discard(value)
-
-
-if __name__ == "__main__":
-    atomic_object = AtomicList[int]([1, 2, 3])
-    print(atomic_object)
-    try:
-        with atomic_object:
-            atomic_object.append(4)
-            atomic_object.append(5)
-            atomic_object.append(6)
-        print(atomic_object.get_obj())
-        atomic_object.append(7)
-        print(atomic_object.get_obj())
-    except AloyAtomicObjectError:
-        print("Error")
