@@ -1,5 +1,6 @@
+###############################################################################
 # Copyright (C) 2023 Oliver Michael Kamperis
-# Email: o.m.kamperis@gmail.com
+# Email: olliekampo@gmail.com
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
@@ -67,16 +68,19 @@ class PubSubHub(metaclass=SynchronizedMeta):
         self.__subscribers_topics = AtomicDict[str, AtomicList[Callable]]()
         self.__topics = AtomicDict[str, AtomicList[str]]()
         self.__topics_updated = AtomicDict[str, int | None]()
+        self.__subscribers_params = AtomicDict[str, AtomicList[Callable]]()
+        self.__params = AtomicDict[str, tuple[Any, Any]]()
+        self.__params_updated = AtomicDict[str, bool]()
 
         # Threads for updating subscribers.
         self.__topic_updater_timer = QTimer()
         self.__topic_updater_timer.timeout.connect(
             self.__update_all_topic_subscribers)
         self.__topic_updater_timer.start(50)
-        # self.__parameter_updater_timer = QTimer()
-        # self.__parameter_updater_timer.timeout.connect(
-        #     self.__update_all_parameter_subscribers)
-        # self.__parameter_updater_timer.start(50)
+        self.__parameter_updater_timer = QTimer()
+        self.__parameter_updater_timer.timeout.connect(
+            self.__update_all_parameter_subscribers)
+        self.__parameter_updater_timer.start(50)
         self.__qthreadpool = AloyQThreadPool()
 
     def subscribe_topic(
@@ -124,12 +128,10 @@ class PubSubHub(metaclass=SynchronizedMeta):
         with self.__topics:
             if topic_name not in self.__topics:
                 self.__topics[topic_name] = AtomicList[str]()
-                with self.__topics_updated:
-                    self.__topics_updated[topic_name] = None
-        with (topic_messages := self.__topics[topic_name]):
-            topic_messages.extend(messages)
+            with (topic_messages := self.__topics[topic_name]):
+                topic_messages.extend(messages)
             with self.__topics_updated:
-                if self.__topics_updated[topic_name] is None:
+                if self.__topics_updated.get(topic_name) is None:
                     self.__topics_updated[topic_name] = len(messages)
                 else:
                     self.__topics_updated[topic_name] += len(messages)
@@ -154,19 +156,83 @@ class PubSubHub(metaclass=SynchronizedMeta):
         existing_messages: list[str],
         new_messages: list[str]
     ) -> None:
+        """Update all subscribers of the given topic."""
         with (callback_funcs := self.__subscribers_topics[topic_name]):
             for func in callback_funcs:
                 func(topic_name, existing_messages, new_messages)
 
-    def subscribe_parameter(
+    def subscribe_param(
         self,
-        parameter_name: str,
+        param_name: str,
         callback: Callable[[str, Any, Any], None]
     ) -> None:
-        pass
+        """
+        Subscribe a callback function to the given parameter.
 
-    def publish_parameter(self, parameter_name: str, value: Any) -> None:
-        pass
+        The subscribed callback will be called when the parameter is changed by
+        a publisher.
+
+        The callback will be called with the following arguments:
+        - `param_name: str` - The name of the parameter.
+        - `old_value: Any` - The old value of the parameter.
+        - `new_value: Any` - The new value of the parameter.
+
+        Args:
+        -----
+        `param_name: str` - The name of the parameter to subscribe to.
+
+        `callback: Callable[[str, Any, Any], None]` - The callback function to
+        call when the parameter is changed.
+        """
+        with self.__subscribers_params:
+            if param_name not in self.__subscribers_params:
+                self.__subscribers_params[param_name] = AtomicList[Callable]()
+            with (callback_funcs := self.__subscribers_params[param_name]):
+                callback_funcs.append(callback)
+
+    def publish_param(self, param_name: str, value: Any) -> None:
+        """
+        Publish a value to the given parameter.
+
+        The value is set to the parameter value and all subscribed callback
+        functions are called with the new value.
+
+        Args:
+        -----
+        `param_name: str` - The name of the parameter to publish to.
+
+        `value: Any` - The value to publish to the parameter.
+        """
+        with self.__params:
+            if param_name not in self.__params:
+                self.__params[param_name] = (None, value)
+            else:
+                _, old_value = self.__params[param_name]
+                self.__params[param_name] = (old_value, value)
+            with self.__params_updated:
+                self.__params_updated[param_name] = True
+
+    def __update_all_parameter_subscribers(self) -> None:
+        """Update all subscribers of all parameters."""
+        with self.__params, self.__params_updated:
+            for param_name, value in self.__params.items():
+                if self.__params_updated[param_name]:
+                    self.__params_updated[param_name] = False
+                    self.__qthreadpool.submit(
+                        self.__update_parameter,
+                        param_name,
+                        value
+                    )
+
+    def __update_parameter(
+        self,
+        param_name: str,
+        value: tuple[Any, Any]
+    ) -> None:
+        """Update all subscribers of the given parameter."""
+        with (callback_funcs := self.__subscribers_params[param_name]):
+            for func in callback_funcs:
+                func(param_name, *value)
 
     def register_command_channel(
         self,
@@ -222,21 +288,28 @@ def subscribe_topic(topic_name: str) -> Any:
 def subscribe_parameter(field_name: str) -> Any:
     """Decorate a method to be called when a data field is changed."""
     def decorator(func: Any) -> Any:
-        _PUBSUBHUB.subscribe_parameter(field_name, func)
+        _PUBSUBHUB.subscribe_param(field_name, func)
         return func
     return decorator
 
-
-if __name__ == "__main__":
+def __main() -> None:
     import time
 
-    def callback(topic_name: str, all_messages: list[str], new_messages: list[str]) -> None:
+    def topic_callback(topic_name: str, all_messages: list[str], new_messages: list[str]) -> None:
         print(f"Topic '{topic_name}' updated with {new_messages}")
+    _PUBSUBHUB.subscribe_topic("test", topic_callback)
 
-    _PUBSUBHUB.subscribe_topic("test", callback)
+    def param_callback(param_name: str, old_value: Any, new_value: Any) -> None:
+        print(f"Parameter '{param_name}' updated from {old_value} to {new_value}")
+    _PUBSUBHUB.subscribe_param("test", param_callback)
 
     qtimer = QTimer()
-    qtimer.timeout.connect(lambda: _PUBSUBHUB.publish_topic("test", str(time.time())))
-    qtimer.start(20)
+    # qtimer.timeout.connect(lambda: _PUBSUBHUB.publish_topic("test", str(time.time())))
+    qtimer.timeout.connect(lambda: _PUBSUBHUB.publish_param("test", str(time.time())))
+    qtimer.start(1000)
 
     qapp.exec()
+
+
+if __name__ == "__main__":
+    __main()
