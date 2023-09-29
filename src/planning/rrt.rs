@@ -1,3 +1,5 @@
+use std::borrow::BorrowMut;
+
 use pyo3::prelude::*;
 use rand::Rng;
 
@@ -75,9 +77,9 @@ impl CostedTree {
         self.costs.clone()
     }
 
-    fn push(&mut self_: PyRef<'_, Self>, node: Vec<f64>) {
-        let mut self_ = self_.as_ref().borrow_mut();
-        self.costs.push(0.0);
+    fn push(&mut self, self_: PyRef<'_, Self>, node: Vec<f64>) {
+        let super_ = self_.into_super();
+        // TODO: super_.borrow_mut().push(node);
     }
 }
 
