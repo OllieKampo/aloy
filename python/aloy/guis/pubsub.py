@@ -24,7 +24,7 @@ updated or changed.
 
 from typing import Any, Callable, Final, Mapping
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer  # pylint: disable=no-name-in-module
 from PySide6 import QtWidgets
 
 from aloy.concurrency.atomic import AtomicDict, AtomicList
@@ -57,6 +57,26 @@ class PubSubHub(metaclass=SynchronizedMeta):
     publish messages to the same topic, and multiple subscribers can subscribe
     to the same topic.
     """
+
+    __slots__ = {
+        "__subscribers_topics": "Mapping between topic names and lists of "
+                                "callback functions subscribed to the topic.",
+        "__topics": "Mapping between topic names and lists of messages in the "
+                    "topic.",
+        "__topics_updated": "Mapping between topic names and the number of "
+                            "new messages in the topic.",
+        "__subscribers_params": "Mapping between parameter names and lists of "
+                                "callback functions subscribed to the "
+                                "parameter.",
+        "__params": "Mapping between parameter names and the old and new "
+                    "values of the parameter.",
+        "__params_updated": "Mapping between parameter names and whether the "
+                            "parameter has been updated.",
+        "__topic_updater_timer": "Timer for updating topic subscribers.",
+        "__parameter_updater_timer": "Timer for updating parameter "
+                                     "subscribers.",
+        "__qthreadpool": "Thread pool for updating subscribers."
+    }
 
     def __new__(cls) -> "PubSubHub":
         if not hasattr(cls, "__instance"):
@@ -242,21 +262,25 @@ class PubSubHub(metaclass=SynchronizedMeta):
         event_callbacks: Mapping[str, Mapping[str, type]]
     ) -> None:
         """
-        A command channel allows a publisher to send commands and receive
-        feedback and results to and from a subscriber, relayed via the hub.
+        A command channel allows a controller to receive commands and send
+        feedback states and results to an operator.
 
         A publisher can create and connect to a named channel on the hub. The
         connection requires the publisher to expose a signal that emits a
         command, and two slots, one for feedback and one for results. A
-        subscriber can connect to the same channel on the hub. The connection
-        requires the subscriber to expose a slot that receives a command, and
-        two signals, one for feedback and one for results. The hub will then
-        connect the publisher's command signal to the subscriber's command
-        slot, the subscriber's feedback signal to the publisher's feedback
-        slot, and the subscriber's results signal to the publisher's results
-        slot. The publisher can then send commands to the subscriber by
-        emitting the command signal, and the subscriber can send feedback and
-        results to the publisher by emitting the feedback and results signals,
+        subscriber can connect to the same channel on the hub.
+
+        The connection requires the subscriber to expose a slot that receives
+        a command, and two signals, one for feedback and one for results.
+
+        The hub will then connect the publisher's command signal to the
+        subscriber's command slot, the subscriber's feedback signal to the
+        publisher's feedback slot, and the subscriber's results signal to the
+        publisher's results slot.
+
+        The publisher can then send commands to the subscriber by emitting the
+        command signal, and the subscriber can send feedback and results to
+        the publisher by emitting the feedback and results signals,
         respectively. The hub will relay the signals from the publisher to the
         subscriber, and vice versa. Therefore the publisher and subscriber can
         communicate with each other without knowledge of each other's

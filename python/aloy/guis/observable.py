@@ -62,7 +62,7 @@ import functools
 import logging
 from typing import Any, Callable, Concatenate, ParamSpec, TypeVar, final
 import threading
-from PySide6.QtCore import QTimer  # pylint: disable=E0611
+from PySide6.QtCore import QTimer  # pylint: disable=no-name-in-module
 
 from aloy.concurrency.clocks import ClockThread
 from aloy.concurrency.synchronization import SynchronizedClass, sync
