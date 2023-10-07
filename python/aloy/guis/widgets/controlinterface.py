@@ -1,5 +1,6 @@
+###############################################################################
 # Copyright (C) 2023 Oliver Michael Kamperis
-# Email: o.m.kamperis@gmail.com
+# Email: olliekampo@gmail.com
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
@@ -19,7 +20,7 @@ control of robots.
 
 from PySide6 import QtWidgets, QtCore
 
-from guis.gui import (
+from aloy.guis.gui import (
     AloySystemData,
     AloyWidget,
     AloyWidgetSize,
@@ -27,7 +28,7 @@ from guis.gui import (
     scale_size,
     scale_size_for_grid
 )
-from robots.robotcontrol import AloyRobotControlData, AloyRobotControl
+from aloy.robots.robotcontrol import AloyRobotControlData, AloyRobotControl
 
 
 class EstopInterface(AloyWidget):
@@ -486,21 +487,21 @@ def __main() -> None:
     qwindow.resize(*size)
 
     qtimer = QtCore.QTimer()
-    jrobotcontrol = AloyRobotControl(qtimer=qtimer)
-    jrobotcontroldata = AloyRobotControlData(jrobotcontrol, clock=qtimer)
-    estop_jwidget = EstopInterface(
-        data=jrobotcontroldata,
+    arobotcontrol = AloyRobotControl(qtimer=qtimer)
+    arobotcontroldata = AloyRobotControlData(arobotcontrol, clock=qtimer)
+    estop_awidget = EstopInterface(
+        data=arobotcontroldata,
         size=scale_size(size, (1.0, 0.45))
     )
-    control_jwidget = DirectionalControlInterface(
-        data=jrobotcontroldata,
+    control_awidget = DirectionalControlInterface(
+        data=arobotcontroldata,
         size=scale_size(size, (1.0, 0.55))
     )
 
     combine_aloy_widgets(
-        jwidgets=[
-            estop_jwidget,
-            control_jwidget
+        awidgets=[
+            estop_awidget,
+            control_awidget
         ],
         kind="vertical",
         stretches=[1, 1],

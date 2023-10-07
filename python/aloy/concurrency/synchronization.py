@@ -1,23 +1,17 @@
-###########################################################################
-###########################################################################
-## Module containing functions and classes for synchronization.          ##
-##                                                                       ##
-## Copyright (C) 2022 Oliver Michael Kamperis                            ##
-##                                                                       ##
-## This program is free software: you can redistribute it and/or modify  ##
-## it under the terms of the GNU General Public License as published by  ##
-## the Free Software Foundation, either version 3 of the License, or     ##
-## any later version.                                                    ##
-##                                                                       ##
-## This program is distributed in the hope that it will be useful,       ##
-## but WITHOUT ANY WARRANTY; without even the implied warranty of        ##
-## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          ##
-## GNU General Public License for more details.                          ##
-##                                                                       ##
-## You should have received a copy of the GNU General Public License     ##
-## along with this program. If not, see <https://www.gnu.org/licenses/>. ##
-###########################################################################
-###########################################################################
+###############################################################################
+# Copyright (C) 2023 Oliver Michael Kamperis
+# Email: olliekampo@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
 
 """Module containing functions and classes for synchronization."""
 
@@ -238,11 +232,11 @@ def atomic_context(
 
     Parameters
     ----------
-    `context_name : str` - The name of the context.
+    `context_name: str` - The name of the context.
 
-    `cls : type | None = None` - The class of the context.
+    `cls: type | None = None` - The class of the context.
 
-    `inst : object | None = None` - The instance of the context.
+    `inst: object | None = None` - The instance of the context.
     If `cls` is not given or None and `inst` is not None,
     `cls` will be set to `inst.__class__`.
     """

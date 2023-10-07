@@ -77,6 +77,14 @@ def call_on_field_change(
 
 
 class Listener:
+    """
+    Class defining listeners.
+
+    A listener is an object that can be registered with a subject. When a
+    field of the subject changes, the listener is notified by calling its
+    `field_changed(source, field_name, old_value, new_value)` method.
+    """
+
     def field_changed(
         self,
         source: "Subject",
@@ -84,6 +92,19 @@ class Listener:
         old_value: Any,
         new_value: Any
     ) -> None:
+        """
+        Called when a field of the subject changes.
+
+        Parameters
+        ----------
+        `source: Subject` - The subject that changed.
+
+        `field_name: str` - The name of the field that changed.
+
+        `old_value: Any` - The old value of the field.
+
+        `new_value: Any` - The new value of the field.
+        """
         return NotImplemented  # type: ignore
 
 
@@ -101,7 +122,7 @@ def field(
     """
     Decorate a field to be tracked by a Subject.
 
-    The decorated method must have be callacble with no arguments and return
+    The decorated method must have be callable with no arguments and return
     the current value of the field.
 
     Parameters
@@ -276,8 +297,8 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
 
         There are three ways for a listener to listen to a subject:
         - Register a listener object (a sub-class of `Listener`) with the
-          `field_changed()` method defined to the subject,
-        - Register a (set of) callback(s) with the to the subject, or
+          `field_changed(...)` method defined,
+        - Register a (set of) callback(s) to the subject, or
         - Decorate method(s) of a class with `@call_on_field_change()` and
           register instances of that class with the subject.
         """
@@ -355,7 +376,7 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
         """Update all listeners and callbacks of the given fields."""
         for field_name in field_names:
             current_value = self.__get_field__(field_name)
-            self.__update__(field_name, None, current_value)
+            self.__update__(field_name, current_value, None)
 
     def __update__(
         self,
@@ -366,7 +387,7 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
         subject_field: _SubjectField = \
             self.__SUBJECT_FIELDS__.get(field_name)  # type: ignore
         if old_value != new_value:
-            if subject_field.queue_size is not None:
+            if subject_field.queue_size is not None and new_value is not None:
                 old_value = list(self.__queues[field_name])
                 self.__queues[field_name].append(new_value)
             self.__executor.submit(  # TODO: Updates to field must be atomic and in order.

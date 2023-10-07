@@ -194,6 +194,7 @@ class Observable(SynchronizedClass):
     __OBSERVABLE_LOGGER = logging.getLogger("Observable")
 
     __slots__ = {
+        "__weakref__": "Weak references to the object.",
         "__name": "The name of the observable.",
         "__observers": "The observers of this observable.",
         "__notified": "The observers that have been notified that the state "
@@ -251,7 +252,7 @@ class Observable(SynchronizedClass):
         if self.__debug:
             self.__OBSERVABLE_LOGGER.debug(
                 "Creating new observable with: "
-                "name=%s clock=%s, tick_rate=%s, start_clock=%s, debug=%s",
+                "name=%s, clock=%s, tick_rate=%s, start_clock=%s, debug=%s",
                 name, clock, tick_rate, start_clock, debug
             )
 
@@ -580,6 +581,7 @@ class Observer(metaclass=ABCMeta):
     __OBSERVER_LOGGER = logging.getLogger("Observer")
 
     __slots__ = {
+        "__weakref__": "Weak references to the object.",
         "__name": "Name of the observer.",
         "__observables": "The observables being observed.",
         "__lock": "Lock that ensure atomic updates to the observer.",

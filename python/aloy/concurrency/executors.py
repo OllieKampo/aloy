@@ -126,6 +126,7 @@ class AloyThreadJob:
 @dataclass(frozen=True)
 class AloyThreadFinishedJob(AloyThreadJob):
     """A class that represents a job that has finished execution."""
+
     elapsed_time: float | None = field(default=None, hash=False)
 
 
@@ -169,9 +170,8 @@ class AloyThreadPool:
         self.__logger.setLevel(logging.DEBUG)
         self.__log: bool = log
 
-        self.__max_workers: int = 1
-        if max_workers is not None:
-            self.__max_workers = max_workers
+        if max_workers is None:
+            self.__max_workers = os.cpu_count()
         self.__submitted_jobs: dict[Future, AloyThreadJob] = {}
         self.__finished_jobs: dict[Future, AloyThreadFinishedJob] = {}
         self.__queued_jobs = AtomicNumber[int](0)
