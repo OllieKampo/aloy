@@ -22,19 +22,24 @@ Subscribers are only updated when a topic or field they are subscribed to is
 updated or changed.
 """
 
-from typing import Any, Callable, Final, Mapping
+from collections import defaultdict
+import logging
+from typing import Any, Callable, final, Union
+import weakref
 
 from PySide6.QtCore import QTimer  # pylint: disable=no-name-in-module
-from PySide6 import QtWidgets
 
 from aloy.concurrency.atomic import AtomicDict, AtomicList
 from aloy.concurrency.executors import AloyQThreadPool
-from aloy.concurrency.synchronization import SynchronizedMeta
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
 
-__all__ = ()
+__all__ = (
+    "AloyPubSubHub",
+    "subscribe_topic",
+    "subscribe_param"
+)
 
 
 def __dir__() -> tuple[str, ...]:
@@ -42,7 +47,41 @@ def __dir__() -> tuple[str, ...]:
     return __all__
 
 
-class PubSubHub(metaclass=SynchronizedMeta):
+_HUBS: weakref.WeakValueDictionary[str, "AloyPubSubHub"]
+_HUBS = weakref.WeakValueDictionary()
+_PUBSUB_INIT_STORE_TOPICS: dict[str, dict[str, list[str]]]
+_PUBSUB_INIT_STORE_TOPICS = defaultdict(lambda: defaultdict(list))
+_PUBSUB_INIT_STORE_PARAMS: dict[str, dict[str, Any]]
+_PUBSUB_INIT_STORE_PARAMS = defaultdict(dict)
+_PUBSUB_INIT_SUBSCRIBE_TOPICS: dict[str, dict[str, list[Callable]]]
+_PUBSUB_INIT_SUBSCRIBE_TOPICS = defaultdict(lambda: defaultdict(list))
+_PUBSUB_INIT_SUBSCRIBE_PARAMS: dict[str, dict[str, list[Callable]]]
+_PUBSUB_INIT_SUBSCRIBE_PARAMS = defaultdict(lambda: defaultdict(list))
+
+
+def _add_hub(hub: "AloyPubSubHub") -> None:
+    """Add a hub to the global list of hubs."""
+    _HUBS[hub.name] = hub
+
+
+def get_hub(hub_name: str) -> Union["AloyPubSubHub", None]:  # type: ignore
+    """
+    Get the hub with the given name.
+
+    Parameters:
+    -----------
+    `hub_name: str` - The name of the hub to get.
+
+    Returns:
+    --------
+    `AloyPubSubHub | None` - The hub with the given name, or `None` if no hub
+    with the given name exists.
+    """
+    return _HUBS.get(hub_name)
+
+
+@final
+class AloyPubSubHub:
     """
     A publisher-subscriber hub is a central place where publishers and
     subscribers can register themselves. It is responsible for routing messages
@@ -58,7 +97,12 @@ class PubSubHub(metaclass=SynchronizedMeta):
     to the same topic.
     """
 
+    __PUBSUB_LOGGER = logging.getLogger("AloyPubSubHub")
+
     __slots__ = {
+        "__weakref__": "Weak references to the object.",
+        "__name": "The name of the hub.",
+        "__debug": "Whether to log debug messages.",
         "__subscribers_topics": "Mapping between topic names and lists of "
                                 "callback functions subscribed to the topic.",
         "__topics": "Mapping between topic names and lists of messages in the "
@@ -72,18 +116,35 @@ class PubSubHub(metaclass=SynchronizedMeta):
                     "values of the parameter.",
         "__params_updated": "Mapping between parameter names and whether the "
                             "parameter has been updated.",
-        "__topic_updater_timer": "Timer for updating topic subscribers.",
-        "__parameter_updater_timer": "Timer for updating parameter "
-                                     "subscribers.",
-        "__qthreadpool": "Thread pool for updating subscribers."
+        "__updater_timer": "Timer to update all subscribers.",
+        "__qthreadpool": "Thread pool to update individual subscribers."
     }
 
-    def __new__(cls) -> "PubSubHub":
-        if not hasattr(cls, "__instance"):
-            cls.__instance = super().__new__(cls)
-        return cls.__instance
+    def __init__(
+        self,
+        name: str,
+        param_dict: dict[str, Any] | None = None,
+        qtimer: QTimer | None = None,
+        tick_rate: int = 20,
+        start_timer: bool = True,
+        debug: bool = False
+    ) -> None:
+        """
+        Create a new publisher-subscriber hub.
+        """
+        self.__debug: bool = debug
+        if self.__debug:
+            self.__PUBSUB_LOGGER.debug(
+                "Creating new publisher-subscriber hub with: "
+                "name=%s, qtimer=%s, tick_rate=%s, start_timer=%s, debug=%s",
+                name, qtimer, tick_rate, start_timer, debug
+            )
 
-    def __init__(self) -> None:
+        # All hubs must have a name.
+        self.__name: str = name
+        if get_hub(name) is not None:
+            raise ValueError(f"Hub with name '{name}' already exists.")
+
         # Internal data structures.
         self.__subscribers_topics = AtomicDict[str, AtomicList[Callable]]()
         self.__topics = AtomicDict[str, AtomicList[str]]()
@@ -93,15 +154,48 @@ class PubSubHub(metaclass=SynchronizedMeta):
         self.__params_updated = AtomicDict[str, bool]()
 
         # Threads for updating subscribers.
-        self.__topic_updater_timer = QTimer()
-        self.__topic_updater_timer.timeout.connect(
+        self.__updater_timer: QTimer
+        if (new_timer := qtimer is None):
+            self.__updater_timer = QTimer()
+        else:
+            self.__updater_timer = qtimer
+        self.__updater_timer.timeout.connect(
             self.__update_all_topic_subscribers)
-        self.__topic_updater_timer.start(50)
-        self.__parameter_updater_timer = QTimer()
-        self.__parameter_updater_timer.timeout.connect(
+        self.__updater_timer.timeout.connect(
             self.__update_all_parameter_subscribers)
-        self.__parameter_updater_timer.start(50)
+        self.__updater_timer.setInterval(1000 // tick_rate)
+        if new_timer or start_timer:
+            self.__updater_timer.start()
         self.__qthreadpool = AloyQThreadPool()
+
+        # Add hub to global list of hubs.
+        _add_hub(self)
+
+        # Add subscribers.
+        for topic_name, funcs in _PUBSUB_INIT_SUBSCRIBE_TOPICS[name].items():
+            for func in funcs:
+                self.subscribe_topic(topic_name, func)
+        _PUBSUB_INIT_SUBSCRIBE_TOPICS[name].clear()
+        for param_name, funcs in _PUBSUB_INIT_SUBSCRIBE_PARAMS[name].items():
+            for func in funcs:
+                self.subscribe_param(param_name, func)
+        _PUBSUB_INIT_SUBSCRIBE_PARAMS[name].clear()
+
+        # Add topic messages and parameters.
+        for topic_name, messages in _PUBSUB_INIT_STORE_TOPICS[name].items():
+            self.publish_topic(topic_name, *messages)
+        _PUBSUB_INIT_STORE_TOPICS[name].clear()
+        if param_dict is not None:
+            for param_name, value in param_dict.items():
+                self.publish_param(param_name, value)
+        for param_name, value in _PUBSUB_INIT_STORE_PARAMS[name].items():
+            self.publish_param(param_name, value)
+        _PUBSUB_INIT_STORE_PARAMS[name].clear()
+
+    @property
+    def name(self) -> str:
+        """Get the name of the hub."""
+        return self.__name
 
     def subscribe_topic(
         self,
@@ -119,8 +213,8 @@ class PubSubHub(metaclass=SynchronizedMeta):
         - `all_messages: list[str]` - All messages in the topic.
         - `new_messages: list[str]` - The most recently added new messages.
 
-        Args:
-        -----
+        Parameters:
+        -----------
         `topic_name: str` - The name of the topic to subscribe to.
 
         `callback: Callable[[str, list[str], list[str]], None]` - The callback
@@ -139,8 +233,8 @@ class PubSubHub(metaclass=SynchronizedMeta):
         The messages are added to the topic and all subscribed callback
         functions are called with the new messages.
 
-        Args:
-        -----
+        Parameters:
+        -----------
         `topic_name: str` - The name of the topic to publish to.
 
         `*messages: str` - The messages to publish to the topic.
@@ -197,8 +291,8 @@ class PubSubHub(metaclass=SynchronizedMeta):
         - `old_value: Any` - The old value of the parameter.
         - `new_value: Any` - The new value of the parameter.
 
-        Args:
-        -----
+        Parameters:
+        -----------
         `param_name: str` - The name of the parameter to subscribe to.
 
         `callback: Callable[[str, Any, Any], None]` - The callback function to
@@ -217,8 +311,8 @@ class PubSubHub(metaclass=SynchronizedMeta):
         The value is set to the parameter value and all subscribed callback
         functions are called with the new value.
 
-        Args:
-        -----
+        Parameters:
+        -----------
         `param_name: str` - The name of the parameter to publish to.
 
         `value: Any` - The value to publish to the parameter.
@@ -254,85 +348,139 @@ class PubSubHub(metaclass=SynchronizedMeta):
             for func in callback_funcs:
                 func(param_name, *value)
 
-    def register_command_channel(
-        self,
-        channel_name: str,
-        parameters: Mapping[str, Any],
-        command_function: Callable[..., None],
-        event_callbacks: Mapping[str, Mapping[str, type]]
-    ) -> None:
-        """
-        A command channel allows a controller to receive commands and send
-        feedback states and results to an operator.
 
-        A publisher can create and connect to a named channel on the hub. The
-        connection requires the publisher to expose a signal that emits a
-        command, and two slots, one for feedback and one for results. A
-        subscriber can connect to the same channel on the hub.
+def publish_topic(hub_name: str, topic_name: str, *messages: str) -> None:
+    """
+    Publish messages to the given topic.
 
-        The connection requires the subscriber to expose a slot that receives
-        a command, and two signals, one for feedback and one for results.
+    The messages are added to the topic and all subscribed callback functions
+    are called with the new messages.
 
-        The hub will then connect the publisher's command signal to the
-        subscriber's command slot, the subscriber's feedback signal to the
-        publisher's feedback slot, and the subscriber's results signal to the
-        publisher's results slot.
+    Parameters:
+    -----------
+    `hub_name: str` - The name of the hub to publish to.
 
-        The publisher can then send commands to the subscriber by emitting the
-        command signal, and the subscriber can send feedback and results to
-        the publisher by emitting the feedback and results signals,
-        respectively. The hub will relay the signals from the publisher to the
-        subscriber, and vice versa. Therefore the publisher and subscriber can
-        communicate with each other without knowledge of each other's
-        existence.
-        """
-        pass
+    `topic_name: str` - The name of the topic to publish to.
 
-    def request_command(
-        self,
-        channel_name: str,
-        arguments: Mapping[str, Any],
-        event_callbacks: Callable[..., None]
-    ) -> None:
-        pass
+    `*messages: str` - The messages to publish to the topic.
+    """
+    hub = get_hub(hub_name)
+    if hub is not None:
+        hub.publish_topic(topic_name, *messages)
+    else:
+        _PUBSUB_INIT_STORE_TOPICS[hub_name][topic_name].extend(messages)
 
 
-qapp = QtWidgets.QApplication([])
-_PUBSUBHUB: Final[PubSubHub] = PubSubHub()
+def publish_param(hub_name: str, param_name: str, value: Any) -> None:
+    """
+    Publish a value to the given parameter.
+
+    The value is set to the parameter value and all subscribed callback
+    functions are called with the new value.
+
+    Parameters:
+    -----------
+    `hub_name: str` - The name of the hub to publish to.
+
+    `param_name: str` - The name of the parameter to publish to.
+
+    `value: Any` - The value to publish to the parameter.
+    """
+    hub = get_hub(hub_name)
+    if hub is not None:
+        hub.publish_param(param_name, value)
+    else:
+        _PUBSUB_INIT_STORE_PARAMS[hub_name][param_name] = value
 
 
-def subscribe_topic(topic_name: str) -> Any:
-    """Decorate a method to be called when a message is added to a topic."""
-    def decorator(func: Any) -> Any:
-        _PUBSUBHUB.subscribe_topic(topic_name, func)
-        return func
-    return decorator
+def subscribe_topic(
+    hub_name: str,
+    topic_name: str,
+    func: Callable | property | None = None
+) -> Any:
+    """
+    Decorate a function or method to be called when a message is added to a
+    topic.
+    """
+    if func is None:
+        def decorator(func_: Any) -> Any:
+            subscribe_topic(hub_name, topic_name, func_)
+            return func_
+        return decorator
+
+    if isinstance(func, property):
+        if func.fset is None:
+            raise TypeError("Cannot subscribe to a read-only property.")
+        func = func.fset
+
+    hub = get_hub(hub_name)
+    if hub is not None:
+        hub.subscribe_topic(topic_name, func)
+    else:
+        _PUBSUB_INIT_SUBSCRIBE_TOPICS[hub_name][topic_name].append(func)
 
 
-def subscribe_parameter(field_name: str) -> Any:
-    """Decorate a method to be called when a data field is changed."""
-    def decorator(func: Any) -> Any:
-        _PUBSUBHUB.subscribe_param(field_name, func)
-        return func
-    return decorator
+def subscribe_param(
+    hub_name: str,
+    field_name: str,
+    func: Callable | property | None = None
+) -> Any:
+    """
+    Decorate a function or method to be called when a parameter is changed.
+    """
+    if func is None:
+        def decorator(func_: Any) -> Any:
+            subscribe_param(hub_name, field_name, func_)
+            return func_
+        return decorator
+
+    if isinstance(func, property):
+        if func.fset is None:
+            raise TypeError("Cannot subscribe to a read-only property.")
+        func = func.fset
+
+    hub = get_hub(hub_name)
+    if hub is not None:
+        hub.subscribe_param(field_name, func)
+    else:
+        _PUBSUB_INIT_SUBSCRIBE_PARAMS[hub_name][field_name].append(func)
+
 
 def __main() -> None:
     import time
+    import PySide6.QtWidgets as QtWidgets  # pylint: disable=no-name-in-module
+    _QAPP = QtWidgets.QApplication([])
 
-    def topic_callback(topic_name: str, all_messages: list[str], new_messages: list[str]) -> None:
+    def topic_callback(
+        topic_name: str,
+        all_messages: list[str],
+        new_messages: list[str]
+    ) -> None:
         print(f"Topic '{topic_name}' updated with {new_messages}")
-    _PUBSUBHUB.subscribe_topic("test", topic_callback)
+    subscribe_topic("default", "test", topic_callback)
 
-    def param_callback(param_name: str, old_value: Any, new_value: Any) -> None:
-        print(f"Parameter '{param_name}' updated from {old_value} to {new_value}")
-    _PUBSUBHUB.subscribe_param("test", param_callback)
+    def param_callback(
+        param_name: str,
+        old_value: Any,
+        new_value: Any
+    ) -> None:
+        print(f"Parameter '{param_name}' "
+              f"updated from {old_value} to {new_value}")
+    subscribe_param("default", "test", param_callback)
+
+    for i in range(10):
+        publish_topic("default", "test", str(i))
+
+    _PUBSUBHUB = AloyPubSubHub("default")
 
     qtimer = QTimer()
-    # qtimer.timeout.connect(lambda: _PUBSUBHUB.publish_topic("test", str(time.time())))
-    qtimer.timeout.connect(lambda: _PUBSUBHUB.publish_param("test", str(time.time())))
+    qtimer.timeout.connect(
+        lambda: publish_topic("default", "test", str(time.time())))
+    # qtimer.timeout.connect(
+    #     lambda: publish_param("default", "test", str(time.time())))
     qtimer.start(1000)
 
-    qapp.exec()
+    _QAPP.exec()
 
 
 if __name__ == "__main__":
