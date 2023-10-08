@@ -64,41 +64,39 @@ class AloyAtomicObjectError(RuntimeError):
     """An exception raised when an error occurs in an atomic object."""
 
 
-SP = ParamSpec("SP")
-ST = TypeVar("ST")
+_AT = TypeVar("_AT")
+_SP = ParamSpec("_SP")
+_ST = TypeVar("_ST")
 
 
 def _atomic_require_lock(
-    func: Callable[Concatenate[Any, SP], ST]
-) -> Callable[Concatenate[Any, SP], ST]:
+    func: Callable[Concatenate[Any, _SP], _ST]
+) -> Callable[Concatenate[Any, _SP], _ST]:
     """
     Decorator that ensures the object is locked by current thread, and
     therefore is not being updated by another thread before calling the
     method.
     """
-    def wrapper(self: Any, *args: SP.args, **kwargs: SP.kwargs) -> ST:
+    def wrapper(self: Any, *args: _SP.args, **kwargs: _SP.kwargs) -> _ST:
         with self:
             return func(self, *args, **kwargs)
     return wrapper
 
 
 def _atomic_require_context(
-    func: Callable[Concatenate[Any, SP], ST]
-) -> Callable[Concatenate[Any, SP], ST]:
+    func: Callable[Concatenate[Any, _SP], _ST]
+) -> Callable[Concatenate[Any, _SP], _ST]:
     """
     Decorator that ensures the object is locked and being updated within
     a context manager before calling the method.
     """
-    def wrapper(self: Any, *args: SP.args, **kwargs: SP.kwargs) -> ST:
+    def wrapper(self: Any, *args: _SP.args, **kwargs: _SP.kwargs) -> _ST:
         self._check_context()  # pylint: disable=protected-access
         return func(self, *args, **kwargs)
     return wrapper
 
 
-AT = TypeVar("AT")
-
-
-class _Atomic(Generic[AT], metaclass=ABCMeta):
+class _Atomic(Generic[_AT], metaclass=ABCMeta):
     """Base class for atomic objects."""
 
     __slots__ = {
@@ -117,13 +115,13 @@ class _Atomic(Generic[AT], metaclass=ABCMeta):
 
     @_atomic_require_lock
     @abstractmethod
-    def get_obj(self) -> AT:
+    def get_obj(self) -> _AT:
         """Returns the wrapped object."""
         ...
 
     @_atomic_require_context
     @abstractmethod
-    def set_obj(self, value: AT, /) -> None:
+    def set_obj(self, value: _AT, /) -> None:
         """Sets the wrapped object."""
         ...
 
@@ -151,11 +149,11 @@ class _Atomic(Generic[AT], metaclass=ABCMeta):
             )
 
 
-OT = TypeVar("OT")
+_OT = TypeVar("_OT")
 
 
 @final
-class AtomicObject(_Atomic[OT]):
+class AtomicObject(_Atomic[_OT]):
     """
     A thread-safe atomic object wrapper.
 
@@ -179,27 +177,27 @@ class AtomicObject(_Atomic[OT]):
         "__object": "The object being wrapped."
     }
 
-    def __init__(self, object_: OT, /) -> None:
+    def __init__(self, object_: _OT, /) -> None:
         """Create a new atomic object."""
         super().__init__()
-        self.__object: OT = object_
+        self.__object: _OT = object_
 
     @_atomic_require_lock
-    def get_obj(self) -> OT:
+    def get_obj(self) -> _OT:
         """Returns the wrapped object."""
         return self.__object
 
     @_atomic_require_context
-    def set_obj(self, object_: OT, /) -> None:
+    def set_obj(self, object_: _OT, /) -> None:
         """Sets the wrapped object."""
         self.__object = object_
 
 
-NT = TypeVar("NT", int, float, complex)
+_NT = TypeVar("_NT", int, float, complex)
 
 
 @final
-class AtomicNumber(_Atomic[NT]):
+class AtomicNumber(_Atomic[_NT]):
     """
     A thread-safe number whose updates are atomic.
 
@@ -210,22 +208,22 @@ class AtomicNumber(_Atomic[NT]):
         "__value": "The current value of the number."
     }
 
-    def __init__(self, value: NT = 0) -> None:
+    def __init__(self, value: _NT = 0) -> None:
         """
         Create a new atomic number with given initial value.
 
         The number type can be int, float, or complex.
         """
         super().__init__()
-        self.__value: NT = value
+        self.__value: _NT = value
 
     @_atomic_require_lock
-    def get_obj(self) -> NT:
+    def get_obj(self) -> _NT:
         """Returns the current value of the number."""
         return self.__value
 
     @_atomic_require_context
-    def set_obj(self, value: NT, /) -> None:
+    def set_obj(self, value: _NT, /) -> None:
         """Sets the number to the given value."""
         self.__value = value
 
@@ -242,7 +240,7 @@ class AtomicNumber(_Atomic[NT]):
         return complex(self.__value)  # type: ignore
 
     @_atomic_require_context
-    def __iadd__(self, value: int | float | complex) -> "AtomicNumber[NT]":
+    def __iadd__(self, value: int | float | complex) -> "AtomicNumber[_NT]":
         self.__value = type(self.__value)(self.__value + value)  # type: ignore
         return self
 
@@ -251,7 +249,7 @@ class AtomicNumber(_Atomic[NT]):
         return self.__value + value
 
     @_atomic_require_context
-    def __isub__(self, value: NT) -> "AtomicNumber[NT]":
+    def __isub__(self, value: _NT) -> "AtomicNumber[_NT]":
         self.__value = type(self.__value)(self.__value - value)
         return self
 
@@ -260,7 +258,7 @@ class AtomicNumber(_Atomic[NT]):
         return self.__value - value
 
     @_atomic_require_context
-    def __ipow__(self, value: int | float | complex) -> "AtomicNumber[NT]":
+    def __ipow__(self, value: int | float | complex) -> "AtomicNumber[_NT]":
         self.__value = type(self.__value)(
             self.__value ** value  # type: ignore
         )  # type: ignore
@@ -271,7 +269,7 @@ class AtomicNumber(_Atomic[NT]):
         return self.__value ** value
 
     @_atomic_require_context
-    def __imul__(self, value: int | float | complex) -> "AtomicNumber[NT]":
+    def __imul__(self, value: int | float | complex) -> "AtomicNumber[_NT]":
         self.__value = type(self.__value)(self.__value * value)  # type: ignore
         return self
 
@@ -280,7 +278,10 @@ class AtomicNumber(_Atomic[NT]):
         return self.__value * value
 
     @_atomic_require_context
-    def __itruediv__(self, value: int | float | complex) -> "AtomicNumber[NT]":
+    def __itruediv__(
+        self,
+        value: int | float | complex
+    ) -> "AtomicNumber[_NT]":
         self.__value = type(self.__value)(self.__value / value)  # type: ignore
         return self
 
@@ -292,7 +293,7 @@ class AtomicNumber(_Atomic[NT]):
         return self.__value / value
 
     @_atomic_require_context
-    def __ifloordiv__(self, value: int | float) -> "AtomicNumber[NT]":
+    def __ifloordiv__(self, value: int | float) -> "AtomicNumber[_NT]":
         self.__value = type(self.__value)(
             self.__value // value  # type: ignore
         )  # type: ignore
@@ -376,10 +377,10 @@ class AtomicBool(_Atomic[bool]):
         return self.__value ^ value
 
 
-LT = TypeVar("LT")
+_LT = TypeVar("_LT")
 
 
-class AtomicList(_Atomic[list[LT]], collections.abc.MutableSequence):
+class AtomicList(_Atomic[list[_LT]], collections.abc.MutableSequence):
     """
     A thread-safe list whose updates are atomic.
 
@@ -396,28 +397,28 @@ class AtomicList(_Atomic[list[LT]], collections.abc.MutableSequence):
         ...
 
     @overload
-    def __init__(self, __iterable: Iterable[LT], /) -> None:
+    def __init__(self, __iterable: Iterable[_LT], /) -> None:
         """Create a new atomic list with given initial value."""
         ...
 
     def __init__(  # type: ignore
         self,
-        __iterable: Iterable[LT] | None = None, /
+        __iterable: Iterable[_LT] | None = None, /
     ) -> None:
         super().__init__()
-        self.__list: list[LT]
+        self.__list: list[_LT]
         if __iterable is not None:
             self.__list = list(__iterable)
         else:
             self.__list = []
 
     @_atomic_require_lock
-    def get_obj(self) -> ListView[LT]:
+    def get_obj(self) -> ListView[_LT]:
         """Returns a view of the current list."""
         return ListView(self.__list)
 
     @_atomic_require_context
-    def set_obj(self, value: Iterable[LT], /) -> None:
+    def set_obj(self, value: Iterable[_LT], /) -> None:
         """Sets the list to the given value."""
         self.__list = list(value)
 
@@ -426,18 +427,18 @@ class AtomicList(_Atomic[list[LT]], collections.abc.MutableSequence):
         return len(self.__list)
 
     @overload
-    def __getitem__(self, key: int, /) -> LT:
+    def __getitem__(self, key: int, /) -> _LT:
         ...
 
     @overload
-    def __getitem__(self, key: slice, /) -> "list[LT]":
+    def __getitem__(self, key: slice, /) -> "list[_LT]":
         ...
 
     @_atomic_require_lock
     def __getitem__(  # type: ignore
         self,
         key: int | slice, /
-    ) -> LT | "list[LT]":
+    ) -> _LT | "list[_LT]":
         if isinstance(key, slice):
             return self.__list[key]
         else:
@@ -448,21 +449,21 @@ class AtomicList(_Atomic[list[LT]], collections.abc.MutableSequence):
         return value in self.__list
 
     @_atomic_require_lock
-    def __iter__(self) -> Iterator[LT]:
+    def __iter__(self) -> Iterator[_LT]:
         return iter(self.__list)
 
     @overload
-    def __setitem__(self, key: int, value: LT, /) -> None:
+    def __setitem__(self, key: int, value: _LT, /) -> None:
         ...
 
     @overload
-    def __setitem__(self, key: slice, value: Iterable[LT], /) -> None:
+    def __setitem__(self, key: slice, value: Iterable[_LT], /) -> None:
         ...
 
     @_atomic_require_context
     def __setitem__(  # type: ignore
         self,
-        key: int | slice, value: LT | Iterable[LT], /
+        key: int | slice, value: _LT | Iterable[_LT], /
     ) -> None:
         self.__list[key] = value  # type: ignore
 
@@ -479,27 +480,27 @@ class AtomicList(_Atomic[list[LT]], collections.abc.MutableSequence):
         del self.__list[key]
 
     @_atomic_require_context
-    def __iadd__(self, value: Iterable[LT]) -> "AtomicList[LT]":
+    def __iadd__(self, value: Iterable[_LT]) -> "AtomicList[_LT]":
         self.__list += value
         return self
 
     @_atomic_require_lock
-    def __add__(self, value: list[LT]) -> list[LT]:
+    def __add__(self, value: list[_LT]) -> list[_LT]:
         return self.__list + value
 
     @_atomic_require_context
-    def __imul__(self, value: int) -> "AtomicList[LT]":
+    def __imul__(self, value: int) -> "AtomicList[_LT]":
         self.__list *= value
         return self
 
     @_atomic_require_lock
-    def __mul__(self, value: int) -> list[LT]:
+    def __mul__(self, value: int) -> list[_LT]:
         return self.__list * value
 
     @_atomic_require_lock
     def index(  # pylint: disable=arguments-differ
         self,
-        value: LT,
+        value: _LT,
         start: int = 0,
         stop: int = sys.maxsize, /
     ) -> int:
@@ -508,32 +509,32 @@ class AtomicList(_Atomic[list[LT]], collections.abc.MutableSequence):
     index.__doc__ = list.index.__doc__
 
     @_atomic_require_lock
-    def count(self, value: LT) -> int:
+    def count(self, value: _LT) -> int:
         return self.__list.count(value)
     count.__doc__ = list.count.__doc__
 
     @_atomic_require_context
-    def append(self, value: LT) -> None:
+    def append(self, value: _LT) -> None:
         """Append an element to the end of the list."""
         self.__list.append(value)
 
     @_atomic_require_context
-    def extend(self, values: Iterable[LT]) -> None:
+    def extend(self, values: Iterable[_LT]) -> None:
         """Extend the list by appending elements from the iterable."""
         self.__list.extend(values)
 
     @_atomic_require_context
-    def insert(self, index: int, value: LT) -> None:
+    def insert(self, index: int, value: _LT) -> None:
         """Insert an element before the given index."""
         self.__list.insert(index, value)
 
     @_atomic_require_context
-    def pop(self, index: int = -1) -> LT:
+    def pop(self, index: int = -1) -> _LT:
         return self.__list.pop(index)
     pop.__doc__ = list.pop.__doc__
 
     @_atomic_require_context
-    def remove(self, value: LT) -> None:
+    def remove(self, value: _LT) -> None:
         self.__list.remove(value)
     remove.__doc__ = list.remove.__doc__
 
@@ -548,11 +549,11 @@ class AtomicList(_Atomic[list[LT]], collections.abc.MutableSequence):
         self.__list.reverse()
 
 
-KT = TypeVar("KT", bound=Hashable)
-VT = TypeVar("VT")
+_KT = TypeVar("_KT", bound=Hashable)
+_VT = TypeVar("_VT")
 
 
-class AtomicDict(_Atomic[dict[KT, VT]], collections.abc.MutableMapping):
+class AtomicDict(_Atomic[dict[_KT, _VT]], collections.abc.MutableMapping):
     """
     A thread-safe dictionary whose updates are atomic.
 
@@ -569,42 +570,42 @@ class AtomicDict(_Atomic[dict[KT, VT]], collections.abc.MutableMapping):
         ...
 
     @overload
-    def __init__(self, __mapping: Iterable[LT], /) -> None:
+    def __init__(self, __mapping: Iterable[_LT], /) -> None:
         """Create a new atomic dict with given initial value."""
         ...
 
-    def __init__(self, __mapping: Mapping[KT, VT] | None = None, /) -> None:
+    def __init__(self, __mapping: Mapping[_KT, _VT] | None = None, /) -> None:
         super().__init__()
-        self.__dict: dict[KT, VT]
+        self.__dict: dict[_KT, _VT]
         if __mapping is None:
             self.__dict = {}
         else:
             self.__dict = dict(__mapping)
 
     @_atomic_require_lock
-    def get_obj(self) -> DictView[KT, VT]:
+    def get_obj(self) -> DictView[_KT, _VT]:
         """Returns a view of the current dictionary."""
         return DictView(self.__dict)
 
     @_atomic_require_context
-    def set_obj(self, value: Mapping[KT, VT], /) -> None:
+    def set_obj(self, value: Mapping[_KT, _VT], /) -> None:
         """Sets the dictionary to the given value."""
         self.__dict = dict(value)
 
     @_atomic_require_lock
-    def __getitem__(self, key: KT) -> VT:
+    def __getitem__(self, key: _KT) -> _VT:
         return self.__dict[key]
 
     @_atomic_require_context
-    def __setitem__(self, key: KT, value: VT) -> None:
+    def __setitem__(self, key: _KT, value: _VT) -> None:
         self.__dict[key] = value
 
     @_atomic_require_context
-    def __delitem__(self, key: KT) -> None:
+    def __delitem__(self, key: _KT) -> None:
         del self.__dict[key]
 
     @_atomic_require_lock
-    def __iter__(self) -> Iterator[KT]:
+    def __iter__(self) -> Iterator[_KT]:
         return iter(self.__dict)
 
     @_atomic_require_lock
@@ -612,10 +613,10 @@ class AtomicDict(_Atomic[dict[KT, VT]], collections.abc.MutableMapping):
         return len(self.__dict)
 
 
-ET = TypeVar("ET", bound=Hashable)
+_ET = TypeVar("_ET", bound=Hashable)
 
 
-class AtomicSet(_Atomic[set[ET]], collections.abc.MutableSet):
+class AtomicSet(_Atomic[set[_ET]], collections.abc.MutableSet):
     """
     A thread-safe set whose updates are atomic.
 
@@ -632,13 +633,13 @@ class AtomicSet(_Atomic[set[ET]], collections.abc.MutableSet):
         ...
 
     @overload
-    def __init__(self, __iterable: Iterable[LT], /) -> None:
+    def __init__(self, __iterable: Iterable[_LT], /) -> None:
         """Create a new atomic set with given initial value."""
         ...
 
-    def __init__(self, __iterable: Iterable[ET] | None = None, /) -> None:
+    def __init__(self, __iterable: Iterable[_ET] | None = None, /) -> None:
         super().__init__()
-        self.__set: set[ET]
+        self.__set: set[_ET]
         if __iterable is None:
             self.__set = set()
         else:
@@ -651,12 +652,12 @@ class AtomicSet(_Atomic[set[ET]], collections.abc.MutableSet):
         return f"AtomicSet({self.__set!r})"
 
     @_atomic_require_lock
-    def get_obj(self) -> SetView[ET]:
+    def get_obj(self) -> SetView[_ET]:
         """Returns a view of the current set."""
         return SetView(self.__set)
 
     @_atomic_require_context
-    def set_obj(self, value: Iterable[ET], /) -> None:
+    def set_obj(self, value: Iterable[_ET], /) -> None:
         """Sets the set to the given value."""
         self.__set = set(value)
 
@@ -665,7 +666,7 @@ class AtomicSet(_Atomic[set[ET]], collections.abc.MutableSet):
         return item in self.__set
 
     @_atomic_require_lock
-    def __iter__(self) -> Iterator[ET]:
+    def __iter__(self) -> Iterator[_ET]:
         return iter(self.__set)
 
     @_atomic_require_lock
@@ -673,9 +674,9 @@ class AtomicSet(_Atomic[set[ET]], collections.abc.MutableSet):
         return len(self.__set)
 
     @_atomic_require_context
-    def add(self, value: ET) -> None:
+    def add(self, value: _ET) -> None:
         self.__set.add(value)
 
     @_atomic_require_context
-    def discard(self, value: ET) -> None:
+    def discard(self, value: _ET) -> None:
         self.__set.discard(value)

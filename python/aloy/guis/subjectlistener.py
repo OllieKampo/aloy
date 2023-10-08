@@ -37,8 +37,12 @@ import functools
 import inspect
 import logging
 from collections import defaultdict, deque
+import queue
+import time
 from typing import (Any, Callable, Concatenate, Final, NamedTuple, ParamSpec,
                     TypeVar, final)
+from aloy.concurrency.atomic import AtomicBool
+from aloy.concurrency.clocks import ClockThread
 
 from aloy.concurrency.executors import AloyThreadPool
 from aloy.concurrency.synchronization import SynchronizedMeta, sync
@@ -46,6 +50,7 @@ from aloy.datastructures.mappings import TwoWayMap
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
+__version__ = "0.1.1"
 
 __all__ = (
     "Listener",
@@ -220,7 +225,7 @@ class _SubjectSynchronizedMeta(SynchronizedMeta):
     """
 
     def __new__(
-        cls,
+        mcs,
         name: str,
         bases: tuple[str, ...],
         namespace: dict[str, Any]
@@ -278,7 +283,7 @@ class _SubjectSynchronizedMeta(SynchronizedMeta):
 
         _existing_subject_fields.update(_new_subject_fields)
 
-        return super().__new__(cls, name, bases, namespace)
+        return super().__new__(mcs, name, bases, namespace)
 
 
 class Subject(metaclass=_SubjectSynchronizedMeta):
@@ -294,7 +299,10 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
         "__callbacks": "The callbacks registered with the subject.",
         "__clock": "The clock used to update all listeners.",
         "__executor": "The thread pool executor used to update listeners.",
-        "__queues": "The queues used to store values of queued fields."
+        "__queues": "The queues used to store values of queued fields.",
+        "__updated_fields": "The fields that have been updated.",
+        "__updating_fields": "The fields that are currently being updated.",
+        "__update_queue": "The queue used to update listeners."
     }
 
     def __init__(
@@ -315,6 +323,11 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
         """
         self.__listeners = TwoWayMap[Listener, str]()
         self.__callbacks = TwoWayMap[Callable[..., None], str]()
+
+        self.__clock = ClockThread(
+            self.__schedule_updates,
+            tick_rate=20
+        )
         self.__executor = AloyThreadPool(
             pool_name="Subject :: Thread Pool Executor",
             max_workers=max(max_workers, 1),
@@ -322,11 +335,21 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
             profile=bool(profile),
             log=bool(log)
         )
+
         self.__queues: dict[str, deque[Any]] = defaultdict(deque)
         for field_name, (_, queue_size) \
                 in self.__SUBJECT_FIELDS__.items():
             if queue_size is not None:
                 self.__queues[field_name] = deque(maxlen=queue_size)
+
+        self.__updated_fields: dict[str, AtomicBool] = defaultdict(
+            AtomicBool)
+        self.__updating_fields: dict[str, AtomicBool] = defaultdict(
+            AtomicBool)
+        self.__update_queue: dict[str, queue.SimpleQueue[tuple[Any, Any]]] = \
+            defaultdict(queue.SimpleQueue)
+
+        self.__clock.start()
 
     def __get_field__(self, field_name: str) -> Any:
         subject_field = self.__SUBJECT_FIELDS__.get(field_name)
@@ -401,13 +424,37 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
             if subject_field.queue_size is not None and new_value is not None:
                 old_value = list(self.__queues[field_name])
                 self.__queues[field_name].append(new_value)
-            self.__executor.submit(  # TODO: Updates to field must be atomic and in order.
-                f"Subject Update ({field_name})",
-                self.__update_async,
-                field_name,
-                old_value,
-                new_value
-            )
+            with (atomic_bool := self.__updated_fields[field_name]):
+                atomic_bool.set_obj(True)
+                self.__update_queue[field_name].put(
+                    (old_value, new_value)
+                )
+
+    def __schedule_updates(self) -> None:
+        """Schedule an update of all listeners and callbacks of a field."""
+        for field_name, atomic_bool in self.__updated_fields.items():
+            with atomic_bool:
+                if atomic_bool:
+                    with (is_updating := self.__updating_fields[field_name]):
+                        if not is_updating:
+                            is_updating.set_obj(True)
+                            self.__executor.submit(
+                                f"Subject Update ({field_name})",
+                                self.__update_all_async,
+                                field_name
+                            )
+                    atomic_bool.set_obj(False)
+
+    def __update_all_async(self, field_name: str) -> None:
+        """Asynchronously update all listeners and callbacks of a field."""
+        queue_: queue.SimpleQueue[tuple[Any, Any]] = \
+            self.__update_queue[field_name]
+        while True:
+            try:
+                old_value, new_value = queue_.get_nowait()
+                self.__update_async(field_name, old_value, new_value)
+            except queue.Empty:
+                break
 
     def __update_async(
         self,
@@ -527,7 +574,7 @@ def __main():
     subject.my_field = 4
     subject.my_field = 5
     subject.my_field = 5
-    # time.sleep(1)
+    time.sleep(1)
 
 
 if __name__ == "__main__":
