@@ -1,5 +1,6 @@
+###############################################################################
 # Copyright (C) 2023 Oliver Michael Kamperis
-# Email: o.m.kamperis@gmail.com
+# Email: olliekampo@gmail.com
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
@@ -9,8 +10,8 @@
 # ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
 # FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
 #
-# You should have received a copy of the GNU General Public License
-# along with this program. If not, see <https://www.gnu.org/licenses/>.
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
 
 """Run a game on the command line."""
 
@@ -31,8 +32,18 @@ from aloy.auxiliary.argparseutils import (
     optional_int
 )
 
+__copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
+__license__ = "GPL-3.0"
 
-class GameParam(NamedTuple):
+__all__ = ()
+
+
+def __dir__() -> tuple[str, ...]:
+    """Get the names of module attributes."""
+    return __all__
+
+
+class _GameParam(NamedTuple):
     """
     A class to store information about a game parameter.
 
@@ -60,8 +71,8 @@ class GameParam(NamedTuple):
     choices: Iterable[Any] | None = None
 
 
-__STANDARD_PARAMS: Final[list[GameParam]] = [
-    GameParam(
+_STANDARD_PARAMS: Final[list[_GameParam]] = [
+    _GameParam(
         names=["-l", "--list-games"],
         type_=optional_bool,
         help="List the available games.",
@@ -69,7 +80,7 @@ __STANDARD_PARAMS: Final[list[GameParam]] = [
         const=True,
         nargs="?"
     ),
-    GameParam(
+    _GameParam(
         names=["--launcher"],
         type_=optional_bool,
         help="Run the game launcher.",
@@ -77,19 +88,19 @@ __STANDARD_PARAMS: Final[list[GameParam]] = [
         const=True,
         nargs="?"
     ),
-    GameParam(
+    _GameParam(
         names=["-w", "--width"],
         type_=optional_int,
         help="The width of the game window, each game has its own default.",
         default=None
     ),
-    GameParam(
+    _GameParam(
         names=["-t", "--height"],
         type_=optional_int,
         help="The height of the game window, each game has its own default.",
         default=None
     ),
-    GameParam(
+    _GameParam(
         names=["--debug"],
         type_=optional_bool,
         help="Run the game in debug mode.",
@@ -100,9 +111,9 @@ __STANDARD_PARAMS: Final[list[GameParam]] = [
 ]
 
 
-def add_standard_parameters(parser: argparse.ArgumentParser) -> None:
+def _add_standard_parameters(parser: argparse.ArgumentParser) -> None:
     """Add standard game parameters to the argument parser."""
-    for parameter in __STANDARD_PARAMS:
+    for parameter in _STANDARD_PARAMS:
         parser.add_argument(
             *parameter.names,
             type=parameter.type_,
@@ -122,10 +133,10 @@ def add_standard_parameters(parser: argparse.ArgumentParser) -> None:
     )
 
 
-__NAME_RESERVED_CHARACTERS: Final[set[str]] = {"-", "_", " "}
+_NAME_RESERVED_CHARACTERS: Final[set[str]] = {"-", "_", " "}
 
 
-class GameRegistration(NamedTuple):
+class _GameRegistration(NamedTuple):
     """
     Tuple to store information about a game registration.
 
@@ -162,21 +173,21 @@ class GameRegistration(NamedTuple):
     description: str
     default_size: tuple[int, int]
     competitive: bool
-    parameters: list[GameParam]
+    parameters: list[_GameParam]
     package: str = "aloy.games"
 
 
-__registered_games__: dict[str, GameRegistration] = {}
+_REGISTERED_GAMES: dict[str, _GameRegistration] = {}
 
 
-def register_game(
+def _register_game(
     module: str,
     entry_point: str,
     name: str,
     description: str,
     default_size: tuple[int, int],
     competitive: bool = False,
-    parameters: Iterable[GameParam] | None = None,
+    parameters: Iterable[_GameParam] | None = None,
     package: str = "aloy.games"
 ) -> None:
     """
@@ -217,9 +228,9 @@ def register_game(
         raise ValueError(f"Module '{module}' does not exist.")
 
     # Check name is valid.
-    if name in __registered_games__:
+    if name in _REGISTERED_GAMES:
         raise ValueError(f"Game '{name}' is already registered.")
-    for char in __NAME_RESERVED_CHARACTERS:
+    for char in _NAME_RESERVED_CHARACTERS:
         if char in name:
             raise ValueError(
                 f"Game name '{name}' contains reserved character '{char}'."
@@ -243,14 +254,14 @@ def register_game(
     for parameter in parameters:
         parameter.names.sort(key=len)
         for _name in parameter.names:
-            for standard_parameter in __STANDARD_PARAMS:
+            for standard_parameter in _STANDARD_PARAMS:
                 if _name in standard_parameter.names:
                     raise ValueError(
                         f"Game parameter '{_name}' is a standard parameter."
                     )
     parameters = list(parameters)
 
-    __registered_games__[name] = GameRegistration(
+    _REGISTERED_GAMES[name] = _GameRegistration(
         entry_point=entry_point,
         module=module,
         name=name,
@@ -262,7 +273,7 @@ def register_game(
     )
 
 
-def run_game_launcher(stdscr: curses.window) -> str | None:
+def _run_game_launcher(stdscr: curses.window) -> str | None:
     """Run a game launcher with curses."""
     curses.noecho()
     curses.cbreak()
@@ -283,7 +294,7 @@ def run_game_launcher(stdscr: curses.window) -> str | None:
     stdscr.refresh()
 
     stdscr.addstr(6, 5, "Available Games:", curses.A_BOLD)
-    for i, (game_name, game_reg) in enumerate(__registered_games__.items()):
+    for i, (game_name, game_reg) in enumerate(_REGISTERED_GAMES.items()):
         if i == 0:
             stdscr.addstr(
                 8 + i, 7,
@@ -301,7 +312,7 @@ def run_game_launcher(stdscr: curses.window) -> str | None:
     stdscr.refresh()
 
     index: int = 0
-    game_items_list = list(__registered_games__.items())
+    game_items_list = list(_REGISTERED_GAMES.items())
     char = stdscr.getch()
     title_window.refresh()
     while True:
@@ -311,7 +322,7 @@ def run_game_launcher(stdscr: curses.window) -> str | None:
         elif char == curses.KEY_UP:
             index = max(index - 1, 0)
         elif char == curses.KEY_DOWN:
-            index = min(index + 1, len(__registered_games__) - 1)
+            index = min(index + 1, len(_REGISTERED_GAMES) - 1)
         elif char == curses.KEY_ENTER or char == 10 or char == 13:
             break
         if index != previous_index:
@@ -336,7 +347,7 @@ def run_game_launcher(stdscr: curses.window) -> str | None:
     curses.echo()
     curses.curs_set(True)
     curses.endwin()
-    return list(__registered_games__.keys())[index]
+    return list(_REGISTERED_GAMES.keys())[index]
 
 
 _TYPE_MAP = {
@@ -354,7 +365,7 @@ def _get_type(type_name: str) -> type:
     return _TYPE_MAP[type_name]
 
 
-def register_all_games() -> None:
+def _register_all_games() -> None:
     """Register all games from the '_games.toml' file."""
     file_path = os.path.dirname(os.path.realpath(__file__))
     file_path = os.path.join(file_path, "_games.toml")
@@ -362,7 +373,7 @@ def register_all_games() -> None:
         game_dict = tomllib.load(file)
 
     for _, game in game_dict["games"]["register"].items():
-        register_game(
+        _register_game(
             module=game["module"],
             entry_point=game["entry_point"],
             name=game["name"],
@@ -370,7 +381,7 @@ def register_all_games() -> None:
             default_size=game["default_size"],
             competitive=game["competitive"],
             parameters=[
-                GameParam(
+                _GameParam(
                     names=[_param],
                     type_=_get_type(_spec["type"]),
                     default=_spec["default"],
@@ -381,10 +392,10 @@ def register_all_games() -> None:
         )
 
 
-def main() -> int:
+def _main() -> int:
     """Run a game on the command line."""
     # Register all games.
-    register_all_games()
+    _register_all_games()
 
     # Parse command line arguments.
     parser = argparse.ArgumentParser()
@@ -393,15 +404,15 @@ def main() -> int:
         "--game",
         type=str,
         help="The name of the game to run.",
-        choices=list(__registered_games__.keys())
+        choices=list(_REGISTERED_GAMES.keys())
     )
-    add_standard_parameters(parser)
+    _add_standard_parameters(parser)
     args: argparse.Namespace = parser.parse_args()
 
     # List the available games if requested.
     if args.list_games:
         print("Available games:")
-        for _name, _game in __registered_games__.items():
+        for _name, _game in _REGISTERED_GAMES.items():
             print(f"\t{_name}: {_game.description}")
             print(f"\t\tDefault size: {_game.default_size}")
             print(f"\t\tCompetitive: {_game.competitive}")
@@ -416,16 +427,16 @@ def main() -> int:
         return 1
     if args.launcher:
         print("Launching game launcher...")
-        game = curses.wrapper(run_game_launcher)
+        game = curses.wrapper(_run_game_launcher)
         if game is None:
             return 0
     else:
         game = args.game
-    if game not in __registered_games__:
+    if game not in _REGISTERED_GAMES:
         print(f"Game '{game}' is not registered.")
         return 1
     print(f"Launching game '{game}'...")
-    game_registration: GameRegistration = __registered_games__[game]
+    game_registration: _GameRegistration = _REGISTERED_GAMES[game]
 
     # Get window size.
     width = args.width
@@ -467,4 +478,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(_main())
