@@ -192,6 +192,16 @@ def field_change(
 
 
 class _SubjectField(NamedTuple):
+    """
+    A field of a subject.
+
+    Items:
+    ------
+    `get_attr: Callable[[Subject], Any]` - The getter function of the field.
+
+    `queue_size: int | None` - The size of the queue used to store values of
+    the field. If None, the field is not queued.
+    """
     get_attr: Callable[["Subject"], Any]
     queue_size: int | None
 
@@ -282,6 +292,7 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
     __slots__ = {
         "__listeners": "The listeners registered with the subject.",
         "__callbacks": "The callbacks registered with the subject.",
+        "__clock": "The clock used to update all listeners.",
         "__executor": "The thread pool executor used to update listeners.",
         "__queues": "The queues used to store values of queued fields."
     }

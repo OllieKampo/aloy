@@ -219,9 +219,9 @@ class Observable(SynchronizedClass):
         """
         Create a new observable.
 
-        For Qt6 GUI applications, `clock` should always be an existing QTimer
-        and `start_clock` should be False (it should be started externally
-        after construction of the sub-class instance has completed).
+        For PySide6 GUI applications, `clock` should always be an existing
+        QTimer and `start_clock` should be False (it should be started
+        externally after construction of the sub-class instance has completed).
 
         Parameters
         ----------
