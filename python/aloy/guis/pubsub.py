@@ -24,7 +24,7 @@ updated or changed.
 
 from collections import defaultdict
 import logging
-from typing import Any, Callable, final, Union
+from typing import Any, Callable, TypeVar, final, Union, overload
 import weakref
 
 from PySide6.QtCore import QTimer  # pylint: disable=no-name-in-module
@@ -47,6 +47,8 @@ def __dir__() -> tuple[str, ...]:
     return __all__
 
 
+# Hubs are stored in a weak value dictionary so that they can be garbage
+# collected when no longer in use.
 _HUBS: weakref.WeakValueDictionary[str, "AloyPubSubHub"]
 _HUBS = weakref.WeakValueDictionary()
 _PUBSUB_INIT_STORE_TOPICS: dict[str, dict[str, list[str]]]
@@ -64,16 +66,16 @@ def _add_hub(hub: "AloyPubSubHub") -> None:
     _HUBS[hub.name] = hub
 
 
-def get_hub(hub_name: str) -> Union["AloyPubSubHub", None]:  # type: ignore
+def get_hub(hub_name: str) -> Union["AloyPubSubHub", None]:
     """
     Get the hub with the given name.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     `hub_name: str` - The name of the hub to get.
 
-    Returns:
-    --------
+    Returns
+    -------
     `AloyPubSubHub | None` - The hub with the given name, or `None` if no hub
     with the given name exists.
     """
@@ -116,8 +118,8 @@ class AloyPubSubHub:
                     "values of the parameter.",
         "__params_updated": "Mapping between parameter names and whether the "
                             "parameter has been updated.",
-        "__updater_timer": "Timer to update all subscribers.",
-        "__qthreadpool": "Thread pool to update individual subscribers."
+        "__updater_timer": "Timer to update subscribers.",
+        "__qthreadpool": "Thread pool to update subscribers."
     }
 
     def __init__(
@@ -130,7 +132,35 @@ class AloyPubSubHub:
         debug: bool = False
     ) -> None:
         """
-        Create a new publisher-subscriber hub.
+        Create a new publisher-subscriber hub with the given name. The hub will
+        be added to the global list of hubs and is accessible via its name. It
+        is an error to create a hub with the same name as an existing hub. If
+        all references to the hub are lost, it will be garbage collected and
+        removed from the global list of hubs.
+
+        Parameters
+        ----------
+        `name: str` - The name of the hub.
+
+        `param_dict: dict[str, Any] | None = None` - A dictionary mapping
+        parameter names to their initial values to publish to the hub.
+        If not given or None, no initial values are specified. Defaults to
+        None.
+
+        `qtimer: QTimer | None = None` - The timer to use to update
+        subscribers. If not given or None, a new timer will be created.
+        Defaults to None. Defaults to None.
+
+        `tick_rate: int = 20` - The tick rate of the timer in Hz. This is the
+        maximum number of times per second that subscribers will be updated.
+        Defaults to 20 (50ms between updates).
+
+        `start_timer: bool = True` - Whether to start the timer if an existing
+        timer is given. Ignored if a new timer is created (the timer is always
+        started in this case). Defaults to True.
+
+        `debug: bool = False` - Whether to log debug messages. Defaults to
+        False.
         """
         self.__debug: bool = debug
         if self.__debug:
@@ -153,7 +183,10 @@ class AloyPubSubHub:
         self.__params = AtomicDict[str, tuple[Any, Any]]()
         self.__params_updated = AtomicDict[str, bool]()
 
-        # Threads for updating subscribers.
+        # Threads for updating subscribers:
+        #   - The timer updates all subscribers at a fixed rate,
+        #   - Whenever the timer times out, each topic and parameter is updated
+        #     in parallel by a separate thread in the thread pool.
         self.__updater_timer: QTimer
         if (new_timer := qtimer is None):
             self.__updater_timer = QTimer()
@@ -213,8 +246,8 @@ class AloyPubSubHub:
         - `all_messages: list[str]` - All messages in the topic.
         - `new_messages: list[str]` - The most recently added new messages.
 
-        Parameters:
-        -----------
+        Parameters
+        ----------
         `topic_name: str` - The name of the topic to subscribe to.
 
         `callback: Callable[[str, list[str], list[str]], None]` - The callback
@@ -233,8 +266,8 @@ class AloyPubSubHub:
         The messages are added to the topic and all subscribed callback
         functions are called with the new messages.
 
-        Parameters:
-        -----------
+        Parameters
+        ----------
         `topic_name: str` - The name of the topic to publish to.
 
         `*messages: str` - The messages to publish to the topic.
@@ -291,8 +324,8 @@ class AloyPubSubHub:
         - `old_value: Any` - The old value of the parameter.
         - `new_value: Any` - The new value of the parameter.
 
-        Parameters:
-        -----------
+        Parameters
+        ----------
         `param_name: str` - The name of the parameter to subscribe to.
 
         `callback: Callable[[str, Any, Any], None]` - The callback function to
@@ -311,8 +344,8 @@ class AloyPubSubHub:
         The value is set to the parameter value and all subscribed callback
         functions are called with the new value.
 
-        Parameters:
-        -----------
+        Parameters
+        ----------
         `param_name: str` - The name of the parameter to publish to.
 
         `value: Any` - The value to publish to the parameter.
@@ -349,6 +382,176 @@ class AloyPubSubHub:
                 func(param_name, *value)
 
 
+_CT = TypeVar("_CT")
+_IT = TypeVar("_IT")
+_FT = TypeVar("_FT", Callable, property)
+
+
+@overload
+def subscribe_topic(
+    hub_name: str,
+    topic_name: str,
+    func: Callable[[str, Any, Any], None]
+) -> None:
+    """
+    Subscribe a callback function to the given topic.
+
+    The subscribed callback will be called when a message is added to the given
+    topic on the given hub. If the hub does not yet exist, the callback will be
+    subscribed when a hub with the given name is created.
+
+    See `AloyPubSubHub.subscribe_topic` for more details.
+    """
+    ...
+
+
+@overload
+def subscribe_topic(
+    hub_name: str,
+    topic_name: str
+) -> Callable[
+    [Callable[[str, _IT, _IT], None]],
+    Callable[[str, _IT, _IT], None]
+]:
+    """
+    Decorate a function to subscribe it to the given topic.
+
+    The subscribed callback will be called when a message is added to the given
+    topic on the given hub. If the hub does not yet exist, the callback will be
+    subscribed when a hub with the given name is created.
+
+    See `AloyPubSubHub.subscribe_topic` for more details.
+    """
+    ...
+
+
+@overload
+def subscribe_topic(
+    hub_name: str,
+    topic_name: str
+) -> Callable[
+    [Callable[[_CT, str, _IT, _IT], None]],
+    Callable[[_CT, str, _IT, _IT], None]
+]:
+    """
+    Decorate an instance method or property to subscribe it to the given topic.
+
+    The subscribed callback will be called when a message is added to the given
+    topic on the given hub. If the hub does not yet exist, the callback will be
+    subscribed when a hub with the given name is created.
+
+    See `AloyPubSubHub.subscribe_topic` for more details.
+    """
+    ...
+
+
+def subscribe_topic(
+    hub_name: str,
+    topic_name: str,
+    func: _FT | None = None
+) -> _FT | None:
+    """Subscribe a callback function to the given topic."""
+    if func is None:
+        def decorator(func_: _FT) -> _FT:
+            subscribe_topic(hub_name, topic_name, func_)
+            return func_
+        return decorator
+
+    if isinstance(func, property):
+        if func.fset is None:
+            raise TypeError("Cannot subscribe to a read-only property.")
+        func = func.fset
+
+    hub = get_hub(hub_name)
+    if hub is not None:
+        hub.subscribe_topic(topic_name, func)
+    else:
+        _PUBSUB_INIT_SUBSCRIBE_TOPICS[hub_name][topic_name].append(func)
+
+
+@overload
+def subscribe_param(
+    hub_name: str,
+    field_name: str,
+    func: Callable[[str, Any, Any], None]
+) -> None:
+    """
+    Subscribe a callback function to the given parameter.
+
+    The subscribed callback will be called when the given parameter is changed
+    on the given hub. If the hub does not yet exist, the callback will be
+    subscribed when a hub with the given name is created.
+
+    See `AloyPubSubHub.subscribe_param` for more details.
+    """
+    ...
+
+
+@overload
+def subscribe_param(
+    hub_name: str,
+    field_name: str
+) -> Callable[
+    [Callable[[str, _IT, _IT], None]],
+    Callable[[str, _IT, _IT], None]
+]:
+    """
+    Decorate a function to subscribe it to the given parameter.
+
+    The subscribed callback will be called when the given parameter is changed
+    on the given hub. If the hub does not yet exist, the callback will be
+    subscribed when a hub with the given name is created.
+
+    See `AloyPubSubHub.subscribe_param` for more details.
+    """
+    ...
+
+
+@overload
+def subscribe_param(
+    hub_name: str,
+    field_name: str
+) -> Callable[
+    [Callable[[_CT, str, _IT, _IT], None]],
+    Callable[[_CT, str, _IT, _IT], None]
+]:
+    """
+    Decorate an instance method or property to subscribe it to the given
+    parameter.
+
+    The subscribed callback will be called when the given parameter is changed
+    on the given hub. If the hub does not yet exist, the callback will be
+    subscribed when a hub with the given name is created.
+
+    See `AloyPubSubHub.subscribe_param` for more details.
+    """
+    ...
+
+
+def subscribe_param(
+    hub_name: str,
+    field_name: str,
+    func: _FT | None = None
+) -> _FT | None:
+    """Subscribe a callback function to the given parameter."""
+    if func is None:
+        def decorator(func_: _FT) -> _FT:
+            subscribe_param(hub_name, field_name, func_)
+            return func_
+        return decorator
+
+    if isinstance(func, property):
+        if func.fset is None:
+            raise TypeError("Cannot subscribe to a read-only property.")
+        func = func.fset
+
+    hub = get_hub(hub_name)
+    if hub is not None:
+        hub.subscribe_param(field_name, func)
+    else:
+        _PUBSUB_INIT_SUBSCRIBE_PARAMS[hub_name][field_name].append(func)
+
+
 def publish_topic(hub_name: str, topic_name: str, *messages: str) -> None:
     """
     Publish messages to the given topic.
@@ -356,8 +559,8 @@ def publish_topic(hub_name: str, topic_name: str, *messages: str) -> None:
     The messages are added to the topic and all subscribed callback functions
     are called with the new messages.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     `hub_name: str` - The name of the hub to publish to.
 
     `topic_name: str` - The name of the topic to publish to.
@@ -378,8 +581,8 @@ def publish_param(hub_name: str, param_name: str, value: Any) -> None:
     The value is set to the parameter value and all subscribed callback
     functions are called with the new value.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     `hub_name: str` - The name of the hub to publish to.
 
     `param_name: str` - The name of the parameter to publish to.
@@ -393,63 +596,14 @@ def publish_param(hub_name: str, param_name: str, value: Any) -> None:
         _PUBSUB_INIT_STORE_PARAMS[hub_name][param_name] = value
 
 
-def subscribe_topic(
-    hub_name: str,
-    topic_name: str,
-    func: Callable | property | None = None
-) -> Any:
-    """
-    Decorate a function or method to be called when a message is added to a
-    topic.
-    """
-    if func is None:
-        def decorator(func_: Any) -> Any:
-            subscribe_topic(hub_name, topic_name, func_)
-            return func_
-        return decorator
-
-    if isinstance(func, property):
-        if func.fset is None:
-            raise TypeError("Cannot subscribe to a read-only property.")
-        func = func.fset
-
-    hub = get_hub(hub_name)
-    if hub is not None:
-        hub.subscribe_topic(topic_name, func)
-    else:
-        _PUBSUB_INIT_SUBSCRIBE_TOPICS[hub_name][topic_name].append(func)
-
-
-def subscribe_param(
-    hub_name: str,
-    field_name: str,
-    func: Callable | property | None = None
-) -> Any:
-    """
-    Decorate a function or method to be called when a parameter is changed.
-    """
-    if func is None:
-        def decorator(func_: Any) -> Any:
-            subscribe_param(hub_name, field_name, func_)
-            return func_
-        return decorator
-
-    if isinstance(func, property):
-        if func.fset is None:
-            raise TypeError("Cannot subscribe to a read-only property.")
-        func = func.fset
-
-    hub = get_hub(hub_name)
-    if hub is not None:
-        hub.subscribe_param(field_name, func)
-    else:
-        _PUBSUB_INIT_SUBSCRIBE_PARAMS[hub_name][field_name].append(func)
-
-
 def __main() -> None:
+    # pylint: disable=import-outside-toplevel
+    # pylint: disable=no-name-in-module
     import time
-    import PySide6.QtWidgets as QtWidgets  # pylint: disable=no-name-in-module
-    _QAPP = QtWidgets.QApplication([])
+    import itertools
+    from PySide6.QtWidgets import QApplication
+
+    _qapp = QApplication([])
 
     def topic_callback(
         topic_name: str,
@@ -457,7 +611,7 @@ def __main() -> None:
         new_messages: list[str]
     ) -> None:
         print(f"Topic '{topic_name}' updated with {new_messages}")
-    subscribe_topic("default", "test", topic_callback)
+    subscribe_topic("test_hub", "test_topic", topic_callback)
 
     def param_callback(
         param_name: str,
@@ -466,21 +620,23 @@ def __main() -> None:
     ) -> None:
         print(f"Parameter '{param_name}' "
               f"updated from {old_value} to {new_value}")
-    subscribe_param("default", "test", param_callback)
+    subscribe_param("test_hub", "test_param", param_callback)
 
     for i in range(10):
-        publish_topic("default", "test", str(i))
+        publish_topic("test_hub", "test_topic", f"Buffered message {i}.")
+    publish_param("test_hub", "test_param", "Buffered parameter.")
 
-    _PUBSUBHUB = AloyPubSubHub("default")
+    _test_hub = AloyPubSubHub("test_hub")  # noqa: F841
 
+    counter = itertools.count()
     qtimer = QTimer()
     qtimer.timeout.connect(
-        lambda: publish_topic("default", "test", str(time.time())))
-    # qtimer.timeout.connect(
-    #     lambda: publish_param("default", "test", str(time.time())))
+        lambda: publish_topic("test_hub", "test_topic", str(time.time())))
+    qtimer.timeout.connect(
+        lambda: publish_param("test_hub", "test_param", next(counter)))
     qtimer.start(1000)
 
-    _QAPP.exec()
+    _qapp.exec()
 
 
 if __name__ == "__main__":
