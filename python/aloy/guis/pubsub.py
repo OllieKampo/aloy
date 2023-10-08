@@ -34,6 +34,7 @@ from aloy.concurrency.executors import AloyQThreadPool
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
+__version__ = "0.0.2"
 
 __all__ = (
     "AloyPubSubHub",
