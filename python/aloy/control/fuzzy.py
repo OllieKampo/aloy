@@ -1386,6 +1386,8 @@ class FuzzyController(Controller):
 def _main() -> None:
     """Main function."""
     # pylint: disable=import-outside-toplevel
+    import matplotlib
+    matplotlib.use("TkAgg")
     from aloy.control.controlutils import plot_control
 
     proportional_var = FuzzyVariable("proportional", -10.0, 10.0, gain=1.0)
