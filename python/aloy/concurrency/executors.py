@@ -33,7 +33,7 @@ from aloy.concurrency.atomic import AtomicNumber
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 
 __all__ = (
     "AloyQThreadPool",
@@ -339,6 +339,56 @@ class AloyThreadPool:
         if future in self.__finished_jobs:
             return self.__finished_jobs[future]
         return self.__submitted_jobs.pop(future)
+
+    @functools.wraps(ThreadPoolExecutor.map,
+                     assigned=("__doc__",))
+    def map(
+        self,
+        name: str,
+        func: Callable[SP, ST],
+        *iterables: Iterable[SP.args],
+        timeout: float | None = None
+    ) -> Iterator[Future[ST]]:
+        if timeout is not None:
+            end_time = timeout + time.perf_counter()
+
+        futures = [
+            self.submit(name, func, *args)
+            for args in zip(*iterables)
+        ]
+        futures.reverse()
+
+        return AloyThreadPool.__iter_results(futures, timeout, end_time)
+
+    @staticmethod
+    def __get_result(
+        future_: Future[ST],
+        timeout: float | None = None
+    ) -> ST | None:
+        try:
+            try:
+                return future_.result(timeout)
+            finally:
+                future_.cancel()
+        finally:
+            del future_
+
+    @staticmethod
+    def __iter_results(
+        futures: list[Future],
+        timeout: float | None = None,
+        end_time: float | None = None
+    ) -> Iterator[ST]:
+        try:
+            while futures:
+                if timeout is None:
+                    yield AloyThreadPool.__get_result(futures.pop())
+                else:
+                    yield AloyThreadPool.__get_result(
+                        futures.pop(), end_time - time.monotonic())
+        finally:
+            for future_ in futures:
+                future_.cancel()
 
     @functools.wraps(ThreadPoolExecutor.shutdown, assigned=("__doc__",))
     def shutdown(self, wait: bool = True) -> None:
