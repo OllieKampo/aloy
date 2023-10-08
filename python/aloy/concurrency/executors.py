@@ -1,3 +1,19 @@
+###############################################################################
+# Copyright (C) 2023 Oliver Michael Kamperis
+# Email: olliekampo@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
+
+"""Module containing thread pools and concurrent executors."""
 
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, fields, field
@@ -7,12 +23,29 @@ import os
 import threading
 import time
 import types
-from typing import Any, Callable, Iterable, ParamSpec, TypeVar, final
+from typing import Any, Callable, Iterable, Iterator, ParamSpec, TypeVar, final
 
 import urllib.request
-from PySide6.QtCore import QThreadPool, QRunnable, QObject, Signal, Slot
+from PySide6.QtCore import (QThreadPool,  # pylint: disable=no-name-in-module
+                            QRunnable, QObject, Signal, Slot)
 
 from aloy.concurrency.atomic import AtomicNumber
+
+__copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
+__license__ = "GPL-3.0"
+__version__ = "0.0.1"
+
+__all__ = (
+    "AloyQThreadPool",
+    "AloyThreadPool",
+    "AloyThreadJob",
+    "AloyThreadFinishedJob"
+)
+
+
+def __dir__() -> tuple[str, ...]:
+    """Get the names of module attributes."""
+    return __all__
 
 
 SP = ParamSpec("SP")
@@ -141,6 +174,20 @@ class AloyThreadPool:
 
     __POOLS: AtomicNumber[int] = AtomicNumber(0)
 
+    __slots__ = {
+        "__name": "The name of the thread pool.",
+        "__logger": "The logger used to log jobs.",
+        "__log": "Whether to log jobs.",
+        "__profile": "Whether to profile jobs.",
+        "__submitted_jobs": "The jobs submitted to the thread pool.",
+        "__finished_jobs": "The jobs that have finished execution.",
+        "__queued_jobs": "The number of jobs in the queue.",
+        "__max_workers": "The maximum number of workers allowed.",
+        "__active_threads": "The number of active threads.",
+        "__main_thread": "The main thread.",
+        "__thread_pool": "The thread pool."
+    }
+
     @classmethod
     def __get_pool_name(cls) -> str:
         """Returns a unique name for a thread pool."""
@@ -169,16 +216,16 @@ class AloyThreadPool:
         self.__logger = logging.getLogger("AloyThreadPool")
         self.__logger.setLevel(logging.DEBUG)
         self.__log: bool = log
+        self.__profile: bool = profile
 
-        if max_workers is None:
-            self.__max_workers = os.cpu_count()
         self.__submitted_jobs: dict[Future, AloyThreadJob] = {}
         self.__finished_jobs: dict[Future, AloyThreadFinishedJob] = {}
         self.__queued_jobs = AtomicNumber[int](0)
         self.__active_threads = AtomicNumber[int](0)
 
-        self.__profile: bool = profile
-
+        if max_workers is None:
+            max_workers = os.cpu_count()
+        self.__max_workers: int = max_workers
         self.__main_thread: threading.Thread = threading.current_thread()
         self.__thread_pool = ThreadPoolExecutor(
             max_workers,
@@ -292,50 +339,6 @@ class AloyThreadPool:
         if future in self.__finished_jobs:
             return self.__finished_jobs[future]
         return self.__submitted_jobs.pop(future)
-
-    @staticmethod
-    def __result_or_cancel(
-        future_: Future,
-        timeout: float | None = None
-    ) -> None:
-        try:
-            try:
-                return future_.result(timeout)
-            finally:
-                future_.cancel()
-        finally:
-            del future_
-
-    @functools.wraps(ThreadPoolExecutor.map,
-                     assigned=("__doc__",))
-    def map(
-        self,
-        name: str,
-        func: Callable[SP, ST],
-        *iterables: Iterable[SP.args],
-        timeout: float | None = None
-    ) -> Iterable[Future]:
-        if timeout is not None:
-            end_time = timeout + time.perf_counter()
-
-        fs = [self.submit(name, func, *args) for args in zip(*iterables)]
-
-        # Yield must be hidden in closure so that the futures are submitted
-        # before the first iterator value is required.
-        def result_iterator():
-            try:
-                # reverse to keep finishing order
-                fs.reverse()
-                while fs:
-                    # Careful not to keep a reference to the popped future
-                    if timeout is None:
-                        yield self.__result_or_cancel(fs.pop())
-                    else:
-                        yield self.__result_or_cancel(fs.pop(), end_time - time.monotonic())
-            finally:
-                for future in fs:
-                    future.cancel()
-        return result_iterator()
 
     @functools.wraps(ThreadPoolExecutor.shutdown, assigned=("__doc__",))
     def shutdown(self, wait: bool = True) -> None:
