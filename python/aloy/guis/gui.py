@@ -1,5 +1,6 @@
+###############################################################################
 # Copyright (C) 2023 Oliver Michael Kamperis
-# Email: o.m.kamperis@gmail.com
+# Email: olliekampo@gmail.com
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
@@ -33,6 +34,7 @@ from aloy.moremath.mathutils import closest_integer_factors
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
+__version__ = "1.0.0"
 
 __all__ = (
     "AloyWidgetSize",
@@ -223,7 +225,7 @@ class GridScaler:
 
 
 def combine_aloy_widgets(
-    jwidgets: Sequence["AloyWidget"],
+    awidgets: Sequence["AloyWidget"],
     kind: Literal["horizontal", "vertical", "grid"] = "vertical",
     stretches: (Sequence[int] | tuple[Sequence[int], Sequence[int]]
                 | None) = None,
@@ -238,7 +240,7 @@ def combine_aloy_widgets(
 
     Parameters
     ----------
-    `jwidgets: Sequence[AloyWidget]` - The Aloy widgets to combine.
+    `awidgets: Sequence[AloyWidget]` - The Aloy widgets to combine.
 
     `kind: Literal["horizontal", "vertical", "grid"]` - The kind of layout to
     use. If "grid", the widgets will be initially placed along the columns of
@@ -306,18 +308,18 @@ def combine_aloy_widgets(
             col_stretches = itertools.cycle(stretches[1])  # type: ignore
 
         if grid_size_max is not None:
-            if (grid_size_max[0] * grid_size_max[1]) < len(jwidgets):
+            if (grid_size_max[0] * grid_size_max[1]) < len(awidgets):
                 raise ValueError(
                     f"Grid size {grid_size_max!r} is too small for "
-                    f"{len(jwidgets)!r} widgets."
+                    f"{len(awidgets)!r} widgets."
                 )
         else:
-            grid_size_max = closest_integer_factors(len(jwidgets))
+            grid_size_max = closest_integer_factors(len(awidgets))
 
-        for index, jwidget in enumerate(jwidgets):
+        for index, awidget in enumerate(awidgets):
             index_row, index_col = divmod(index, grid_size_max[1])
             layout.addWidget(
-                jwidget.qwidget,
+                awidget.qwidget,
                 index_row,
                 index_col,
                 alignment=alignment
@@ -345,9 +347,9 @@ def combine_aloy_widgets(
                 f"layout."
             )
 
-        for jwidget, stretch in zip(jwidgets, stretches):  # type: ignore
+        for awidget, stretch in zip(awidgets, stretches):  # type: ignore
             layout.addWidget(
-                jwidget.qwidget,
+                awidget.qwidget,
                 stretch=stretch,  # type: ignore
                 alignment=alignment
             )
@@ -374,7 +376,6 @@ class AloySystemData(observable.Observable):
     """A class defining a Aloy system data object."""
 
     __slots__ = {
-        "__weakref__": "Weak reference to the object.",
         "__linked_gui": "The gui object linked to this data object.",
         "__view_states": "The list of view states.",
         "__desired_view_state": "The currently desired view state."
@@ -483,12 +484,11 @@ class AloyWidget(observable.Observer):
     observer objects and can be assigned to system data objects, and are
     notified when the data objects are changed. Similarly, data objects can be
     attached to Aloy widgets, so that they can directly access or modify the
-    data objects. A Aloy widget can also be directly added to a Aloy gui
+    data objects. An Aloy widget can also be directly added to a Aloy gui
     window as a view.
     """
 
     __slots__ = {
-        "__weakref__": "Weak reference to the object.",
         "__qwidget": "The encapsulated widget.",
         "__data": "The system data object.",
         "__size": "The size of the widget."
@@ -638,7 +638,6 @@ class AloyGuiWindow(observable.Observer):
     """
 
     __slots__ = {
-        "__weakref__": "Weak reference to the object.",
         "__qapp": "The main application.",
         "__qwindow": "The main window.",
         "__main_qwidget": "The main widget.",
@@ -828,7 +827,7 @@ class AloyGuiWindow(observable.Observer):
 
     def add_view(
         self,
-        jwidget: AloyWidget,
+        awidget: AloyWidget,
         name: str | None = None
     ) -> None:
         """
@@ -841,13 +840,13 @@ class AloyGuiWindow(observable.Observer):
         state.
         """
         if name is None:
-            name = jwidget.observer_name
+            name = awidget.observer_name
 
-        self.__views[name] = jwidget
-        jwidget.attach_data(self.__data)
+        self.__views[name] = awidget
+        awidget.attach_data(self.__data)
         self.__data.update_view_states()
 
-        self.__stack.addWidget(jwidget.qwidget)
+        self.__stack.addWidget(awidget.qwidget)
         if self.__kind == "tabbed":
             self.__tab_bar.addTab(name)
         elif self.__kind == "combo":
@@ -860,10 +859,10 @@ class AloyGuiWindow(observable.Observer):
         """Remove the view state with the given name from the window."""
         if name not in self.__views or name is None:
             return
-        jwidget = self.__views.pop(name)
+        awidget = self.__views.pop(name)
         self.__data.update_view_states()
 
-        self.__stack.removeWidget(jwidget.qwidget)
+        self.__stack.removeWidget(awidget.qwidget)
         if self.__kind == "tabbed":
             for index in range(self.__tab_bar.count()):
                 if self.__tab_bar.tabText(index) == name:
@@ -885,13 +884,13 @@ class AloyGuiWindow(observable.Observer):
         desired_view_state: str | None = self.__data.desired_view_state
         if self.__current_view_state != desired_view_state:
             if self.__current_view_state is not None:
-                jwidget = self.__views[self.__current_view_state]
-                self.__data.remove_observers(jwidget)
+                awidget = self.__views[self.__current_view_state]
+                self.__data.remove_observers(awidget)
             if desired_view_state is not None:
-                jwidget = self.__views[desired_view_state]
-                self.__stack.setCurrentWidget(jwidget.qwidget)
-                self.__data.assign_observers(jwidget)
-                self.__data.notify(jwidget)
+                awidget = self.__views[desired_view_state]
+                self.__stack.setCurrentWidget(awidget.qwidget)
+                self.__data.assign_observers(awidget)
+                self.__data.notify(awidget)
             else:
                 self.__current_view_state = None
                 self.__stack.setCurrentWidget(self.__default_qwidget)

@@ -1,0 +1,58 @@
+###############################################################################
+# Copyright (C) 2023 Oliver Michael Kamperis
+# Email: olliekampo@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
+
+[games.register.snakegame]
+module = "snakegame"
+entry_point = "play_snake_game"
+name = "Snake"
+description = "Play the snake game with QT."
+backends = ["qt"]
+default_backend = "qt"
+default_size = [800, 600]
+competitive = false
+package = "aloy.games"
+
+[games.register.snakegame.parameters.walls]
+name = "walls"
+type = "bool"
+default = true
+help = "Enable walls."
+
+[games.register.snakegame.parameters.show_path]
+name = "show_path"
+type = "bool"
+default = false
+help = "Show the path of the snake to the food."
+
+[games.register.tetrisgame]
+module = "tetrisgame"
+entry_point = "play_tetris_game"
+name = "Tetris"
+description = "Play the tetris game with QT."
+backends = ["qt"]
+default_backend = "qt"
+default_size = [800, 800]
+competitive = false
+package = "aloy.games"
+
+[games.register.tetrisgame.parameters.ghost_piece_enabled]
+type = "bool"
+default = true
+help = "Show the ghost piece."
+
+[games.register.tetrisgame.parameters.allow_store_piece]
+type = "bool"
+default = true
+help = "Allow the player to store a piece."

@@ -1,5 +1,6 @@
+###############################################################################
 # Copyright (C) 2023 Oliver Michael Kamperis
-# Email: o.m.kamperis@gmail.com
+# Email: olliekampo@gmail.com
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
@@ -61,13 +62,14 @@ import functools
 import logging
 from typing import Any, Callable, Concatenate, ParamSpec, TypeVar, final
 import threading
-from PySide6.QtCore import QTimer  # pylint: disable=E0611
+from PySide6.QtCore import QTimer  # pylint: disable=no-name-in-module
 
 from aloy.concurrency.clocks import ClockThread
 from aloy.concurrency.synchronization import SynchronizedClass, sync
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
+__version__ = "1.0.0"
 
 __all__ = (
     "Observable",
@@ -103,7 +105,7 @@ def notifies_observers(
     If `raise_` is True, raise a ValueError if any of the given names do not
     correspond to an observer of the observable.
     """
-    if not names:
+    if not names:  # pylint: disable=no-else-return
         def inner(
             func: Callable[Concatenate["Observable", SP], ST]
         ) -> Callable[Concatenate["Observable", SP], ST]:
@@ -118,7 +120,7 @@ def notifies_observers(
                 return return_value
             return wrapper
         return inner
-    else:  # pylint: disable=no-else-return
+    else:
         def inner(
             func: Callable[Concatenate["Observable", SP], ST]
         ) -> Callable[Concatenate["Observable", SP], ST]:
@@ -193,10 +195,11 @@ class Observable(SynchronizedClass):
     __OBSERVABLE_LOGGER = logging.getLogger("Observable")
 
     __slots__ = {
+        "__weakref__": "Weak references to the object.",
         "__name": "The name of the observable.",
         "__observers": "The observers of this observable.",
-        "__changed": "The observers that have been notified the the state of "
-                     "the observable has changed since the last update.",
+        "__notified": "The observers that have been notified that the state "
+                      "of the observable has changed since the last update.",
         "__chained": "The observables that this observable is chained to.",
         "__vars": "Arbitrary data associated with the gui.",
         "__messages": "Log messages associated with the gui.",
@@ -217,9 +220,9 @@ class Observable(SynchronizedClass):
         """
         Create a new observable.
 
-        For Qt6 GUI applications, `clock` should always be an existing QTimer
-        and `start_clock` should be False (it should be started externally
-        after construction of the sub-class instance has completed).
+        For PySide6 GUI applications, `clock` should always be an existing
+        QTimer and `start_clock` should be False (it should be started
+        externally after construction of the sub-class instance has completed).
 
         Parameters
         ----------
@@ -250,7 +253,7 @@ class Observable(SynchronizedClass):
         if self.__debug:
             self.__OBSERVABLE_LOGGER.debug(
                 "Creating new observable with: "
-                "name=%s clock=%s, tick_rate=%s, start_clock=%s, debug=%s",
+                "name=%s, clock=%s, tick_rate=%s, start_clock=%s, debug=%s",
                 name, clock, tick_rate, start_clock, debug
             )
 
@@ -261,11 +264,10 @@ class Observable(SynchronizedClass):
         else:
             self.__name = name
 
-        # Ineternal data structures.
+        # Internal data structures.
         self.__observers: set["Observer"] = set()
-        self.__changed: set["Observer"] = set()
+        self.__notified: set["Observer"] = set()
         self.__chained: dict[str, "Observable"] = {}
-
         self.__vars: dict[str, Any]
         if var_dict is None:
             self.__vars = {}
@@ -430,11 +432,12 @@ class Observable(SynchronizedClass):
             )
         with self.__notify_update_lock:
             if not raise_:
-                self.__changed.update(self.__observers.intersection(observers))
+                self.__notified.update(
+                    self.__observers.intersection(observers))
             else:
                 for observer in observers:
                     if observer in self.__observers:
-                        self.__changed.add(observer)
+                        self.__notified.add(observer)
                     else:
                         raise ValueError(f"Observer {observer} is not "
                                          "observing this observable.")
@@ -457,7 +460,7 @@ class Observable(SynchronizedClass):
             )
         with self.__notify_update_lock:
             if not raise_:
-                self.__changed.update(
+                self.__notified.update(
                     observer
                     for observer in self.__observers
                     if observer.observer_name in names
@@ -466,7 +469,7 @@ class Observable(SynchronizedClass):
                 for name in names:
                     for observer in self.__observers:
                         if observer.observer_name == name:
-                            self.__changed.add(observer)
+                            self.__notified.add(observer)
                             break
                     else:
                         raise ValueError(f"Observer with name {name} is not "
@@ -484,7 +487,7 @@ class Observable(SynchronizedClass):
                 self.__name
             )
         with self.__notify_update_lock:
-            self.__changed.update(self.__observers)
+            self.__notified.update(self.__observers)
         for observable_ in self.__chained.values():
             observable_.notify_all()
 
@@ -492,8 +495,8 @@ class Observable(SynchronizedClass):
     def __update_observers(self) -> None:
         """Update all observers that have been notified."""
         with self.__notify_update_lock:
-            observers = self.__changed.copy()
-            self.__changed.clear()
+            observers = self.__notified.copy()
+            self.__notified.clear()
         for observer in observers:
             observer._sync_update_observer(self)  # pylint: disable=W0212
 
@@ -579,6 +582,7 @@ class Observer(metaclass=ABCMeta):
     __OBSERVER_LOGGER = logging.getLogger("Observer")
 
     __slots__ = {
+        "__weakref__": "Weak references to the object.",
         "__name": "Name of the observer.",
         "__observables": "The observables being observed.",
         "__lock": "Lock that ensure atomic updates to the observer.",

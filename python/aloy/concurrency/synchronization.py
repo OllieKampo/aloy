@@ -1,23 +1,17 @@
-###########################################################################
-###########################################################################
-## Module containing functions and classes for synchronization.          ##
-##                                                                       ##
-## Copyright (C) 2022 Oliver Michael Kamperis                            ##
-##                                                                       ##
-## This program is free software: you can redistribute it and/or modify  ##
-## it under the terms of the GNU General Public License as published by  ##
-## the Free Software Foundation, either version 3 of the License, or     ##
-## any later version.                                                    ##
-##                                                                       ##
-## This program is distributed in the hope that it will be useful,       ##
-## but WITHOUT ANY WARRANTY; without even the implied warranty of        ##
-## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          ##
-## GNU General Public License for more details.                          ##
-##                                                                       ##
-## You should have received a copy of the GNU General Public License     ##
-## along with this program. If not, see <https://www.gnu.org/licenses/>. ##
-###########################################################################
-###########################################################################
+###############################################################################
+# Copyright (C) 2023 Oliver Michael Kamperis
+# Email: olliekampo@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
 
 """Module containing functions and classes for synchronization."""
 
@@ -36,6 +30,7 @@ from aloy.datastructures.mappings import ReversableDict
 
 __copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
+__version__ = "0.3.0"
 
 __all__ = (
     "OwnedRLock",
@@ -238,11 +233,11 @@ def atomic_context(
 
     Parameters
     ----------
-    `context_name : str` - The name of the context.
+    `context_name: str` - The name of the context.
 
-    `cls : type | None = None` - The class of the context.
+    `cls: type | None = None` - The class of the context.
 
-    `inst : object | None = None` - The instance of the context.
+    `inst: object | None = None` - The instance of the context.
     If `cls` is not given or None and `inst` is not None,
     `cls` will be set to `inst.__class__`.
     """
@@ -552,8 +547,10 @@ def synchronize_method(
                 if self.__method_locks__[method.__name__].recursion_depth == 1:
                     self.__semaphore__.release()
                 # pylint: disable=protected-access
-                if (not self.__method_locks__[method.__name__].any_threads_waiting
-                        and self.__semaphore__._value == self.__semaphore__._initial_value):
+                if (not self.__method_locks__[method.__name__]
+                        .any_threads_waiting
+                        and self.__semaphore__._value == self.__semaphore__
+                            ._initial_value):
                     self.__event__.set()
                 self.__method_locks__[method.__name__].release()
 
@@ -598,9 +595,9 @@ class SynchronizedMeta(type):
     """Metaclass for synchronizing method calls for a class."""
 
     def __new__(
-        cls,
+        mcs,
         cls_name: str,
-        bases: tuple[str, ...],
+        bases: tuple[typing.Type, ...],
         class_dict: dict[str, typing.Any]
     ) -> type:
         """
@@ -620,7 +617,7 @@ class SynchronizedMeta(type):
 
         all_methods = dict[str, types.FunctionType]()
         method_locked_methods = set[str]()
-        method_locked_methods_groups = ReversableDict[str, str]()
+        method_lock_groups = ReversableDict[str, str]()
         instance_locked_methods = set[str]()
 
         # Check through the class's attributes to find methods and properties
@@ -635,13 +632,14 @@ class SynchronizedMeta(type):
             if isinstance(attr, types.FunctionType):
                 methods_to_sync[attr_name] = attr
             elif isinstance(attr, property):
-                properties_to_sync[attr_name] = (attr.fget, attr.fset, attr.fdel)
+                properties_to_sync[attr_name] = (
+                    attr.fget, attr.fset, attr.fdel)
 
         _check_for_sync_ = functools.partial(
             _check_for_sync,
             all_methods=all_methods,
             method_locked_methods=method_locked_methods,
-            method_locked_methods_groups=method_locked_methods_groups,
+            method_locked_methods_groups=method_lock_groups,
             instance_locked_methods=instance_locked_methods
         )
 
@@ -703,19 +701,22 @@ class SynchronizedMeta(type):
                     find_cycle=True,
                     raise_=False
                 )
-                if (path is not None
-                        and (path := set(path[:-1]))):  # pylint: disable=unsubscriptable-object
-                    if looped_methods := (method_locked_methods & path):
+                if path is None:
+                    continue
+                path_set = set(path)
+                if path_set:
+                    if looped_methods := (method_locked_methods & path_set):
                         loop_lock_numbers.reversed_set(
                             loop_lock_number_current,
                             *looped_methods
                         )
                         while looped_methods:
                             looped_method = looped_methods.pop()
-                            if looped_method in method_locked_methods_groups:
+                            if looped_method in method_lock_groups:
                                 lock_method_group = set(
-                                    method_locked_methods_groups.reversed_pop(
-                                        method_locked_methods_groups[looped_method]
+                                    method_lock_groups.reversed_pop(
+                                        method_lock_groups[looped_method],
+                                        ()
                                     )
                                 )
                                 loop_lock_numbers.reversed_set(
@@ -724,7 +725,7 @@ class SynchronizedMeta(type):
                                 )
                                 looped_methods -= lock_method_group
                         loop_lock_number_current += 1
-                    frontier -= path
+                    frontier -= path_set
 
         # Wrap the init method to ensure instances get the lock attributes.
         original_init = class_dict["__init__"]
@@ -741,33 +742,47 @@ class SynchronizedMeta(type):
                 if method_name in loop_lock_numbers:
                     loop_lock_number = loop_lock_numbers[method_name]
                     if loop_lock_number not in loop_locks:
-                        lock_name = f"Loop Lock [{loop_lock_number}]: {loop_lock_numbers(loop_lock_number)}"
-                        loop_locks[loop_lock_number] = OwnedRLock(lock_name=lock_name)
+                        lock_name = (
+                            f"Loop Lock [{loop_lock_number}]: "
+                            f"{loop_lock_numbers(loop_lock_number)}"
+                        )
+                        loop_locks[loop_lock_number] = OwnedRLock(
+                            lock_name=lock_name)
                         total_method_locks += 1
-                    self.__method_locks__[method_name] = loop_locks[loop_lock_number]
-                elif method_name in method_locked_methods_groups:
-                    lock_group = method_locked_methods_groups[method_name]
+                    self.__method_locks__[method_name] = \
+                        loop_locks[loop_lock_number]
+                elif method_name in method_lock_groups:
+                    lock_group = method_lock_groups[method_name]
                     if lock_group not in group_locks:
-                        lock_name = f"Group Lock [{lock_group}]: {method_locked_methods_groups(lock_group)}"
-                        group_locks[lock_group] = OwnedRLock(lock_name=lock_name)
+                        lock_name = (
+                            f"Group Lock [{lock_group}]: "
+                            f"{method_lock_groups(lock_group)}"
+                        )
+                        group_locks[lock_group] = OwnedRLock(
+                            lock_name=lock_name)
                         total_method_locks += 1
-                    self.__method_locks__[method_name] = group_locks[lock_group]
+                    self.__method_locks__[method_name] = \
+                        group_locks[lock_group]
                 else:
-                    self.__method_locks__[method_name] = OwnedRLock(lock_name=method_name)
+                    self.__method_locks__[method_name] = OwnedRLock(
+                        lock_name=method_name)
                     total_method_locks += 1
             if hasattr(self, "__semaphore__"):
                 self.__semaphore__ = threading.BoundedSemaphore(
                     total_method_locks + self.__semaphore__._initial_value
                 )
             else:
-                self.__semaphore__ = threading.BoundedSemaphore(total_method_locks)
+                self.__semaphore__ = threading.BoundedSemaphore(
+                    total_method_locks)
             if not hasattr(self, "__event__"):
                 self.__event__ = threading.Event()
                 self.__event__.set()
             original_init(self, *args, **kwargs)
 
+        # Assign the wrapped init method to the class.
         class_dict["__init__"] = __init__
 
+        # Make the instance lock available as a property.
         class_dict["instance_lock"] = property(lambda self: self.__lock__)
 
         # Ensure that the class has lock status attributes.
@@ -785,26 +800,31 @@ class SynchronizedMeta(type):
             method is locked.
             """
             if method_name is None:
-                return self.__semaphore__._value != self.__semaphore__._initial_value
+                # pylint: disable=protected-access
+                return self.__semaphore__._value != \
+                    self.__semaphore__._initial_value
+                # pylint: enable=protected-access
             if method_name in self.__method_locks__:
                 return self.__method_locks__[method_name].is_locked
-            else:
-                raise AttributeError(f"Method '{method_name}' is not method-locked.")
+            raise AttributeError(
+                f"Method '{method_name}' is not method-locked.")
         class_dict["is_method_locked"] = is_method_locked
-        class_dict["lockable_methods"] = property(lambda self: tuple(self.__method_locks__.keys()))
+        class_dict["lockable_methods"] = property(
+            lambda self: tuple(self.__method_locks__.keys()))
 
         if method_locked_methods:
             class_dict["loop_locks"] = property(lambda self: loop_lock_numbers)
-            class_dict["group_locks"] = property(lambda self: method_locked_methods_groups)
+            class_dict["group_locks"] = property(
+                lambda self: method_lock_groups)
         else:
             class_dict["loop_locks"] = property(lambda self: ReversableDict())
             class_dict["group_locks"] = property(lambda self: ReversableDict())
 
-        return super().__new__(cls, cls_name, bases, class_dict)
+        return super().__new__(mcs, cls_name, bases, class_dict)
 
-    def __dir__(self) -> typing.Iterable[str]:
+    def __dir__(cls) -> typing.Iterable[str]:
         """Return the attributes of the class."""
-        return super().__dir__() + [
+        return list(super().__dir__()) + [
             "is_instance_locked",
             "is_method_locked",
             "lockable_methods",

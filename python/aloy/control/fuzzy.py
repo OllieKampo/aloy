@@ -1,26 +1,26 @@
+###############################################################################
+# Copyright (C) 2023 Oliver Michael Kamperis
+# Email: olliekampo@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
 Module defining Takagi-Seguno style fuzzy controllers.
 
 Contains inbuilt functionality for the following:
     Proportional, integral and differential input variables
-    Triangular, trapezoidal, rectangular, piecewise linear, sinusoidal and
-    gaussian membership functions
+    Triangular, trapezoidal, rectangular, and sinusoidal membership functions
     Resolution hedges
     Rule modules
-    Dynamic importance degrees
-
-Copyright (C) 2023 Oliver Michael Kamperis.
-
-This program is free software: you can redistribute it and/or modify it under
-the terms of the GNU General Public License as published by the Free Software
-Foundation, either version 3 of the License, or any later version.
-
-This program is distributed in the hope that it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 
 from abc import ABCMeta, abstractmethod
@@ -32,6 +32,33 @@ import numpy as np
 import numpy.typing as npt
 
 from aloy.control.controllers import Controller, calc_error, clamp
+
+__copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
+__license__ = "GPL-3.0"
+__version__ = "1.0.1"
+
+__all__ = (
+    "FuzzyVariable",
+    "IntegralFuzzyVariable",
+    "DerivativeFuzzyVariable",
+    "RuleActivation",
+    "MembershipFunction",
+    "TriangularFunction",
+    "TrapezoidalFunction",
+    "RectangularFunction",
+    "SinusoidalFunction",
+    "MaxSaturatedFunction",
+    "MinSaturatedFunction",
+    "create_membership_function_set",
+    "plot_membership_functions",
+    "FuzzyControllerTerms",
+    "FuzzyController"
+)
+
+
+def __dir__() -> tuple[str, ...]:
+    """Get the names of module attributes."""
+    return __all__
 
 
 class FuzzyVariable:
@@ -156,7 +183,12 @@ class IntegralFuzzyVariable(FuzzyVariable):
 
         `gain: float = 1.0` - The gain of the variable.
         """
-        super().__init__(name, min_val, max_val, gain)
+        super().__init__(
+            name=name,
+            min_val=min_val,
+            max_val=max_val,
+            gain=gain
+        )
         self.__center: float = (max_val + min_val) / 2.0
         self.__integral_sum: float = 0.0
 
@@ -227,7 +259,12 @@ class DerivativeFuzzyVariable(FuzzyVariable):
 
         `gain: float = 1.0` - The gain of the variable.
         """
-        super().__init__(name, min_val, max_val, gain)
+        super().__init__(
+            name=name,
+            min_val=min_val,
+            max_val=max_val,
+            gain=gain
+        )
         self.__latest_error: float | None = None
         self.__derivatives = deque[float](maxlen=average_derivatives)
         self.__initial_error: float | None = initial_error
@@ -969,14 +1006,13 @@ class FuzzyController(Controller):
         1. Calculate the truth value of each rule's antecedent.
         2. Calculate the activation of each rule's consequent.
         3. Calculate the sum of the truth values of each variable's
-                membership functions.
+           membership functions.
         4. Calculate the sum of the activations of each variable's
-                membership functions.
+           membership functions.
         5. Calculate the output of each variable (the activation sum divided
-                by the truth sum if the truth sum is not 0.0, otherwise it is
-                0.0).
+           by the truth sum if the truth sum is not 0.0, otherwise it is 0.0).
         6. Calculate the output of the controller (the sum of the outputs of
-                each variable).
+           each variable).
 
         Parameters
         ----------
@@ -988,7 +1024,8 @@ class FuzzyController(Controller):
 
         `rules: Iterable[tuple[str, str, float]] | None` - The rules in the
         controller. Each rule is a tuple of the form (variable name,
-        membership function name, output weight).
+        membership function name, output weight). If not given or None, no
+        rules are added to the controller.
 
         For other parameters, see `aloy.control.controllers.Controller`.
 
@@ -1001,15 +1038,15 @@ class FuzzyController(Controller):
         of which can improve the robustness of the controller, particularly
         for handling different setpoints, and of physical properties of the
         system being controlled (where the steady state error, rise times, and
-        settling times change significantly)..
+        settling times change significantly).
         """
         super().__init__(
-            input_limits,
-            output_limits,
-            input_trans,
-            error_trans,
-            output_trans,
-            initial_error
+            input_limits=input_limits,
+            output_limits=output_limits,
+            input_trans=input_trans,
+            error_trans=error_trans,
+            output_trans=output_trans,
+            initial_error=initial_error
         )
 
         self.__variables: dict[str, FuzzyVariable] = {
@@ -1037,8 +1074,8 @@ class FuzzyController(Controller):
         """Return a parseable string representation of the controller."""
         rules: list[tuple[str, str, float]] = [
             (var.name, mem_func.name, output)
-            for var in self.__rules
-            for mem_func, output in self.__rules[var].items()
+            for var, rules in self.__rules.items()
+            for mem_func, output in rules.items()
         ]
         return (
             "FuzzyController("
@@ -1283,16 +1320,16 @@ class FuzzyController(Controller):
         rule_truths: dict[str, dict[str, float]] = {
             var.name: {
                 mem_func.name: 0.0
-                for mem_func in self.__rules[var]
+                for mem_func in rules
             }
-            for var in self.__rules
+            for var, rules in self.__rules.items()
         }
         rule_activations: dict[str, dict[str, float]] = {
             var.name: {
                 mem_func.name: 0.0
-                for mem_func in self.__rules[var]
+                for mem_func in rules
             }
-            for var in self.__rules
+            for var, rules in self.__rules.items()
         }
         for var, rules in self.__rules.items():
             for mem_func, output_weight in rules.items():
@@ -1346,7 +1383,13 @@ class FuzzyController(Controller):
             var.reset()
 
 
-def main() -> None:
+def _main() -> None:
+    """Main function."""
+    # pylint: disable=import-outside-toplevel
+    import matplotlib
+    matplotlib.use("TkAgg")
+    from aloy.control.controlutils import plot_control
+
     proportional_var = FuzzyVariable("proportional", -10.0, 10.0, gain=1.0)
     derivative_var = DerivativeFuzzyVariable("derivative", -10.0, 10.0,
                                              gain=0.0)
@@ -1364,7 +1407,6 @@ def main() -> None:
         mem_funcs
     )
     fig.show()
-    input()
 
     controller = FuzzyController(
         [proportional_var, derivative_var, integral_var],
@@ -1404,11 +1446,10 @@ def main() -> None:
         outputs.append(controller.latest_output)
     controller.reset()
 
-    from control.controlutils import plot_control
     fig, *_ = plot_control(times, inputs, setpoints, errors, outputs)
     fig.show()
     input()
 
 
 if __name__ == "__main__":
-    main()
+    _main()
