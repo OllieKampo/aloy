@@ -1,47 +1,70 @@
-###########################################################################
-###########################################################################
-## A general implementation of a genetic optimisation algorithm.         ##
-##                                                                       ##
-## Copyright (C)  2022  Oliver Michael Kamperis                          ##
-## Email: o.m.kamperis@gmail.com                                         ##
-##                                                                       ##
-## This program is free software: you can redistribute it and/or modify  ##
-## it under the terms of the GNU General Public License as published by  ##
-## the Free Software Foundation, either version 3 of the License, or     ##
-## any later version.                                                    ##
-##                                                                       ##
-## This program is distributed in the hope that it will be useful,       ##
-## but WITHOUT ANY WARRANTY; without even the implied warranty of        ##
-## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          ##
-## GNU General Public License for more details.                          ##
-##                                                                       ##
-## You should have received a copy of the GNU General Public License     ##
-## along with this program. If not, see <https://www.gnu.org/licenses/>. ##
-###########################################################################
-###########################################################################
+###############################################################################
+# Copyright (C) 2023 Oliver Michael Kamperis
+# Email: olliekampo@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
 
-"""General implementation of a genetic optimisation algorithm."""
+"""
+Module defining a general implementation of a genetic optimisation algorithm.
+"""
 
 import dataclasses
 import enum
 import itertools
 import math
 from abc import ABCMeta, abstractmethod
-from fractions import Fraction
 from functools import cached_property
-from numbers import Number, Real
+from numbers import Number
 from random import getrandbits as randbits
-from typing import Any, Generic, Iterable, Iterator, Literal, Type, TypeVar
+from typing import (Any, Callable, Generic, Iterable, Iterator, Literal, Type, TypeVar,
+                    final)
 
 import numpy as np
 from numpy.random import Generator, choice, default_rng, random_integers
 from typing_extensions import override
 
 from aloy.auxiliary.moreitertools import (arg_max_n, chunk, cycle_for,
-                                          getitem_zip, index_sequence)
+                                          getitem_zip, index_sequence, unzip)
 from aloy.auxiliary.progressbars import ResourceProgressBar
 from aloy.moremath.mathutils import normalize_to_sum
 from aloy.optimization.decayfunctions import get_decay_function
+
+__copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
+__license__ = "GPL-3.0"
+__version__ = "0.0.1"
+
+__all__ = (
+    "GeneBase",
+    "BitStringBase",
+    "NumericalBase",
+    "ArbitraryBase",
+    "GeneticEncoder",
+    "GeneticOperator",
+    "GeneticRecombinator",
+    "SplitCrossOver",
+    "PointCrossOver",
+    "UniformSwapper",
+    "PermutationSwapper",
+    "GeneticMutator",
+    "PointMutator",
+    "PairSwapMutator",
+    "GeneticSystem"
+)
+
+
+def __dir__() -> tuple[str, ...]:
+    """Get the names of module attributes."""
+    return __all__
+
 
 # Need to be able to deal with degree of mutation based on the range.
 # For arbitrary bases, this will be based on the order of the possible values
@@ -53,17 +76,17 @@ from aloy.optimization.decayfunctions import get_decay_function
 # Can we use multiple chromosomes to encode: membership function limits, rule
 # outputs, and module gains?
 
-# Numerical gene base type.
-NT = TypeVar("NT", bound=Number)
+# Generic solution type (i.e. phenotype).
+ST = TypeVar("ST")
+
+# Generic chromosome type (i.e. genotype).
+CT = TypeVar("CT", str, tuple)
 
 # Generic gene base type (used for arbitrary base types).
 GT = TypeVar("GT", bound=Any)
 
-# Generic chromosome type (i.e. genotype).
-CT = TypeVar("CT", str, list)
-
-# Generic solution type (i.e. phenotype).
-ST = TypeVar("ST")
+# Numerical gene base type.
+NT = TypeVar("NT", bound=Number)
 
 
 class GeneBase(Generic[CT], metaclass=ABCMeta):
@@ -71,7 +94,9 @@ class GeneBase(Generic[CT], metaclass=ABCMeta):
 
     @abstractmethod
     def random_chromosomes(self, length: int, quantity: int) -> list[CT]:
-        """Return the given quantity of random chromosomes of the given length."""
+        """
+        Return the given quantity of random chromosomes of the given length.
+        """
         ...
 
     @abstractmethod
@@ -202,18 +227,33 @@ class NumericalBase(GeneBase[list], Generic[NT]):
     """
 
     name: str
-    type_: Type[Real]
+    type_: Type[float]
     min_range: NT
     max_range: NT
 
     def __post_init__(self) -> None:
         """Check that the given range is valid."""
         if self.min_range >= self.max_range:
-            raise ValueError(f"Minimum of range must be less than maximum of range. Got; {self.min_range=} and {self.max_range=}.")
+            raise ValueError(
+                "Minimum of range must be less than maximum of range. "
+                f"Got; {self.min_range=} and {self.max_range=}."
+            )
 
-    def random_chromosomes(self, length: int, quantity: int) -> list[list[NT]]:
-        """Return the given quantity of random chromosomes of the given length."""
-        return list(chunk(random_integers(self.min_range, self.max_range, length * quantity), length, quantity, as_type=list))
+    def random_chromosomes(self, length: int, quantity: int) -> list[tuple[NT]]:
+        """
+        Return the given quantity of random chromosomes of the given length.
+        """
+        return list(
+            chunk(
+                random_integers(
+                    self.min_range,
+                    self.max_range,
+                    length * quantity
+                ),
+                length,
+                quantity
+            )
+        )
 
     def random_genes(self, quantity: int) -> list[NT]:
         """Return the given quantity of random genes."""
@@ -237,9 +277,24 @@ class ArbitraryBase(GeneBase[list], Generic[GT]):
                 + ", ".join(str(v) for v in self.values[:min(len(self.values, 5))])
                 + (", ..." if len(self.values) > 5 else ""))
 
-    def random_chromosomes(self, length: int, quantity: int) -> list[list[GT]]:
-        """Return the given quantity of random chromosomes of the given length."""
-        return chunk(choice(self.values, length * quantity), length, quantity, as_type=list)
+    def random_chromosomes(
+        self,
+        length: int,
+        quantity: int
+    ) -> list[tuple[GT]]:
+        """
+        Return the given quantity of random chromosomes of the given length.
+        """
+        return list(
+            chunk(
+                choice(
+                    self.values,
+                    length * quantity
+                ),
+                length,
+                quantity
+            )
+        )
 
     def random_genes(self, quantity: int) -> list[GT]:
         """Return the given quantity of random genes."""
@@ -308,16 +363,17 @@ class GeneticEncoder(Generic[ST], metaclass=ABCMeta):
         raise NotImplementedError
 
     @abstractmethod
-    def evaluate_fitness(self, chromosome: CT) -> Real:
+    def evaluate_fitness(self, chromosome: CT) -> float:
         """Return the fitness of the given chromosome."""
         raise NotImplementedError
-
 
 
 class GeneticOperator(metaclass=ABCMeta):
     """Base class for genetic operators."""
 
-    __slots__ = ("__generator",)
+    __slots__ = {
+        "__generator": "A random number generator instance."
+    }
 
     def __init__(self, rng: Generator | int | None = None) -> None:
         """
@@ -329,15 +385,13 @@ class GeneticOperator(metaclass=ABCMeta):
         instance, or a seed for the selector to create its own, None generates
         a random seed.
         """
-        if isinstance(rng, Generator):
-            self.__generator: Generator = rng
         self.__generator: Generator = default_rng(rng)
 
+    @final
     @property
     def generator(self) -> Generator:
         """Get the random number generator used by the genetic operator."""
         return self.__generator
-
 
 
 class GeneticRecombinator(GeneticOperator):
@@ -655,8 +709,15 @@ class GeneticMutator(GeneticOperator):
         return NotImplemented
 
     def bitstring_mutate(self, chromosome: str, base: BitStringBase) -> str:
-        """Point mutate the given chromosome encoded in the given bit-string base."""
-        return "".join([str(g) for g in self.mutate(list(chromosome), base.as_numerical_base)])
+        """
+        Point mutate the given chromosome encoded in the given bit-string base.
+        """
+        return "".join(
+            str(g) for g in self.mutate(
+                list(chromosome),
+                base.as_numerical_base
+            )
+        )
 
     def numerical_mutate(self, chromosome: list[NT], base: NumericalBase[NT]) -> list[NT]:
         """Mutate the given chromosome encoded in the given numeric base."""
@@ -683,7 +744,11 @@ class PointMutator(GeneticMutator):
 
     __slots__ = ("__points",)
 
-    def __init__(self, points: int = 1, rng: Generator | int | None = None) -> None:
+    def __init__(
+        self,
+        points: int = 1,
+        rng: Generator | int | None = None
+    ) -> None:
         """
         Create a point mutator.
 
@@ -702,16 +767,21 @@ class PointMutator(GeneticMutator):
         """
         super().__init__(rng)
         if not isinstance(points, int) or points < 1:
-            raise ValueError("Number of points must be an integer greater than zero. "
-                             f"Got; {points} of type {type(points)}.")
+            raise ValueError(
+                "Number of points must be an integer greater than zero. "
+                f"Got; {points} of type {type(points)}."
+            )
         self.__points: int = points
 
     def mutate(self, chromosome: CT, base: GeneBase) -> CT:
         """Point mutate the given chromosome encoded in the given base."""
-        for index, gene in zip(self.generator.integers(len(chromosome), size=self.__points),
-                               base.random_genes(self.__points)):
+        for index, gene in zip(
+            self.generator.integers(len(chromosome), size=self.__points),
+            base.random_genes(self.__points)
+        ):
             chromosome[index] = gene
         return chromosome
+
 
 class PairSwapMutator(GeneticMutator):
     """
@@ -782,22 +852,30 @@ class PoolShuffleMutator(GeneticMutator):
     """
     Class defining pool shuffle mutators.
 
-    Pool shuffle mutators pick a random set of genes (with uniform probability), and randomly shuffle/scramble (with uniform probability) the values between them.
+    Pool shuffle mutators pick a random set of genes (with uniform
+    probability), and randomly shuffle/scramble (with uniform probability) the
+    values between them.
 
-    Pool shuffle mutators are appropriate for permutation problems, where the set of values need to be preserved, but the order can be changed.
+    Pool shuffle mutators are appropriate for permutation problems, where the
+    set of values need to be preserved, but the order can be changed.
     """
 
     __slots__ = ("__pool_size",)
 
-    def __init__(self, pool_size: int | float = 0.5, rng: Generator | int | None = None) -> None:
+    def __init__(
+        self,
+        pool_size: int | float = 0.5,
+        rng: Generator | int | None = None
+    ) -> None:
         """
         Create a pool shuffle mutator.
 
         Parameters
         ----------
-        `pool_size: int | float = 0.5` - The number of genes in the chromosome to shuffle.
-        Either an integer defining a fixed number of genes, or a float defining a factor
-        of the total number of genes in the chromosome to shuffle.
+        `pool_size: int | float = 0.5` - The number of genes in the chromosome
+        to shuffle. Either an integer defining a fixed number of genes, or a
+        float defining a factor of the total number of genes in the chromosome
+        to shuffle.
 
         `rng: Generator | int | None` - Either an random number generator
         instance, or a seed for the selector to create its own, None generates
@@ -812,10 +890,14 @@ class PoolShuffleMutator(GeneticMutator):
         """
         super().__init__(rng)
         if (not isinstance(pool_size, (int, float))
-            or (isinstance(pool_size, int) and pool_size < 2)
-            or (isinstance(pool_size, float) and (pool_size < 0.0 or pool_size > 1.0))):
-            raise ValueError("Pool size must be an integer greater than zero, or a float between 0.0 and 1.0."
-                             f"Got; {pool_size} of type {type(pool_size)}.")
+                or (isinstance(pool_size, int) and pool_size < 2)
+                or (isinstance(pool_size, float)
+                    and (pool_size < 0.0 or pool_size > 1.0))):
+            raise ValueError(
+                "Pool size must be an integer greater than zero, "
+                "or a float between 0.0 and 1.0."
+                f"Got; {pool_size} of type {type(pool_size)}."
+            )
         self.__pool_size: int | float = pool_size
 
     def mutate(self, chromosome: CT, base: GeneBase) -> CT:
@@ -823,10 +905,14 @@ class PoolShuffleMutator(GeneticMutator):
         pool_size = self.__pool_size
         if isinstance(self.__pool_size, float):
             pool_size = math.ceil(self.__pool_size * len(chromosome))
-        pool = self.generator.integers(len(chromosome), size=pool_size)
+        pool = self.generator.integers(
+            len(chromosome),
+            size=pool_size
+        )
         new_pool = self.generator.permutation(pool)
         for from_index, to_index in zip(pool, new_pool):
-            chromosome[from_index], chromosome[to_index] = chromosome[to_index], chromosome[from_index]
+            chromosome[from_index], chromosome[to_index] = \
+                chromosome[to_index], chromosome[from_index]
         return chromosome
 
 
@@ -877,9 +963,11 @@ class GeneticSelector(metaclass=ABCMeta):
     Base class for genetic selection operators.
 
     Selection operators expose two functions;
-        - A select method of selecting a subset of a population of candidate solutions
-          to be used for culling and reproduction to generate the next generation,
-        - A scale method of scaling the fitness of the candidate solutions in the population.
+        - A select method of selecting a subset of a population of candidate
+          solutions to be used for culling and reproduction to generate the
+          next generation,
+        - A scale method of scaling the fitness of the candidate solutions in
+          the population.
     """
 
     __slots__ = (
@@ -914,12 +1002,18 @@ class GeneticSelector(metaclass=ABCMeta):
 
     @property
     def requires_sorted(self) -> bool:
-        """Whether the selector requires the fitness values to be sorted in ascending order."""
+        """
+        Whether the selector requires the fitness values to be sorted in
+        ascending order.
+        """
         return self.__requires_sorted
 
     @property
     def requires_normalised(self) -> bool:
-        """Whether the selector requires the fitness values to be normalised to sum to one."""
+        """
+        Whether the selector requires the fitness values to be normalised to
+        sum to one.
+        """
         return self.__requires_normalised
 
     @property
@@ -941,9 +1035,10 @@ class GeneticSelector(metaclass=ABCMeta):
         """
         ...
 
-    def scale(self,
-              fitness: list[Real]
-              ) -> list[Real]:
+    def scale(
+        self,
+        fitness: list[float]
+    ) -> list[float]:
         """Scale the given fitness values."""
         return fitness
 
@@ -955,11 +1050,11 @@ class GeneticSelector(metaclass=ABCMeta):
     ) -> None:
         """Validate arguments for the selection operator."""
         if len(population) != len(fitness):
-            raise ValueError("Population and fitness values must be the same length.")
+            raise ValueError(
+                "Population and fitness values must be the same length.")
         if len(population) == 0:
-            raise ValueError("Population must contain at least one chromosome to select from.")
-        if quantity < 1:
-            raise ValueError("Quantity of chromosomes to select must be greater than zero.")
+            raise ValueError(
+                "Population must contain at least one chromosome.")
 
 
 class ProportionateSelector(GeneticSelector):
@@ -1023,10 +1118,10 @@ class TournamentSelector(GeneticSelector):
     Tournament selection selects chromosomes from a population by
     pitching them against each other in competitions called tournaments.
 
-    Individuals are selected for inclusion in tournaments with uniform probability
-    with replacement, and the tournamenet winner(s) are selected either by;
-    choosing the highest fitness individual(s), or randomly with probability
-    either proportionate to fitness or ranked fitness.
+    Individuals are selected for inclusion in tournaments with uniform
+    probability with replacement, and the tournamenet winner(s) are selected
+    either by; choosing the highest fitness individual(s), or randomly with
+    probability either proportionate to fitness or ranked fitness.
     """
 
     def __init__(self,
@@ -1036,16 +1131,27 @@ class TournamentSelector(GeneticSelector):
                  ) -> None:
         """
         Create a new tournament selector.
-    
+
         Selecting either the best or proportionate to fitness or fitness rank.
         """
         if tournamenet_size < 2:
-            raise ValueError(f"Tournament size must be greater than one. Got; {tournamenet_size}")
+            raise ValueError(
+                "Tournament size must be greater than one. "
+                f"Got; {tournamenet_size=}.")
         if not n_chosen < tournamenet_size:
-            raise ValueError("Number of chosen chromosomes must be less than the tournament size. "
-                             f"Got; {tournamenet_size=}, {n_chosen=}.")
-        super().__init__(requires_sorted=(inner_selector is not None and inner_selector.requires_sorted),
-                         requires_normalised=(inner_selector is not None and inner_selector.requires_normalised))
+            raise ValueError(
+                "Number of chosen chromosomes must be less than the "
+                f"tournament size. Got; {tournamenet_size=}, {n_chosen=}.")
+        super().__init__(
+            requires_sorted=(
+                inner_selector is not None
+                and inner_selector.requires_sorted
+            ),
+            requires_normalised=(
+                inner_selector is not None
+                and inner_selector.requires_normalised
+            )
+        )
         self.__tournament_size: int = tournamenet_size
         self.__n_chosen: int = n_chosen
         self.__inner_selector: ProportionateSelector | RankedSelector | None = inner_selector
@@ -1057,11 +1163,13 @@ class TournamentSelector(GeneticSelector):
         quantity: int
     ) -> Iterable[int]:
         """
-        Select a given quantity of chromosomes from the population by pitching them against each other in tournaments.
+        Select a given quantity of chromosomes from the population by pitching
+        them against each other in tournaments.
 
-        Chromosomes selected for tournamenets are selected with uniform probability with replacement.
+        Chromosomes selected for tournamenets are selected with uniform
+        probability with replacement.
         """
-        tournaments: list[list[tuple[CT, float]]] = chunk(
+        tournaments: list[tuple[tuple[CT, float], ...]] = chunk(
             index_sequence(
                 getitem_zip(population, fitness),
                 self.generator.integers(
@@ -1094,7 +1202,7 @@ class TournamentSelector(GeneticSelector):
 
         return itertools.chain.from_iterable(winner_lists)
 
-    def scale(self, fitness: list[Real]) -> list[Real]:
+    def scale(self, fitness: list[float]) -> list[float]:
         """
         Scale the given fitness values, by default calling the inner
         selector's scale method.
@@ -1104,70 +1212,126 @@ class TournamentSelector(GeneticSelector):
         return super().scale(fitness)
 
 
-# class SelectorCombiner(Selector):
-#     """Can combine multiple selection schemes and transition between using different ones a various stages of the search."""
-#     pass
+class SelectorCombiner(GeneticSelector):
+    """
+    Can combine multiple selection schemes and transition between using
+    different ones a various stages of the search.
+    """
+    pass
 
 
 @dataclasses.dataclass(frozen=True)
 class GeneticAlgorithmSolution:
-    """A solution to a genetic algorithm."""
+    """
+    A solution to a genetic algorithm problem.
+
+    Items
+    -----
+    `best_individual: CT` - The best individual found by the genetic algorithm.
+
+    `best_fitness: float` - The fitness of the best individual found by the
+    genetic algorithm.
+
+    `population: list[CT]` - The final population of the genetic algorithm.
+
+    `fitness_values: list[float]` - The fitness values of the final population
+    of the genetic algorithm.
+
+    `max_generations_reached: bool = False` - Whether the maximum number of
+    generations was reached.
+
+    `max_fitness_reached: bool = False` - Whether the maximum fitness was
+    reached.
+
+    `stagnation_limit_reached: bool = False` - Whether the stagnation limit
+    was reached.
+    """
 
     best_individual: CT
-    best_fitness: Fraction
-    population: list[CT] ## TODO Order the population such that the highest fitness individuals occur first.
-    fitness_values: list[Fraction]
+    best_fitness: float
+    population: list[CT]  # TODO: Order the population such that the highest fitness individuals occur first.
+    fitness_values: list[CT]
     max_generations_reached: bool = False
     max_fitness_reached: bool = False
     stagnation_limit_reached: bool = False
 
 
-class GeneticSystem:
+@dataclasses.dataclass(frozen=True)
+class GeneticSystemFactor:
+    initial: float = 0.0
+    final: float = 0.0
+    func_type: Literal["lin", "pol", "exp", "sin"] | None = "lin"
+    growth_start: int = 0
+    growth_end: int | Literal["threshold", "stagnation"] | None = None
+    growth_rate: float = 1.0
+
+
+class GeneticSystem(Generic[CT]):
     """
     A genetic system.
-    
+
     Genetic Operator
     ----------------
-    
-    1. Solution Encoder - Representation as chromosomes formed by a sequence of genes.
-    
-        A solution is called the phenotype,
-        and its encoding that the genetic algorithm operates on and evolves is called the genotype.
-        
+
+    1. Solution Encoder - Representation as chromosomes formed by a sequence
+        of genes.
+
+        A solution is called the phenotype, and its encoding that the genetic
+        algorithm operates on and evolves is called the genotype.
+
         The decoder function is required, the encoder is optional.
-        
-        In order to evaluate fitness and to return a best-fit solution at the end,
-        the algorithm needs to be able to decode genotypes to phenotypes.
-        
-        When initialising a problem, one may want to specific an initial set of solutions to evolve,
-        to do this the algorithm needs to be able to encode phenotypes to genotypes.
-        
+
+        In order to evaluate fitness and to return a best-fit solution at the
+        end, the algorithm needs to be able to decode genotypes to phenotypes.
+
+        When initialising a problem, one may want to specific an initial set
+        of solutions to evolve, to do this the algorithm needs to be able to
+        encode phenotypes to genotypes.
+
         - Numeric representation; binary, octal, or hexadecimal sequence;
             - In binary, the nucleotide bases are; 1 or 2, for example.
-            - For some problems, it is difficult to encode a solution in binary,
-              you may need to split the chromosome up into mutliple sub-sequences
-              to encode different properties of the solution. The quality of the complete
-              solution is then the sum of the quality of its parts.
-        
-        - Identifier list representation - Any sized set of arbitrary identifiers for properties or elements of a solution;
-            - The nucleotide bases are any of a set of identifiers; "london", "birmingham", "manchester", etc.
-            - Useful when solution length is known, but ordering needs to be optimised.
-        
+            - For some problems, it is difficult to encode a solution in
+              binary, you may need to split the chromosome up into mutliple
+              sub-sequences to encode different properties of the solution.
+              The quality of the complete solution is then the sum of the
+              quality of its parts.
+
+        - Identifier list representation - Any sized set of arbitrary
+          identifiers for properties or elements of a solution;
+            - The nucleotide bases are any of a set of identifiers;
+              "london", "birmingham", "manchester", etc.
+            - Useful when solution length is known, but ordering needs to be
+              optimised.
+
         - Multiple chromosome representation
-    
+            - Multiple chromosomes can be used to encode different properties
+              of a solution.
+            - The quality of the complete solution is then the sum of the
+              quality of its parts.
+
     2. Selection Scheme and Fitness Function
-    
-        - Deterministic Selection: Only best n < pop_size reproduce, in this case the fitness function is not necessary.
-        - Proportional Seletion: Reproduction chances are proportional to fitness value.
-        - Ranked Fitness Selection: Solutions are ranked according to fitness, reproduction chance proportional to fitness.
-        - Tournament Selection: Solutions compete against each other, fittest wins and gets to reproduce.
+
+        - Deterministic Selection: Only best n < pop_size reproduce, in this
+          case the fitness function is not necessary.
+        - Proportional Seletion: Reproduction chances are proportional to
+          fitness value.
+        - Ranked Fitness Selection: Solutions are ranked according to fitness,
+          reproduction chance proportional to fitness.
+        - Tournament Selection: Solutions compete against each other, fittest
+          wins and gets to reproduce.
 
         - Elitism in selection:
-        - Convergence and diversity biases in selection: Affect selection pressure towards high values of fitness, and thus exploration/exploitation trade-off.
+        - Convergence and diversity biases in selection: Affect selection
+          pressure towards high values of fitness, and thus
+          exploration/exploitation trade-off.
         - Boltzmann decay for biases:
-            ...In Boltzmann selection, a continuously varying temperature controls the rate of selection according to a preset schedule.
-            The temperature starts out high, which means that the selection pressure is low.
-            The temperature is gradually lowered, which gradually increases the selection pressure, thereby allowing the GA to narrow in more closely to the best part of the search space while maintaining the appropriate degree of diversity...
+            In Boltzmann selection, a continuously varying temperature
+            controls the rate of selection according to a preset schedule.
+            The temperature starts out high, which means that the selection
+            pressure is low. The temperature is gradually lowered, which
+            gradually increases the selection pressure, thereby allowing the
+            GA to narrow in more closely to the best part of the search space
+            while maintaining the appropriate degree of diversity.
 
     3. Genetic Recombinator
 
@@ -1249,132 +1413,207 @@ class GeneticSystem:
 
         A value of None leaves the operator unchanged.
         """
-        self.__selector: GeneticSelector = selector
-        self.__recombinator: GeneticRecombinator = recombinator
-        self.__mutator: GeneticMutator = mutator
+        if selector is not None:
+            self.__selector = selector
+        if recombinator is not None:
+            self.__recombinator = recombinator
+        if mutator is not None:
+            self.__mutator = mutator
 
     def run(
         self,
         init_pop_size: int,
         max_pop_size: int,
-        expansion_factor: float = 1.5,
-
-        survival_factor: float = 0.75,
-        survival_factor_final: float = 0.75,
-        survival_factor_growth_type: Literal["lin", "pol", "exp", "sin"] = "lin",
-        survival_factor_growth_start: int = 0,
-        survival_factor_growth_end: int | Literal["threshold", "stagnation"] = None,
-        survival_factor_growth_rate: float = 0.0,
-
-        survival_elitism_factor: float | None = None,
-        survival_elitism_factor_final: float | None = None,
-        survival_elitism_factor_growth_type: Literal["lin", "pol", "exp", "sin"] | None = None,
-        survival_elitism_factor_growth_start: int | None = None,
-        survival_elitism_factor_growth_end: int | Literal["threshold", "stagnation"] | None = None,
-        survival_elitism_factor_growth_rate: float | None = None,
-
-        reproduction_elitism_factor: float = 0.0,
-        reproduction_elitism_factor_final: float = 0.25,
-        reproduction_elitism_factor_growth_type: Literal["lin", "pol", "exp", "sin"] = "sin",
-        reproduction_elitism_factor_growth_start: int = 0,
-        reproduction_elitism_factor_growth_end: int | Literal["threshold", "stagnation"] | None = None,
-        reproduction_elitism_factor_growth_rate: float = 1.0,
-
-        mutation_factor: float = 2.0,
-        mutation_factor_final: float = 0.5,
-        mutation_factor_growth_type: Literal["lin", "pol", "exp", "sin"] = "sin",
-        mutation_factor_growth_start: int = 0,
-        mutation_factor_growth_end: int | Literal["threshold", "stagnation"] | None = None,
-        mutation_factor_growth_rate: float = 1.0,
+        expansion_factor: float | None = None,
+        max_generations: int | None = 100,
+        fitness_threshold: float | None = None,
+        fitness_proportion: float | int | None = None,
+        stagnation_limit: float | int | None = 0.25,
+        stagnation_proportion: float | int | None = 0.25,
+        survival_factor: GeneticSystemFactor = GeneticSystemFactor(
+            initial=0.5,
+            final=0.25,
+            func_type="lin",
+            growth_start=0,
+            growth_end=None,
+            growth_rate=0.75
+        ),
+        survival_elitism_factor: GeneticSystemFactor = GeneticSystemFactor(
+            initial=0.0,
+            final=0.125,
+            func_type="lin",
+            growth_start=0,
+            growth_end=None,
+            growth_rate=0.75
+        ),
+        # TODO: Survival factor currently used for both culling and
+        # reproduction, but should be split into two factors.
+        reproduction_elitism_factor: GeneticSystemFactor = GeneticSystemFactor(
+            initial=0.0,
+            final=0.25,
+            func_type="sin",
+            growth_start=0,
+            growth_end=None,
+            growth_rate=1.0
+        ),
+        mutation_factor: GeneticSystemFactor = GeneticSystemFactor(
+            initial=2.0,
+            final=1.0,
+            func_type="sin",
+            growth_start=0,
+            growth_end=None,
+            growth_rate=1.0
+        ),
         mutate_all: bool = False,
-
-        mutation_strength: float = 1.0,
-        mutation_strength_final: float = 0.05,
-        mutation_strength_decay_type: Literal["lin", "pol", "exp", "sin"] = "sin",
-        mutation_strength_decay_start: int = 0,
-        mutation_strength_decay_end: int | Literal["threshold", "stagnation"] | None = None,
-        mutation_strength_decay_rate: float = 1.0,
-
-        max_generations: int | None = 100,  # If not none this is the maximum number of generations to run the algorithm.
-        fitness_threshold: float | None = None,  # If not none this is the fitness threshold that must be reached to stop the algorithm.
-        # fitness_proportion: float | int | None = None,  # If not none this proportion of the population must be above the fitness threshold to stop the algorithm.
-        stagnation_limit: float | int | None = None,  # If not none this is the number of generations that the best fitness individual(s) can stay the same before stopping the algorithm.
-        # stagnation_proportion: float | int | None = 0.25,  # If not none this proportion of the population must be stagnated to stop the algorithm.
-
-        ## These are used only for proportional fitness
-        diversity_bias: float = 0.95,
-        diversity_bias_final: float = 0.00,
-        diversity_bias_decay_type: Literal["lin", "pol", "exp", "sin"] = "exp",  # ["threshold-converge", "stagnation-diverge"]
-        ##      - converge towards fitness threshold - proportional to difference between mean fitness and fitness threshold,
-        ##      - converge on rate of change towards fitness threshold,
-        ##      - diverge on stagnation on best fittest towards fitness threshold. Increase proportional to diversity_bias * (stagnated_generations / stagnation_limit). This should try to explore around the solution space when the best fitness gets stuck on a local minima.
-        diversity_bias_decay_start: int = 0,
-        diversity_bias_decay_end: int | None = None,
-        diversity_bias_decay_rate: float = 1.0
-
+        mutation_strength: GeneticSystemFactor = GeneticSystemFactor(
+            initial=1.0,
+            final=0.1,
+            func_type="sin",
+            growth_start=0,
+            growth_end=None,
+            growth_rate=0.75
+        ),
+        diversity_bias: GeneticSystemFactor = GeneticSystemFactor(
+            initial=0.95,
+            final=0.0,
+            func_type="exp",
+            growth_start=0,
+            growth_end=None,
+            growth_rate=1.0
+        )
     ) -> GeneticAlgorithmSolution:
         """
         Run the genetic algorithm.
 
         Parameters
         ----------
-        `survival_factor: Fraction` - Survival factor defines how much culling (equal to 1.0 - survival factor) we have, i.e. how much of the population for a given generation does not survive to the reproduction stage, and are not even considered for selection for recombination/reproduction.
-        Low survival factor encourages exploitation of better solutions and speeds up convergence, by culling all but the best individuals, and allowing only the best to reproduce and search (relatively) locally to those best.
+        `survival_factor: Fraction` - Survival factor defines how much culling
+        (equal to 1.0 - survival factor) we have, i.e. how much of the
+        population for a given generation does not survive to the reproduction
+        stage, and are not even considered for selection for
+        recombination/reproduction. Low survival factor encourages
+        exploitation of better solutions and speeds up convergence, by culling
+        all but the best individuals, and allowing only the best to reproduce
+        and search (relatively) locally to those best.
 
-        `survival_factor_rate: Fraction` - 
+        `survival_factor_change: Literal["decrease", "increase"]` - Usually,
+        if replacement is enabled, it is desirable to start with a high
+        survive factor to promote early exploration of the search space and
+        decrease the factor to promote greater exploitation as the search
+        progresses, focusing search towards the very best solutions it has
+        found.
 
-        `survival_factor_change: Literal["decrease", "increase"]` - Usually, if replacement is enabled, it is desirable to start with a high survive factor to promote early exploration of the search space and decrease the factor to promote greater exploitation
-        as the search progresses, focusing search towards the very best solutions it has found.
-
-        `stagnation_proportion: Fraction` - If given and not none, return if the average fitness of the best fitting fraction of the population is stagnated (does not increase) for a number of generations equal to the stagnation limit.
-        This intuition is that the search should stop only if a "large" proportion of the best quality candidates are not making significant improvement for a "long" time.
-        Otherwise, return of the fitness of the best fitting individual is stagenated for the stagnation limit.
-        If only the best fitting individual is used as the test of stagnation, it may result in a premature return of the algorithm, when other high fitness individuals would have achieved better fitness that the current maximum if allowed to evolve more
+        `stagnation_proportion: Fraction` - If given and not none, return if
+        the average fitness of the best fitting fraction of the population is
+        stagnated (does not increase) for a number of generations equal to the
+        stagnation limit. This intuition is that the search should stop only
+        if a "large" proportion of the best quality candidates are not making
+        significant improvement for a "long" time. Otherwise, return of the
+        fitness of the best fitting individual is stagenated for the
+        stagnation limit. If only the best fitting individual is used as the
+        test of stagnation, it may result in a premature return of the
+        algorithm, when other high fitness individuals would have achieved
+        better fitness that the current maximum if allowed to evolve more
         particularly by creep mutation, which can we time consuming.
 
-        `mutation_step_size: Fraction` - The degree of mutation or "step size" (i.e. the amount a single gene can change), change between totally random mutation and creep mutation based on generations or fitness to threshold.
+        `mutation_step_size: Fraction` - The degree of mutation or "step size"
+        (i.e. the amount a single gene can change), change between totally
+        random mutation and creep mutation based on generations or fitness to
+        threshold.
 
-        `max_generations: Optional[int]` -
+        `max_generations: Optional[int]` - If not none this is the maximum
+        number of generations to run the algorithm.
 
-        `fitness_threshold: Optional[Fraction]` -
+        `fitness_threshold: Optional[Fraction]` - If not none this is the
+        fitness threshold that must be reached to stop the algorithm.
 
-        `fitness_proportion: Optional[Fraction | int]` - Return if the average fitness of the best fitness fraction of the population is above the fitness threshold.
+        `fitness_proportion: Optional[Fraction | int]` - Return if the average
+        fitness of the best fitness fraction of the population is above the
+        fitness threshold. If not none this proportion of the population must
+        be above the fitness threshold to stop the algorithm.
 
-        `stagnation_limit: Optional[int | Fraction]` - The maximum number of stagnated generations before returning.
+        `stagnation_limit: Optional[int | Fraction]` - The maximum number of
+        stagnated generations before returning. If not none this is the number
+        of generations that the best fitness individual(s) can stay the same
+        before stopping the algorithm.
 
-        `stagnation_proportion: Optional[Fraction | int] = 0.10` -
+        `stagnation_proportion: Optional[Fraction | int] = 0.10` - If not none
+        this proportion of the population must be stagnated to stop the
+        algorithm.
+
+        Decay end options: threshold-converge and stagnation-diverge:
+        - converge towards fitness threshold - proportional to difference
+          between mean fitness and fitness threshold,
+        - converge on rate of change towards fitness threshold,
+        - diverge on stagnation on best fittest towards fitness threshold.
+          Increase proportional to diversity_bias * (stagnated_generations
+          / stagnation_limit). This should try to explore around the solution
+          space when the best fitness gets stuck on a local minima.
 
         Stop Conditions
         ---------------
-        The algorithm runs until one of the following stop conditions has been reached:
-
-            - A solution is found that reaches or exceeds the fitness threshold,
-            - The maximum generation limit has been reached,
-            - The maximum running time or memory usage has been reached,
-            - The best fit solutions have stagnated (reached some maxima) such that more generations are not increasing fitness,
-              the algorithm may have found the global maxima, or it may be stuck in a logcal maxima.
+        The algorithm runs until one of the following stop conditions has been
+        reached:
+        - A solution is found that reaches or exceeds the fitness threshold,
+        - The maximum generation limit has been reached,
+        - The maximum running time or memory usage has been reached,
+        - The best fit solutions have stagnated (reached some maxima) such
+          that more generations are not increasing fitness, the algorithm may
+          have found the global maxima, or it may be stuck in a logcal maxima.
 
         Notes
         -----
         To perform steady state selection for reproduction set;
-            - survival_factor = 1.0 - X, where X is fraction of individuals to be culled,
-            - survival_elitism_factor = 1.0, such that only the best survive (and the worst are culled) deterministically.
+            - survival_factor = 1.0 - X, where X is fraction of individuals to
+              be culled,
+            - survival_elitism_factor = 1.0, such that only the best survive
+              (and the worst are culled) deterministically.
         """
-        ## TODO Add logging, data collection, and data visualisation.
-        if survival_factor >= Fraction(1.0):
-            raise ValueError("Survival factor must be less than 1.0."
-                             f"Got; {survival_factor=}.")
+        if survival_factor.initial >= 1.0:
+            raise ValueError(
+                "Survival factor must be less than 1.0."
+                f"Got; {survival_factor}."
+            )
 
-        if expansion_factor * survival_factor <= 1.0:
-            raise ValueError("Population size would shrink or not grow "
-                             f"with; {expansion_factor=}, {survival_factor=}."
-                             "Their multiple must be greater than 1.0.")
+        if (expansion_factor is not None
+                and expansion_factor * survival_factor.initial <= 1.0):
+            raise ValueError(
+                "Population size would shrink or not grow "
+                f"with; {expansion_factor=}, {survival_factor.initial=}. "
+                "Their multiple must be greater than 1.0."
+            )
 
-        if stagnation_limit is not None and not isinstance(stagnation_limit, int):
+        if (stagnation_limit is not None
+                and not isinstance(stagnation_limit, int)):
             if max_generations is None:
-                raise TypeError("Stagnation limit must be an integer if the maximum generations is not given or None."
-                                f"Got; {stagnation_limit=} of type {type(stagnation_limit)} and {max_generations=} of {type(max_generations)}.")
+                raise TypeError(
+                    "Stagnation limit must be an integer if the maximum "
+                    "generations is not given or None. "
+                    f"Got; {stagnation_limit=} of {type(stagnation_limit)} "
+                    f"and {max_generations=} of {type(max_generations)}."
+                )
             stagnation_limit = int(stagnation_limit * max_generations)
+
+        # Growth and decay functions
+        survival_factor_growth_func, survival_elitism_factor_growth_func, \
+            reproduction_elitism_factor_growth_func, \
+            mutation_factor_growth_func, mutation_strength_decay_func, \
+            diversity_bias_decay_func = self.__get_decay_functions(
+                max_generations=max_generations,
+                survival_factor=survival_factor,
+                survival_elitism_factor=survival_elitism_factor,
+                reproduction_elitism_factor=reproduction_elitism_factor,
+                mutation_factor=mutation_factor,
+                mutation_strength=mutation_strength,
+                diversity_bias=diversity_bias
+            )
+        survival_factor_value: float = survival_factor.initial
+        survival_elitism_factor_value: float = survival_elitism_factor.initial
+        reproduction_elitism_factor_value: float = \
+            reproduction_elitism_factor.initial
+        mutation_factor_value: float = mutation_factor.initial
+        mutation_strength_value: float = mutation_strength.initial
+        diversity_bias_value: float = diversity_bias.initial
 
         population: list[CT] = self.create_population(init_pop_size)
         fitness_values: list[float] = [
@@ -1382,14 +1621,22 @@ class GeneticSystem:
             for individual in population
         ]
 
-        # If elitism is enabled for either selection or mutation then the population and their fitness values need to be ordered.
+        # If elitism is enabled for either selection or mutation then the
+        # population and their fitness values need to be ordered.
         if survival_elitism_factor is not None:
-            population, fitness_values = zip(*sorted(zip(population, fitness_values),
-                                                        key=lambda item: item[1]))
+            population, fitness_values = zip(  # type: ignore[assignment]
+                *sorted(
+                    zip(population, fitness_values),
+                    key=lambda item: item[1]
+                )
+            )
             population = list(population)
             fitness_values = list(fitness_values)
 
-        max_fitness_index, max_fitness = max(enumerate(fitness_values), key=lambda item: item[1])
+        max_fitness_index, max_fitness = max(
+            enumerate(fitness_values),
+            key=lambda item: item[1]
+        )
         generation: int = 0
 
         # Variables for checking stagnation
@@ -1397,151 +1644,28 @@ class GeneticSystem:
         best_fitness_achieved: float = max_fitness
         stagnated_generations: int = 0
 
-        if reproduction_elitism_factor_growth_end is None:
-            if max_generations is None:
-                raise ValueError("Reproduction elitism factor growth end must be given if the maximum generations is not given or None."
-                                 f"Got; {reproduction_elitism_factor_growth_end=} of type {type(reproduction_elitism_factor_growth_end)} and {max_generations=} of {type(max_generations)}.")
-            reproduction_elitism_factor_growth_end = max_generations
-        if diversity_bias_decay_end is None:
-            if max_generations is None:
-                raise ValueError("Diversity bias decay end must be given if the maximum generations is not given or None."
-                                 f"Got; {diversity_bias_decay_end=} of type {type(diversity_bias_decay_end)} and {max_generations=} of {type(max_generations)}.")
-            diversity_bias_decay_end = max_generations
-        if mutation_factor_growth_end is None:
-            if max_generations is None:
-                raise ValueError("Mutation factor growth end must be given if the maximum generations is not given or None."
-                                 f"Got; {mutation_factor_growth_end=} of type {type(mutation_factor_growth_end)} and {max_generations=} of {type(max_generations)}.")
-            mutation_factor_growth_end = max_generations
-        if mutation_strength_decay_end is None:
-            if max_generations is None:
-                raise ValueError("Mutation strength growth end must be given if the maximum generations is not given or None."
-                                 f"Got; {mutation_strength_decay_end=} of type {type(mutation_strength_decay_end)} and {max_generations=} of {type(max_generations)}.")
-            mutation_strength_decay_end = max_generations
-
-        def _get(_var, _default):
-            if _var is None:
-                return _default
-            return _var
-
-        reproduction_elitism_factor_growth_start = _get(reproduction_elitism_factor_growth_start, 0)
-        diversity_bias_decay_start = _get(diversity_bias_decay_start, 0)
-        mutation_factor_growth_start = _get(mutation_factor_growth_start, 0)
-        mutation_strength_decay_start = _get(mutation_strength_decay_start, 0)
-
-        if survival_factor_growth_end is None:
-            if max_generations is None:
-                raise ValueError("Survival factor growth end must be given if the maximum generations is not given or None."
-                                 f"Got; {survival_factor_growth_end=} of type {type(survival_factor_growth_end)} and {max_generations=} of {type(max_generations)}.")
-            survival_factor_growth_end = max_generations
-        if reproduction_elitism_factor_growth_end is None:
-            if max_generations is None:
-                raise ValueError("Reproduction elitism factor growth end must be given if the maximum generations is not given or None."
-                                 f"Got; {reproduction_elitism_factor_growth_end=} of type {type(reproduction_elitism_factor_growth_end)} and {max_generations=} of {type(max_generations)}.")
-            reproduction_elitism_factor_growth_end = max_generations
-        if survival_elitism_factor_growth_end is None:
-            if max_generations is None:
-                raise ValueError("Survival elitism factor growth end must be given if the maximum generations is not given or None."
-                                 f"Got; {survival_elitism_factor_growth_end=} of type {type(survival_elitism_factor_growth_end)} and {max_generations=} of {type(max_generations)}.")
-            survival_elitism_factor_growth_end = max_generations
-        if diversity_bias_decay_end is None:
-            if max_generations is None:
-                raise ValueError("Diversity bias decay end must be given if the maximum generations is not given or None."
-                                 f"Got; {diversity_bias_decay_end=} of type {type(diversity_bias_decay_end)} and {max_generations=} of {type(max_generations)}.")
-            diversity_bias_decay_end = max_generations
-        if mutation_factor_growth_end is None:
-            if max_generations is None:
-                raise ValueError("Mutation factor growth end must be given if the maximum generations is not given or None."
-                                 f"Got; {mutation_factor_growth_end=} of type {type(mutation_factor_growth_end)} and {max_generations=} of {type(max_generations)}.")
-            mutation_factor_growth_end = max_generations
-
-        reproduction_elitism_factor_growth_rate = _get(reproduction_elitism_factor_growth_rate, 1.0)
-        diversity_bias_decay_rate = _get(diversity_bias_decay_rate, 1.0)
-        mutation_factor_growth_rate = _get(mutation_factor_growth_rate, 1.0)
-        mutation_strength_decay_rate = _get(mutation_strength_decay_rate, 1.0)
-
-        get_df = get_decay_function
-        survival_factor_growth_func = None
-        reproduction_elitism_factor_growth_func = None
-        survival_elitism_factor_growth_func = None
-        diversity_bias_decay_func = None
-        mutation_factor_growth_func = None
-        mutation_strength_decay_func = None
-
-        if survival_factor_growth_type is not None:
-            survival_factor_growth_func = get_df(
-                survival_factor_growth_type,
-                survival_factor,
-                survival_factor_final,
-                survival_factor_growth_start,
-                survival_factor_growth_end,
-                survival_factor_growth_rate
-            )
-        if reproduction_elitism_factor_growth_type is not None:
-            reproduction_elitism_factor_growth_func = get_df(
-                reproduction_elitism_factor_growth_type,
-                reproduction_elitism_factor,
-                reproduction_elitism_factor_final,
-                reproduction_elitism_factor_growth_start,
-                reproduction_elitism_factor_growth_end,
-                reproduction_elitism_factor_growth_rate
-            )
-        if survival_elitism_factor_growth_type is not None:
-            survival_elitism_factor_growth_func = get_df(
-                survival_elitism_factor_growth_type,
-                survival_elitism_factor,
-                survival_elitism_factor_final,
-                survival_elitism_factor_growth_start,
-                survival_elitism_factor_growth_end,
-                survival_elitism_factor_growth_rate
-            )
-        if diversity_bias_decay_type is not None:
-            diversity_bias_decay_func = get_df(
-                diversity_bias_decay_type,
-                diversity_bias,
-                diversity_bias_final,
-                diversity_bias_decay_start,
-                diversity_bias_decay_end,
-                diversity_bias_decay_rate
-            )
-        if mutation_factor_growth_type is not None:
-            mutation_factor_growth_func = get_df(
-                mutation_factor_growth_type,
-                mutation_factor,
-                mutation_factor_final,
-                mutation_factor_growth_start,
-                mutation_factor_growth_end,
-                mutation_factor_growth_rate
-            )
-        if mutation_strength_decay_type is not None:
-            mutation_strength_decay_func = get_df(
-                mutation_strength_decay_type,
-                mutation_strength,
-                mutation_strength_final,
-                mutation_strength_decay_start,
-                mutation_strength_decay_end,
-                mutation_strength_decay_rate
-            )
-
+        # Stop condition flags
         max_generations_reached: bool = False
         max_fitness_reached: bool = False
         stagnation_limit_reached: bool = False
 
         progress_bar = ResourceProgressBar(initial=1, total=max_generations)
 
-        while not (generation >= max_generations):
+        while True:
             if diversity_bias is not None:
                 if diversity_bias_decay_func is not None:
-                    diversity_bias = diversity_bias_decay_func(generation)
+                    diversity_bias_value \
+                        = diversity_bias_decay_func(generation)
 
-                ## Apply biases to the fitness values to encourage exploration;
-                ##      Individuals gain fitness directly proportional to diversity
-                ##      bias and how much worse they are than the maximum fitness.
+                # Apply biases to the fitness values to encourage exploration;
+                # - Individuals gain fitness directly proportional to diversity
+                #   bias and how much worse they are than the maximum fitness.
                 fitness_values = [
-                    fitness + (diversity_bias * (max_fitness - fitness))
+                    fitness + (diversity_bias_value * (max_fitness - fitness))
                     for fitness in fitness_values
                 ]
 
-            ## Applying scaling to the fitness values.
+            # Applying scaling to the fitness values.
             fitness_values = self.__selector.scale(fitness_values)
             fitness_values = normalize_to_sum(fitness_values, 1.0)
 
@@ -1553,49 +1677,64 @@ class GeneticSystem:
             #       fittest.
             base_population_size: int = len(population)
             population, fitness_values = self.cull_population(
-                population,
-                fitness_values,
-                survival_factor,
-                survival_elitism_factor
+                population=population,
+                fitness_values=fitness_values,
+                survival_factor=survival_factor_value,
+                survival_elitism_factor=survival_elitism_factor_value
             )
             fitness_values = normalize_to_sum(fitness_values, 1.0)
 
             # Recombine the survivors to produce offsrping and expand the
             # population to the lower of;
-            #     - The max population size,
-            #     - increase the size by our maximum expansion factor,
-            #     - This step emulates the principle that the fittest
-            #       individuals are more likely to succeed in the competition
-            #       to reproduce, because they are more desirable as a partner
-            #       for mating/reproduction, since their offspring are more
-            #       likely to have high fitness and therefore survive longer.
-            if generation != 0 and reproduction_elitism_factor_growth_func is not None:
-                reproduction_elitism_factor = reproduction_elitism_factor_growth_func(generation)
-            desired_population_size: int = min(
-                math.ceil(base_population_size * expansion_factor),
-                max_pop_size
-            )
+            # - The max population size,
+            # - Increase the size by our maximum expansion factor,
+            # - This step emulates the principle that the fittest individuals
+            #   are more likely to succeed in the competition to reproduce,
+            #   because they are more desirable as a partner for
+            #   mating/reproduction, since their offspring are more likely to
+            #   have high fitness and therefore survive longer.
+            if generation != 0:
+                if reproduction_elitism_factor_growth_func is not None:
+                    reproduction_elitism_factor_value = \
+                        reproduction_elitism_factor_growth_func(generation)
+                if survival_factor_growth_func is not None:
+                    survival_factor_value = \
+                        survival_factor_growth_func(generation)
+                if survival_elitism_factor_growth_func is not None:
+                    survival_elitism_factor_value = \
+                        survival_elitism_factor_growth_func(generation)
+            desired_population_size: int = max_pop_size
+            if expansion_factor is not None:
+                desired_population_size = min(
+                    math.ceil(base_population_size * expansion_factor),
+                    max_pop_size
+                )
             population = self.grow_population(
-                population,
-                fitness_values,
-                desired_population_size,
-                reproduction_elitism_factor,
-                survival_factor,
-                survival_elitism_factor
+                population=population,
+                fitness_values=fitness_values,
+                desired_population_size=desired_population_size,
+                reproduction_elitism_factor=reproduction_elitism_factor_value,
+                survival_factor=survival_factor_value,
+                survival_elitism_factor=survival_elitism_factor_value
             )
 
-            # Randomly mutate the grown population
-            if generation != 0 and mutation_factor_growth_func is not None:
-                mutation_factor = mutation_factor_growth_func(generation)
+            # Randomly mutate the grown population.
+            if generation != 0:
+                if mutation_factor_growth_func is not None:
+                    mutation_factor_value = \
+                        mutation_factor_growth_func(generation)
+                if mutation_strength_decay_func is not None:
+                    mutation_strength_value = \
+                        mutation_strength_decay_func(generation)
             mutated_population: list[CT] = self.mutate_population(
-                population,
-                mutation_factor,
-                mutate_all
+                population=population,
+                mutation_factor=mutation_factor_value,
+                mutate_all=mutate_all
             )
 
             # Update the population and fitness values with the new generation.
             population = mutated_population
-            fitness_values: list[float] = [
+            fitness_values = [
                 self.__encoder.evaluate_fitness(individual)
                 for individual in population
             ]
@@ -1603,20 +1742,22 @@ class GeneticSystem:
             # If elitism is enabled the population and their fitness values
             # need to be ordered.
             if survival_elitism_factor is not None:
-                population, fitness_values = zip(
+                _population, _fitness_values = zip(
                     *sorted(
                         zip(population, fitness_values),
                         key=lambda item: item[1]
                     )
                 )
-                population = list(population)
-                fitness_values = list(fitness_values)
+                population = list(_population)
+                fitness_values = list(_fitness_values)
                 max_individual = population[-1]
                 max_fitness = fitness_values[-1]
             else:
-                max_fitness_index, max_fitness = max(enumerate(fitness_values), key=lambda item: item[1])
+                max_fitness_index, max_fitness = max(
+                    enumerate(fitness_values),
+                    key=lambda item: item[1]
+                )
                 max_individual = population[max_fitness_index]
-                min_fitness = min(fitness_values)
 
             if max_fitness > best_fitness_achieved:
                 best_fitness_achieved = max_fitness
@@ -1625,20 +1766,28 @@ class GeneticSystem:
                 stagnated_generations += 1
 
             generation += 1
-            progress_bar.update(data={"Best fitness": str(best_fitness_achieved)})
+            progress_bar.update(
+                data={"Best fitness": str(best_fitness_achieved)})
 
-            # Determine whether the fitness threshold has been reached.
-            if fitness_threshold is not None and best_fitness_achieved >= fitness_threshold:
+            # Determine whether any of the stop conditions have been reached.
+            if max_generations is not None and generation == max_generations:
+                max_generations_reached = True
+                break
+            if (fitness_threshold is not None
+                    and best_fitness_achieved >= fitness_threshold):
                 max_fitness_reached = True
-            if stagnation_limit is not None and stagnated_generations == stagnation_limit:
+                break
+            if (stagnation_limit is not None
+                    and stagnated_generations == stagnation_limit):
                 stagnation_limit_reached = True
+                break
 
         progress_bar.close()
         return GeneticAlgorithmSolution(
-            best_individual_achieved,
-            best_fitness_achieved,
-            population,
-            fitness_values,
+            best_individual=best_individual_achieved,
+            best_fitness=best_fitness_achieved,
+            population=population,
+            fitness_values=fitness_values,
             max_generations_reached=max_generations_reached,
             max_fitness_reached=max_fitness_reached,
             stagnation_limit_reached=stagnation_limit_reached
@@ -1731,7 +1880,8 @@ class GeneticSystem:
             return (population, fitness_values)
 
         # The quantity of elite individuals that are guaranteed to survive.
-        elite_quantity: int = math.ceil(survive_quantity * survival_elitism_factor)
+        elite_quantity: int = math.ceil(survive_quantity
+                                        * survival_elitism_factor)
 
         # If all surviving are elite, then skip random selection phase,
         # simply select deterministically the best individuals from the
@@ -1748,8 +1898,10 @@ class GeneticSystem:
         if elite_quantity != 0:
             comp_population = population[:-elite_quantity]
             comp_fitness_values = fitness_values[:-elite_quantity]
+            comp_fitness_values = normalize_to_sum(comp_fitness_values, 1.0)
             elite_population = population[-elite_quantity:]
             elite_fitness_values = fitness_values[-elite_quantity:]
+            elite_fitness_values = normalize_to_sum(elite_fitness_values, 1.0)
         else:
             comp_population = population
             comp_fitness_values = fitness_values
@@ -1876,7 +2028,7 @@ class GeneticSystem:
             return offspring
 
         # Calculate number of parents to choose from to reproduce.
-        total_parents: int = (offspring_quantity + (offspring_quantity % 2))
+        total_parents: int = offspring_quantity + (offspring_quantity % 2)
         elite_reprod_quantity: int = 0
         if reproduction_elitism_factor is not None:
             elite_reprod_quantity = math.ceil(
@@ -1909,11 +2061,10 @@ class GeneticSystem:
             selected.extend(comp_selected)
 
         # Split selected parents into pairs.
-        parent_pairs: Iterator[tuple[CT, CT]] = chunk(
-            selected,
-            2,
-            total_parents // 2,
-            as_type=tuple
+        parent_pairs: Iterator[tuple[CT, ...]] = chunk(
+            sequence=selected,
+            size=2,
+            quantity=total_parents // 2
         )
 
         # Recombine parent pairs to produce offspring.
@@ -1998,3 +2149,88 @@ class GeneticSystem:
                 )
 
         return mutated_population
+
+    @staticmethod
+    def __get_decay_functions(
+        max_generations: int | None,
+        survival_factor: GeneticSystemFactor,
+        survival_elitism_factor: GeneticSystemFactor,
+        reproduction_elitism_factor: GeneticSystemFactor,
+        mutation_factor: GeneticSystemFactor,
+        mutation_strength: GeneticSystemFactor,
+        diversity_bias: GeneticSystemFactor
+    ) -> tuple[
+        Callable[[int], float],
+        Callable[[int], float],
+        Callable[[int], float],
+        Callable[[int], float],
+        Callable[[int], float],
+        Callable[[int], float]
+    ]:
+        """
+        Get the decay functions for the genetic system factors.
+
+        Parameters
+        ----------
+        `max_generations: int` - The maximum number of generations to run the
+        algorithm.
+
+        `survival_factor: GeneticSystemFactor` - The survival factor.
+
+        `survival_elitism_factor: GeneticSystemFactor` - The survival elitism
+        factor.
+
+        `reproduction_elitism_factor: GeneticSystemFactor` - The reproduction
+        elitism factor.
+
+        `mutation_factor: GeneticSystemFactor` - The mutation factor.
+
+        `mutation_strength: GeneticSystemFactor` - The mutation strength.
+
+        `diversity_bias: GeneticSystemFactor` - The diversity bias.
+
+        Returns
+        -------
+        `tuple[Callable[[int], float], ...]` - The decay functions for the
+        genetic system factors.
+        """
+        functions: list[Callable[[int], float]] = []
+
+        for name, factor in (
+            ("Survival", survival_factor),
+            ("Survival elitism", survival_elitism_factor),
+            ("Reproduction elitism", reproduction_elitism_factor),
+            ("Mutation factor", mutation_factor),
+            ("Mutation strength", mutation_strength),
+            ("Diversity bias", diversity_bias)
+        ):
+            factor_initial = factor.initial
+            factor_final = factor.final
+            factor_func_type = factor.func_type
+            factor_growth_start = factor.growth_start
+            factor_growth_end = factor.growth_end
+            factor_growth_rate = factor.growth_rate
+
+            if factor_growth_end is None:
+                if max_generations is None:
+                    raise ValueError(
+                        f"{name} factor growth end must be given if the "
+                        "maximum generations is not given or None."
+                        f"Got; {factor_growth_end=} and {max_generations=}.")
+                factor_growth_end = max_generations
+
+            if factor_func_type is not None:
+                decay_func = get_decay_function(
+                    decay_type=factor_func_type,
+                    initial_value=factor_initial,
+                    final_value=factor_final,
+                    decay_start=factor_growth_start,
+                    decay_end=factor_growth_end,
+                    decay_rate=factor_growth_rate
+                )
+            else:
+                decay_func = None
+
+            functions.append(decay_func)
+
+        return tuple(functions)
