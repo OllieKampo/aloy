@@ -1,23 +1,17 @@
-###########################################################################
-###########################################################################
-## Module containing mapping and dictionary structures.                  ##
-##                                                                       ##
-## Copyright (C) 2022 Oliver Michael Kamperis                            ##
-##                                                                       ##
-## This program is free software: you can redistribute it and/or modify  ##
-## it under the terms of the GNU General Public License as published by  ##
-## the Free Software Foundation, either version 3 of the License, or     ##
-## any later version.                                                    ##
-##                                                                       ##
-## This program is distributed in the hope that it will be useful,       ##
-## but WITHOUT ANY WARRANTY; without even the implied warranty of        ##
-## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          ##
-## GNU General Public License for more details.                          ##
-##                                                                       ##
-## You should have received a copy of the GNU General Public License     ##
-## along with this program. If not, see <https://www.gnu.org/licenses/>. ##
-###########################################################################
-###########################################################################
+###############################################################################
+# Copyright (C) 2023 Oliver Michael Kamperis
+# Email: olliekampo@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
 
 """Module containing mapping and dictionary structures."""
 
@@ -32,6 +26,7 @@ from aloy.datastructures.views import (ListValuedMappingView, ListView,
 
 __copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
+__version__ = "0.1.1"
 
 __all__ = (
     "frozendict",
@@ -77,9 +72,9 @@ class frozendict(  # pylint: disable=invalid-name
 
         For example:
         ```
-        >>> fdict = frozendict({"one" : 1, "two" : 2})
+        >>> fdict = frozendict({"one": 1, "two": 2})
         >>> fdict
-        frozendict({"one" : 1, "two" : 2})
+        frozendict({"one": 1, "two": 2})
         ```
         """
         ...
@@ -94,7 +89,7 @@ class frozendict(  # pylint: disable=invalid-name
         ```
         >>> fdict = frozendict([("one", 1), ("two", 2)])
         >>> fdict
-        frozendict({"one" : 1, "two" : 2})
+        frozendict({"one": 1, "two": 2})
         ```
         """
         ...
@@ -109,7 +104,7 @@ class frozendict(  # pylint: disable=invalid-name
         ```
         >>> fdict = frozendict(one=1, two=2)
         >>> fdict
-        frozendict({"one" : 1, "two" : 2})
+        frozendict({"one": 1, "two": 2})
         ```
         """
         ...
@@ -176,7 +171,7 @@ class ReversableDict(collections.abc.MutableMapping, Generic[_KT, _VT]):
     >>> rev_dict.standard_mapping
     {"a": 1, "b": 2, "z": 2}
     >>> rev_dict.reversed_mapping
-    {1 : ["a"], 2 : ["b", "z"]}
+    {1: ["a"], 2: ["b", "z"]}
 
     # Check what 'a' maps to (as in a standard dictionary).
     >>> rev_dict["a"]

@@ -1,16 +1,49 @@
+###############################################################################
+# Copyright (C) 2023 Oliver Michael Kamperis
+# Email: olliekampo@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
+
+"""Module defining various math utility functions."""
+
 import math
-from numbers import Number
 from typing import Iterable, TypeVar
 
+__copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
+__license__ = "GPL-3.0"
+__version__ = "0.0.1"
 
-NT = TypeVar("NT", bound=Number)
+__all__ = (
+    "exp_decay_between",
+    "normalize_between",
+    "normalize_to_sum",
+    "closest_integer_factors",
+    "closest_squares"
+)
+
+
+def __dir__() -> tuple[str, ...]:
+    """Get the names of module attributes."""
+    return __all__
+
+
+_NT = TypeVar("_NT", float, int)
 
 
 def exp_decay_between(
-    value: NT,
-    min_: NT,
-    max_: NT
-) -> NT:
+    value: _NT,
+    min_: _NT,
+    max_: _NT
+) -> float:
     """Exponentially decay a value between a given range (inclusive)."""
     if value < min_:
         return 0.0
@@ -20,31 +53,42 @@ def exp_decay_between(
 
 
 def normalize_between(
-    iterable: Iterable[NT],
-    lower: NT,
-    upper: NT
-) -> list[NT]:
+    iterable: Iterable[_NT],
+    lower: _NT,
+    upper: _NT
+) -> list[float]:
     """Normalize an iterable of numbers between a given range (inclusive)."""
-    list_: list[NT] = list(iterable)
-    min_ = min(list_)
-    max_ = max(list_)
-    min_max_range = max_ - min_
-    lower_upper_range = upper - lower
-    return [lower
-            + (lower_upper_range
-               * ((item - min_)
-                  / min_max_range))
-            for item in list_]
+    list_: list[_NT] = (
+        list(iterable)
+        if not isinstance(iterable, list)
+        else iterable
+    )
+    min_: float = min(list_, default=0.0)
+    max_: float = max(list_, default=1.0)
+    min_max_range: float = max_ - min_
+    lower_upper_range: float = upper - lower
+    return [
+        lower
+        + (lower_upper_range
+           * ((item - min_)
+               / min_max_range))
+        for item in list_
+    ]
 
 
 def normalize_to_sum(
-    iterable: Iterable[NT],
-    sum_: NT
-) -> list[NT]:
+    iterable: Iterable[_NT],
+    sum_: _NT
+) -> list[float]:
     """Normalize an iterable of numbers to sum to a given value."""
-    list_: list[NT] = list(iterable)
-    list_sum = sum(list_)
-    return [item * (sum_ / list_sum) for item in list_]
+    list_: list[_NT] = (
+        list(iterable)
+        if not isinstance(iterable, list)
+        else iterable
+    )
+    list_sum: float = sum(list_, 0.0)
+    factor: float = sum_ / list_sum
+    return [item * factor for item in list_]
 
 
 def closest_integer_factors(value: int) -> tuple[int, int]:

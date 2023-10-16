@@ -1,24 +1,17 @@
-###########################################################################
-###########################################################################
-## Module defining additional functions for operating on iterables.      ##
-##                                                                       ##
-## Copyright (C)  2022  Oliver Michael Kamperis                          ##
-## Email: o.m.kamperis@gmail.com                                         ##
-##                                                                       ##
-## This program is free software: you can redistribute it and/or modify  ##
-## it under the terms of the GNU General Public License as published by  ##
-## the Free Software Foundation, either version 3 of the License, or     ##
-## any later version.                                                    ##
-##                                                                       ##
-## This program is distributed in the hope that it will be useful,       ##
-## but WITHOUT ANY WARRANTY; without even the implied warranty of        ##
-## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          ##
-## GNU General Public License for more details.                          ##
-##                                                                       ##
-## You should have received a copy of the GNU General Public License     ##
-## along with this program. If not, see <https://www.gnu.org/licenses/>. ##
-###########################################################################
-###########################################################################
+###############################################################################
+# Copyright (C) 2023 Oliver Michael Kamperis
+# Email: olliekampo@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
 
 """Module defining additional functions for operating on iterables."""
 
@@ -48,26 +41,68 @@ import collections.abc
 import itertools
 from fractions import Fraction
 import math
-from numbers import Real
 from typing import (Callable, Generic, Iterable, Iterator, Optional, Sequence,
-                    Type, TypeVar, final, overload)
+                    TypeVar, final, overload)
 
-from aloy.auxiliary.typingutils import SupportsLenAndGetitem, SupportsRichComparison
+from aloy.auxiliary.typingutils import (SupportsLenAndGetitem,
+                                        SupportsRichComparison)
 
-VT = TypeVar("VT")
-ST = TypeVar("ST", bound=Sequence)
-VT_C = TypeVar("VT_C", bound=SupportsRichComparison)
+_VT = TypeVar("_VT")
+_DT = TypeVar("_DT")
+_ST = TypeVar("_ST", bound=Sequence)
+_VTC = TypeVar("_VTC", bound=SupportsRichComparison)
+_SENTINEL = object()
 
 
-def __extract_args(*args_or_iterable: VT | Iterable[VT]) -> Iterator[VT]:
+def __extract_args(
+    *args_or_iterable: _VT | SupportsLenAndGetitem[_VT]
+) -> Iterator[_VT]:
     if len(args_or_iterable) == 1:
-        return iter(args_or_iterable[0])  # type: ignore
-    else:
-        return iter(args_or_iterable)     # type: ignore
+        return iter(args_or_iterable[0])
+    return iter(args_or_iterable)
+
+
+@overload
+def unzip(
+    iterable: Iterable[tuple[_VT, ...]]
+) -> tuple[Iterator[_VT], ...]:
+    ...
+
+
+@overload
+def unzip(
+    iterable: Iterable[tuple[_VT, ...]],
+    fill: _VT | None
+) -> tuple[Iterator[_VT], ...]:
+    ...
+
+
+def unzip(
+    iterable: Iterable[tuple[_VT, ...]],
+    fill: _VT | _DT | object = _SENTINEL
+) -> tuple[Iterator[_VT | _DT], ...]:
+    """
+    Unzip an iterable of tuples into a tuple of iterators.
+
+    If `fill` is given, then the iterators will yield the fill value for
+    missing items of shorter tuples.
+    """
+    iterators: list[Iterator[_VT | _DT]] = []
+    if fill is _SENTINEL:
+        for index in range(min(map(len, iterable))):
+            iterators.append((element[index] for element in iterable))
+    for index in range(max(map(len, iterable))):
+        iterators.append(
+            (element[index]
+             if index < len(element)
+             else fill)  # type: ignore[misc]
+            for element in iterable
+        )
+    return tuple(iterators)
 
 
 @final
-class getitem_zip(collections.abc.Sequence, Generic[VT]):
+class getitem_zip(collections.abc.Sequence, Generic[_VT]):
     """
     A class for a sequence-like zip construct.
 
@@ -85,7 +120,7 @@ class getitem_zip(collections.abc.Sequence, Generic[VT]):
     @overload
     def __init__(
         self,
-        *sequences: SupportsLenAndGetitem[VT],
+        *sequences: SupportsLenAndGetitem[_VT],
         strict: bool = False
     ) -> None:
         """
@@ -103,9 +138,9 @@ class getitem_zip(collections.abc.Sequence, Generic[VT]):
     @overload
     def __init__(
         self,
-        *sequences: SupportsLenAndGetitem[VT],
+        *sequences: SupportsLenAndGetitem[_VT],
         shortest: bool,
-        fill: VT | None = None,
+        fill: _VT | None = None,
         strict: bool = False
     ) -> None:
         """
@@ -125,9 +160,9 @@ class getitem_zip(collections.abc.Sequence, Generic[VT]):
 
     def __init__(
         self,
-        *sequences: SupportsLenAndGetitem[VT],
+        *sequences: SupportsLenAndGetitem[_VT],
         shortest: bool = True,
-        fill: VT | None = None,
+        fill: _VT | None = None,
         strict: bool = False
     ) -> None:
         """
@@ -140,14 +175,14 @@ class getitem_zip(collections.abc.Sequence, Generic[VT]):
             raise TypeError("Sequences must support __len__ and __getitem__.")
         if strict and not all_equal(len(seq) for seq in sequences):
             raise ValueError("All sequences must have the same length.")
-        self.__sequences: tuple[SupportsLenAndGetitem[VT], ...] = sequences
+        self.__sequences: tuple[SupportsLenAndGetitem[_VT], ...] = sequences
         self.__shortest: bool = bool(shortest)
         self.__len: int
         if shortest:
             self.__len = min(len(seq) for seq in sequences)
         else:
             self.__len = max(len(seq) for seq in sequences)
-        self.__fill: VT | None = fill
+        self.__fill: _VT | None = fill
 
     @property
     def shortest(self) -> bool:
@@ -158,11 +193,11 @@ class getitem_zip(collections.abc.Sequence, Generic[VT]):
         return self.__shortest
 
     @property
-    def fill(self) -> VT | None:
+    def fill(self) -> _VT | None:
         """Get the fill value."""
         return self.__fill
 
-    def __iter__(self) -> Iterator[tuple[VT | None, ...]]:
+    def __iter__(self) -> Iterator[tuple[_VT | None, ...]]:
         """Get an iterator over the zip."""
         if self.__shortest:
             yield from zip(*self.__sequences)
@@ -175,7 +210,7 @@ class getitem_zip(collections.abc.Sequence, Generic[VT]):
     def __getitem__(
         self,
         index_or_slice: int | slice
-    ) -> tuple[VT | None, ...]:
+    ) -> tuple[_VT | None, ...]:
         """
         Get a n-length tuple of items, one from each of the n zipped
         iterables, for the given index.
@@ -195,7 +230,7 @@ class getitem_zip(collections.abc.Sequence, Generic[VT]):
 
 
 def all_equal(
-    iterable: Iterable[VT],
+    iterable: Iterable[_VT],
     hint: bool = False
 ) -> bool:
     """
@@ -210,16 +245,16 @@ def all_equal(
     return next(groups, True) and not next(groups, False)
 
 
-def first_n(iterable: Iterable[VT], n: int) -> Iterator[VT]:
+def first_n(iterable: Iterable[_VT], n: int) -> Iterator[_VT]:
     """Return the first n elements of an iterable."""
     return itertools.islice(iterable, n)
 
 
 def iter_to_len(
-    iterable: Iterable[VT],
+    iterable: Iterable[_VT],
     len_: int, /,
-    fill: VT | Sequence[VT] | None = None
-) -> Iterator[VT]:
+    fill: _VT | Sequence[_VT] | None = None
+) -> Iterator[_VT]:
     """
     Yield items from the iterable up to the given length.
 
@@ -250,9 +285,9 @@ def iter_to_len(
 
 
 def cycle_to(
-    sequence: Sequence[VT],
+    sequence: Sequence[_VT],
     len_: int, /
-) -> Iterator[VT]:
+) -> Iterator[_VT]:
     """Cycle through the given sequence to a given length."""
     if len_ < 0:
         raise ValueError("Length must be a non-negative integer.")
@@ -261,10 +296,10 @@ def cycle_to(
 
 
 def cycle_for(
-    sequence: Sequence[VT],
-    cycles: Real,
+    sequence: Sequence[_VT],
+    cycles: int | float,
     preempt: bool = False
-) -> Iterator[VT]:
+) -> Iterator[_VT]:
     """
     Cycle through the given sequence for a given number of cycles.
 
@@ -295,9 +330,9 @@ def cycle_for(
 
 
 def index_sequence(
-    sequence: Sequence[VT],
+    sequence: Sequence[_VT],
     indices: Iterable[int]
-) -> Iterator[VT]:
+) -> Iterator[_VT]:
     """Get an iterator over the sequence at the given indices."""
     yield from (sequence[i] for i in indices)
 
@@ -307,19 +342,13 @@ def index_sequence(
 #   - split: split a sequence into parts of given sizes
 
 
-# TODO: Not much difference between chunk and ichunk_sequence.
 def chunk(
-    sequence: SupportsLenAndGetitem[VT],
+    sequence: SupportsLenAndGetitem[_VT],
     size: int,
-    quantity: int | None = None,
-    as_type: Type[ST] | None = None
-) -> Iterator[Sequence[VT]]:
+    quantity: int | None = None
+) -> Iterator[tuple[_VT, ...]]:
     """
     Yield an iterator over the size and quantity of chunks of the sequence.
-
-    If `as_type` is None (the default), then the chunks are returned as
-    sequence slices of the same type as the argument sequence. If `as_type`
-    is a type object, the chunks are cast to the given type before yielding.
     """
     if quantity is not None:
         if size * quantity > len(sequence):
@@ -328,46 +357,44 @@ def chunk(
                              f"sequence length={len(sequence)}.")
     else:
         quantity = len(sequence) // size
-    if as_type is not None and type(sequence) is not as_type:
-        yield from (as_type(sequence[index:index + size])  # type: ignore
-                    for index in range(0, quantity * size, size))
-    else:
-        yield from (sequence[index:index + size]
-                    for index in range(0, quantity * size, size))
+    yield from (
+        tuple(sequence[index:index + size])
+        for index in range(0, quantity * size, size)
+    )
 
 
 @overload
 def ichunk_iterable(
-    iterable: Iterable[VT],
+    iterable: Iterable[_VT],
     size: int, /
-) -> Iterator[Iterator[VT]]:
+) -> Iterator[Iterator[_VT]]:
     ...
 
 
 @overload
 def ichunk_iterable(
-    iterable: Iterable[VT],
+    iterable: Iterable[_VT],
     size: int, /, *,
     quantity: int | None
-) -> Iterator[Iterator[VT]]:
+) -> Iterator[Iterator[_VT]]:
     ...
 
 
 @overload
 def ichunk_iterable(
-    iterable: Iterable[VT],
+    iterable: Iterable[_VT],
     size: int, /, *,
     infinite: bool
-) -> Iterator[Iterator[VT]]:
+) -> Iterator[Iterator[_VT]]:
     ...
 
 
 def ichunk_iterable(
-    iterable: Iterable[VT],
+    iterable: Iterable[_VT],
     size: int, /, *,
     quantity: int | None = None,
     infinite: bool = False
-) -> Iterator[Iterator[VT]]:
+) -> Iterator[Iterator[_VT]]:
     """
     Yield an iterator of chunk of an iterable of a given size and quantity.
 
@@ -429,10 +456,10 @@ def ichunk_iterable(
 
 
 def ichunk_sequence(
-    sequence: Sequence[VT],
+    sequence: Sequence[_VT],
     size: int,
     quantity: int | None = None
-) -> Iterator[Sequence[VT]]:
+) -> Iterator[Sequence[_VT]]:
     """
     Yield an iterator of chunks of a sequence of a given size and quantity.
 
@@ -478,47 +505,47 @@ def ichunk_sequence(
 
 @overload
 def max_n(
-    iterable: Iterable[VT_C], /, *,
+    iterable: Iterable[_VTC], /, *,
     n: int = 1
-) -> list[VT_C]:
+) -> list[_VTC]:
     """Return the n largest elements of an iterable."""
     ...
 
 
 @overload
 def max_n(
-    iterable: Iterable[VT_C], /, *,
+    iterable: Iterable[_VTC], /, *,
     n: int = 1,
-    key: Callable[[VT_C], SupportsRichComparison] | None = None
-) -> list[VT_C]:
+    key: Callable[[_VTC], SupportsRichComparison] | None = None
+) -> list[_VTC]:
     """Return the n largest elements of an iterable given a key function."""
     ...
 
 
 @overload
 def max_n(
-    *args: VT_C,
+    *args: _VTC,
     n: int = 1
-) -> list[VT_C]:
+) -> list[_VTC]:
     """Return the n largest arguments."""
     ...
 
 
 @overload
 def max_n(
-    *args: VT_C,
+    *args: _VTC,
     n: int = 1,
-    key: Callable[[VT_C], SupportsRichComparison] | None = None
-) -> list[VT_C]:
+    key: Callable[[_VTC], SupportsRichComparison] | None = None
+) -> list[_VTC]:
     """Return the n largest arguments given a key function."""
     ...
 
 
 def max_n(
-    *args_or_iterable: VT_C | Iterable[VT_C],
+    *args_or_iterable: _VTC | Iterable[_VTC],
     n: int = 1,
-    key: Callable[[VT_C], SupportsRichComparison] | None = None
-) -> list[VT_C]:
+    key: Callable[[_VTC], SupportsRichComparison] | None = None
+) -> list[_VTC]:
     """Return the n largest elements of an iterable."""
     iterable = __extract_args(*args_or_iterable)
     if n < 0:
@@ -532,47 +559,47 @@ def max_n(
 
 @overload
 def min_n(
-    iterable: Iterable[VT_C], /, *,
+    iterable: Iterable[_VTC], /, *,
     n: int = 1
-) -> list[VT_C]:
+) -> list[_VTC]:
     """Return the n smallest elements of an iterable."""
     ...
 
 
 @overload
 def min_n(
-    iterable: Iterable[VT_C], /, *,
+    iterable: Iterable[_VTC], /, *,
     n: int = 1,
-    key: Callable[[VT_C], SupportsRichComparison] | None = None
-) -> list[VT_C]:
+    key: Callable[[_VTC], SupportsRichComparison] | None = None
+) -> list[_VTC]:
     """Return the n smallest elements of an iterable given a key function."""
     ...
 
 
 @overload
 def min_n(
-    *args: VT_C,
+    *args: _VTC,
     n: int = 1
-) -> list[VT_C]:
+) -> list[_VTC]:
     """Return the n smallest arguments."""
     ...
 
 
 @overload
 def min_n(
-    *args: VT_C,
+    *args: _VTC,
     n: int = 1,
-    key: Callable[[VT_C], SupportsRichComparison] | None = None
-) -> list[VT_C]:
+    key: Callable[[_VTC], SupportsRichComparison] | None = None
+) -> list[_VTC]:
     """Return the n smallest arguments given a key function."""
     ...
 
 
 def min_n(
-    *args_or_iterable: VT_C | Iterable[VT_C],
+    *args_or_iterable: _VTC | Iterable[_VTC],
     n: int = 1,
-    key: Callable[[VT_C], SupportsRichComparison] | None = None
-) -> list[VT_C]:
+    key: Callable[[_VTC], SupportsRichComparison] | None = None
+) -> list[_VTC]:
     """Return the n smallest elements of an iterable."""
     iterable = __extract_args(*args_or_iterable)
     if n < 0:
@@ -585,8 +612,8 @@ def min_n(
 
 
 def arg_max(
-    iterable: Iterable[VT_C], /,
-    key: Callable[[VT_C], SupportsRichComparison] | None = None,
+    iterable: Iterable[_VTC], /,
+    key: Callable[[_VTC], SupportsRichComparison] | None = None,
     default: int | None = None
 ) -> int:
     """Return the index of the largest element of an iterable."""
@@ -604,8 +631,8 @@ def arg_max(
 
 
 def arg_min(
-    iterable: Iterable[VT_C], /,
-    key: Callable[[VT_C], SupportsRichComparison] | None = None,
+    iterable: Iterable[_VTC], /,
+    key: Callable[[_VTC], SupportsRichComparison] | None = None,
     default: int | None = None
 ) -> int:
     """Return the index of the smallest element of an iterable."""
@@ -623,9 +650,9 @@ def arg_min(
 
 
 def arg_max_n(
-    iterable: Iterable[VT_C], /,
+    iterable: Iterable[_VTC], /,
     n: int = 1,
-    key: Callable[[VT_C], SupportsRichComparison] | None = None
+    key: Callable[[_VTC], SupportsRichComparison] | None = None
 ) -> list[int]:
     """Return the indices of the n largest elements of an iterable."""
     if n < 0:
@@ -646,9 +673,9 @@ def arg_max_n(
 
 
 def arg_min_n(
-    iterable: Iterable[VT_C], /,
+    iterable: Iterable[_VTC], /,
     n: int = 1,
-    key: Callable[[VT_C], SupportsRichComparison] | None = None
+    key: Callable[[_VTC], SupportsRichComparison] | None = None
 ) -> list[int]:
     """Return the indices of the n smallest elements of an iterable."""
     if n < 0:
@@ -669,9 +696,9 @@ def arg_min_n(
 
 
 def find_first(
-    iterable: Iterable[VT],
-    condition: Callable[[int, VT], bool]
-) -> tuple[int, VT]:
+    iterable: Iterable[_VT],
+    condition: Callable[[int, _VT], bool]
+) -> tuple[int, _VT]:
     """
     Find the first element of the iterable where the condition holds true.
     """
@@ -681,10 +708,10 @@ def find_first(
     raise ValueError("No element found.")
 
 
-def find_all(iterable: Iterable[VT],
-             condition: Callable[[int, VT], bool],
+def find_all(iterable: Iterable[_VT],
+             condition: Callable[[int, _VT], bool],
              limit: Optional[int] = None
-             ) -> Iterator[tuple[int, VT]]:
+             ) -> Iterator[tuple[int, _VT]]:
     """
     Return an iterator over all the elements of the iterable where the
     condition holds true.
@@ -696,12 +723,12 @@ def find_all(iterable: Iterable[VT],
             yield (index, element)
 
 
-def filter_not_none(iterable: Iterable[VT]) -> Iterator[VT]:
+def filter_not_none(iterable: Iterable[_VT]) -> Iterator[_VT]:
     """Return an iterator over the items of the iterable which are not None."""
     return (arg for arg in iterable if arg is not None)
 
 
-def alternate(*iterables: Iterable[VT]) -> Iterator[VT]:
+def alternate(*iterables: Iterable[_VT]) -> Iterator[_VT]:
     """
     Return an iterator which alternates between yielding items from the
     given iterables.
