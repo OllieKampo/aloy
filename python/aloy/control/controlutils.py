@@ -135,8 +135,8 @@ def simulate_control(
             error_values[tick] = controller.latest_error
             control_outputs[tick] = control_output
     else:
-        input_queue = deque(maxlen=lead_ticks)
-        output_queue = deque(maxlen=lag_ticks)
+        input_queue = deque[float](maxlen=lead_ticks)
+        output_queue = deque[float](maxlen=lag_ticks)
         for tick in range(ticks):
             control_input = control_system.get_control_input()
             input_queue.append(control_input)
