@@ -23,10 +23,11 @@ from aloy.auxiliary.hashing import hash_all
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 
 __all__ = (
     "create_if_not_exists_in_slots",
+    "CachedInstancesMeta"
 )
 
 
@@ -37,8 +38,8 @@ def __dir__() -> tuple[str, ...]:
 
 def create_if_not_exists_in_slots(
     class_dict: dict[str, Any],
-    **class_attr_names: dict[str, str]
-) -> None:
+    **class_attr_names: str
+) -> dict[str, Any]:
     """
     Create class attributes if they do not exist in the `__slots__` of a class
     dictionary.
@@ -57,13 +58,13 @@ def create_if_not_exists_in_slots(
             if isinstance(slots, str):
                 slots = (slots, *missing)
             elif isinstance(slots, (list, tuple, set)):
-                slots = type(slots)((*slots, *missing))
+                slots = (*slots, *missing)
             elif isinstance(slots, (dict, collections.abc.Mapping)):
-                slots = type(slots)(slots | missing)
+                slots = dict(slots | missing)
             else:
                 try:
                     iter(slots)
-                    slots = type(slots)((*slots, *missing))
+                    slots = (*slots, *missing)
                 except TypeError as err:
                     raise TypeError(
                         "Cannot determine type of __slots__ attribute."
@@ -78,7 +79,7 @@ class CachedInstancesMeta(type):
     Instances are immutable and hashable.
     """
 
-    __cache__ = WeakValueDictionary()
+    __cache__ = WeakValueDictionary[str, Any]()
 
     def __call__(cls, *args, **kwargs):
         hash_: int = hash_all(*args, **kwargs)
@@ -90,25 +91,4 @@ class CachedInstancesMeta(type):
 
 
 class CachedInstances(metaclass=CachedInstancesMeta):
-    pass
-
-
-class BenchmarkMeta(type):
-    """
-    Meta class for benchmarking performance of algorithms and data
-    structures.
-    """
-    pass
-
-
-class Benchmark(metaclass=BenchmarkMeta):
-    pass
-
-
-class LoggingMeta(type):
-    """Meta class for logging."""
-    pass
-
-
-class Logging(metaclass=LoggingMeta):
     pass

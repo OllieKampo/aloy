@@ -28,7 +28,7 @@ from aloy.auxiliary.introspection import loads_functions
 from aloy.datastructures.graph import Graph
 from aloy.datastructures.mappings import ReversableDict
 
-__copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
+__copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
 __version__ = "0.3.0"
 
@@ -573,21 +573,21 @@ def _check_for_sync(
 ) -> typing.Callable:
     if func is not None:
         all_methods[func.__name__] = func
-        if lock_name := getattr(func, "__sync__", False):
+        if (lock_name := getattr(func, "__sync__", None)) is not None:
             if lock_name == "method":
                 if ((lock_group := getattr(func, "__group__", None))
                         is not None):
                     method_locked_methods_groups[func.__name__] = lock_group
                 else:
-                    func.__group__ = None
+                    func.__group__ = None  # type: ignore[attr-defined]
                 method_locked_methods.add(func.__name__)
             else:
                 instance_locked_methods.add(func.__name__)
             sync_with_lock = synchronize_method(lock_name)
             func = sync_with_lock(func)
         else:
-            func.__sync__ = False
-            func.__group__ = None
+            func.__sync__ = False  # type: ignore[attr-defined]
+            func.__group__ = None  # type: ignore[attr-defined]
     return func
 
 
@@ -615,16 +615,16 @@ class SynchronizedMeta(type):
                       "unlocked."
         )
 
-        all_methods = dict[str, types.FunctionType]()
+        all_methods = dict[str, typing.Callable]()
         method_locked_methods = set[str]()
         method_lock_groups = ReversableDict[str, str]()
         instance_locked_methods = set[str]()
 
         # Check through the class's attributes to find methods and properties
         # to synchronize.
-        methods_to_sync: dict[str, types.FunctionType] = {}
+        methods_to_sync: dict[str, typing.Callable] = {}
         properties_to_sync: dict[
-            str, tuple[types.FunctionType | None, ...]] = {}
+            str, tuple[typing.Callable | None, ...]] = {}
         for attr_name, attr in class_dict.items():
             if (attr_name.startswith("__")
                     or attr_name.endswith("__")):
@@ -647,14 +647,14 @@ class SynchronizedMeta(type):
             class_dict[func_name] = _check_for_sync_(func)
 
         for attr_name, (fget, fset, fdel) in properties_to_sync.items():
-            fget = _check_for_sync_(fget)
-            fset = _check_for_sync_(fset)
-            fdel = _check_for_sync_(fdel)
-            class_dict[attr_name] = property(fget, fset, fdel)
+            fget_ = _check_for_sync_(fget)
+            fset_ = _check_for_sync_(fset)
+            fdel_ = _check_for_sync_(fdel)
+            class_dict[attr_name] = property(fget_, fset_, fdel_)
 
         if method_locked_methods:
             # Obtain a graph of which methods load each other.
-            load_graph: Graph[str] = Graph(directed=True)
+            load_graph = Graph[str, typing.Any](directed=True)
             for method_name, method in all_methods.items():
                 load_graph[method_name] = set(
                     loads_functions(
@@ -705,7 +705,7 @@ class SynchronizedMeta(type):
                     continue
                 path_set = set(path)
                 if path_set:
-                    if looped_methods := (method_locked_methods & path_set):
+                    if looped_methods := method_locked_methods & path_set:
                         loop_lock_numbers.reversed_set(
                             loop_lock_number_current,
                             *looped_methods

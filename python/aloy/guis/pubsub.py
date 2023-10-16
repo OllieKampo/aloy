@@ -279,10 +279,10 @@ class AloyPubSubHub:
             with (topic_messages := self.__topics[topic_name]):
                 topic_messages.extend(messages)
             with self.__topics_updated:
-                if self.__topics_updated.get(topic_name) is None:
+                if (len_ := self.__topics_updated.get(topic_name)) is None:
                     self.__topics_updated[topic_name] = len(messages)
                 else:
-                    self.__topics_updated[topic_name] += len(messages)
+                    self.__topics_updated[topic_name] = len_ + len(messages)
 
     def __update_all_topic_subscribers(self) -> None:
         """Update all subscribers of all topics."""
@@ -426,26 +426,6 @@ def subscribe_topic(
     ...
 
 
-@overload
-def subscribe_topic(
-    hub_name: str,
-    topic_name: str
-) -> Callable[
-    [Callable[[_CT, str, _IT, _IT], None]],
-    Callable[[_CT, str, _IT, _IT], None]
-]:
-    """
-    Decorate an instance method or property to subscribe it to the given topic.
-
-    The subscribed callback will be called when a message is added to the given
-    topic on the given hub. If the hub does not yet exist, the callback will be
-    subscribed when a hub with the given name is created.
-
-    See `AloyPubSubHub.subscribe_topic` for more details.
-    """
-    ...
-
-
 def subscribe_topic(
     hub_name: str,
     topic_name: str,
@@ -468,6 +448,27 @@ def subscribe_topic(
         hub.subscribe_topic(topic_name, func)
     else:
         _PUBSUB_INIT_SUBSCRIBE_TOPICS[hub_name][topic_name].append(func)
+    return None
+
+
+def method_subscribe_topic(
+    hub_name: str,
+    topic_name: str
+) -> Callable[
+    [Callable[[_CT, str, _IT, _IT], None]],
+    Callable[[_CT, str, _IT, _IT], None]
+]:
+    """
+    Decorate an instance method or property to subscribe it to the given
+    topic.
+
+    The subscribed callback will be called when a message is added to the given
+    topic on the given hub. If the hub does not yet exist, the callback will be
+    subscribed when a hub with the given name is created.
+
+    See `AloyPubSubHub.subscribe_topic` for more details.
+    """
+    return subscribe_topic(hub_name, topic_name)  # type: ignore
 
 
 @overload
@@ -508,27 +509,6 @@ def subscribe_param(
     ...
 
 
-@overload
-def subscribe_param(
-    hub_name: str,
-    field_name: str
-) -> Callable[
-    [Callable[[_CT, str, _IT, _IT], None]],
-    Callable[[_CT, str, _IT, _IT], None]
-]:
-    """
-    Decorate an instance method or property to subscribe it to the given
-    parameter.
-
-    The subscribed callback will be called when the given parameter is changed
-    on the given hub. If the hub does not yet exist, the callback will be
-    subscribed when a hub with the given name is created.
-
-    See `AloyPubSubHub.subscribe_param` for more details.
-    """
-    ...
-
-
 def subscribe_param(
     hub_name: str,
     field_name: str,
@@ -551,6 +531,27 @@ def subscribe_param(
         hub.subscribe_param(field_name, func)
     else:
         _PUBSUB_INIT_SUBSCRIBE_PARAMS[hub_name][field_name].append(func)
+    return None
+
+
+def method_subscribe_param(
+    hub_name: str,
+    field_name: str
+) -> Callable[
+    [Callable[[_CT, str, _IT, _IT], None]],
+    Callable[[_CT, str, _IT, _IT], None]
+]:
+    """
+    Decorate an instance method or property to subscribe it to the given
+    parameter.
+
+    The subscribed callback will be called when the given parameter is changed
+    on the given hub. If the hub does not yet exist, the callback will be
+    subscribed when a hub with the given name is created.
+
+    See `AloyPubSubHub.subscribe_param` for more details.
+    """
+    return subscribe_param(hub_name, field_name)  # type: ignore
 
 
 def publish_topic(hub_name: str, topic_name: str, *messages: str) -> None:
@@ -638,6 +639,8 @@ def __main() -> None:
     qtimer.start(1000)
 
     _qapp.exec()
+    # pylint: enable=import-outside-toplevel
+    # pylint: enable=no-name-in-module
 
 
 if __name__ == "__main__":
