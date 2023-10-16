@@ -1,24 +1,17 @@
-###########################################################################
-###########################################################################
-## A disjoint-set data structure and union-find algorithm.               ##
-##                                                                       ##
-## Copyright (C)  2022  Oliver Michael Kamperis                          ##
-## Email: o.m.kamperis@gmail.com                                         ##
-##                                                                       ##
-## This program is free software: you can redistribute it and/or modify  ##
-## it under the terms of the GNU General Public License as published by  ##
-## the Free Software Foundation, either version 3 of the License, or     ##
-## any later version.                                                    ##
-##                                                                       ##
-## This program is distributed in the hope that it will be useful,       ##
-## but WITHOUT ANY WARRANTY; without even the implied warranty of        ##
-## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          ##
-## GNU General Public License for more details.                          ##
-##                                                                       ##
-## You should have received a copy of the GNU General Public License     ##
-## along with this program. If not, see <https://www.gnu.org/licenses/>. ##
-###########################################################################
-###########################################################################
+###############################################################################
+# Copyright (C) 2023 Oliver Michael Kamperis
+# Email: olliekampo@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
 
 """Module containing a disjoint-set data structure."""
 
@@ -31,6 +24,7 @@ from aloy.datastructures.mappings import frozendict
 
 __copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
+__version__ = "0.1.1"
 
 __all__ = (
     "DisjointSet",
@@ -330,14 +324,14 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         Return string summary representation describing number of elements and
         disjoint sub-sets.
         """
-        sets_: dict[ST, frozenset[ST]] = self.find_all_sets(
+        sets_: frozendict[ST, frozenset[ST]] = self.find_all_sets(
             compress=None, cache=True)
         return (f"Disjoint-Set: total elements = {len(self)}, "
                 f"total disjoint sub-sets = {len(sets_)}")
 
     def __repr__(self) -> str:
         """Return an instantiable string representation of the disjoint-set."""
-        sets_: dict[ST, frozenset[ST]] = self.find_all_sets(
+        sets_: frozendict[ST, frozenset[ST]] = self.find_all_sets(
             compress=None, cache=True)
         return f"{self.__class__.__name__}({sets_!r})"
 
@@ -426,7 +420,7 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
             self.__rank_of[parent] = 1
             root = parent
             if self.__track_sets:
-                self.__sets[root] = {root}
+                self.__sets[root] = {root}  # type: ignore[index]
         else:
             # Find the root of the sub-set containing the parent.
             root = self.find_root(parent)
@@ -437,7 +431,7 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
             if element not in self:
                 self.__parent_of[element] = root
                 if self.__track_sets:
-                    self.__sets[root].add(element)
+                    self.__sets[root].add(element)  # type: ignore[union-attr]
             else:
                 # ...or union the elements sub-set to the root's sub-set.
                 if union:
@@ -726,7 +720,7 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
                  in self.__sets.items()}
             )
         if not self.__is_changed:
-            return self.__sets
+            return self.__sets  # type: ignore[return-value]
 
         # Find all disjoint sub-sets by finding the root of all
         # elements and then grouping elements with the same root.
@@ -902,8 +896,9 @@ class DisjointSet(collections.abc.Mapping, Generic[ST]):
         # element that was unioned onto, must be updated to include the set
         # of the root element that was unioned from.
         if self.__track_sets:
-            self.__sets[root_2].update(self.__sets[root_1])
-            del self.__sets[root_1]
+            self.__sets[root_2].update(  # type: ignore[union-attr]
+                self.__sets[root_1])
+            del self.__sets[root_1]  # type: ignore[union-attr]
         else:
             self.__is_changed = True
 
