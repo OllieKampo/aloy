@@ -40,8 +40,9 @@ import collections.abc
 import sys
 import types
 from typing import (
-    Any, Callable, Concatenate, Generic, Hashable, Iterable, Iterator,
-    Mapping, ParamSpec, TypeVar, final, overload
+    Any, Callable, Concatenate, Generic, Hashable, ItemsView, Iterable,
+    Iterator, KeysView, Mapping, ParamSpec, TypeVar, ValuesView, final,
+    overload
 )
 from aloy.concurrency.synchronization import OwnedRLock
 from aloy.datastructures.views import DictView, ListView, SetView
@@ -647,6 +648,21 @@ class AtomicDict(_Atomic[dict[_KT, _VT]], collections.abc.MutableMapping):
     def set_obj(self, value: Mapping[_KT, _VT], /) -> None:
         """Sets the dictionary to the given value."""
         self.__dict = dict(value)
+
+    @_atomic_require_lock
+    def keys(self) -> KeysView[_KT]:
+        """Return a view of the current dictionary's keys."""
+        return super().keys()
+
+    @_atomic_require_lock
+    def values(self) -> ValuesView[_VT]:
+        """Return a view of the current dictionary's values."""
+        return super().values()
+
+    @_atomic_require_lock
+    def items(self) -> ItemsView[_KT, _VT]:
+        """Return a view of the current dictionary's items."""
+        return super().items()
 
     @_atomic_require_lock
     def __getitem__(self, key: _KT) -> _VT:
