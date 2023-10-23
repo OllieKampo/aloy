@@ -257,6 +257,11 @@ class AloyPubSubHub:
             if topic_name not in self.__subscribers_topics:
                 self.__subscribers_topics[topic_name] = AtomicList[Callable]()
         with (callback_funcs := self.__subscribers_topics[topic_name]):
+            if self.__debug:
+                self.__PUBSUB_LOGGER.debug(
+                    "Subscribing callback function %s to topic %s on hub %s.",
+                    callback, topic_name, self.name
+                )
             callback_funcs.append(callback)
 
     def publish_topic(self, topic_name: str, *messages: str) -> None:
@@ -272,16 +277,20 @@ class AloyPubSubHub:
 
         `*messages: str` - The messages to publish to the topic.
         """
-        with self.__topics:
+        with self.__topics, self.__topics_updated:
+            if self.__debug:
+                self.__PUBSUB_LOGGER.debug(
+                    "Publishing %s messages to topic %s on hub %s: \n%s",
+                    len(messages), topic_name, self.name, messages
+                )
             if topic_name not in self.__topics:
                 self.__topics[topic_name] = list(messages)
             else:
                 self.__topics[topic_name].extend(messages)
-            with self.__topics_updated:
-                if (len_ := self.__topics_updated.get(topic_name)) is None:
-                    self.__topics_updated[topic_name] = len(messages)
-                else:
-                    self.__topics_updated[topic_name] = len_ + len(messages)
+            if (len_ := self.__topics_updated.get(topic_name)) is None:
+                self.__topics_updated[topic_name] = len(messages)
+            else:
+                self.__topics_updated[topic_name] = len_ + len(messages)
 
     def __update_topic_subscribers(self) -> None:
         """Update all subscribers of all topics."""
@@ -293,6 +302,14 @@ class AloyPubSubHub:
                 if num_new_messages is not None:
                     with (callback_funcs
                           := self.__subscribers_topics[topic_name]):
+                        if self.__debug:
+                            self.__PUBSUB_LOGGER.debug(
+                                "Updating %s subscribers of topic %s on hub %s"
+                                " with:\nAll messages: %s\nNew messages: \n%s",
+                                len(callback_funcs), topic_name, self.name,
+                                num_new_messages,
+                                messages_view[-num_new_messages:]
+                            )
                         for func in callback_funcs:
                             func(
                                 topic_name,
@@ -327,6 +344,11 @@ class AloyPubSubHub:
             if param_name not in self.__subscribers_params:
                 self.__subscribers_params[param_name] = AtomicList[Callable]()
         with (callback_funcs := self.__subscribers_params[param_name]):
+            if self.__debug:
+                self.__PUBSUB_LOGGER.debug(
+                    "Subscribing callback function %s to parameter %s on hub "
+                    "%s.", callback, param_name, self.name
+                )
             callback_funcs.append(callback)
 
     def publish_param(self, param_name: str, value: Any) -> None:
@@ -342,14 +364,18 @@ class AloyPubSubHub:
 
         `value: Any` - The value to publish to the parameter.
         """
-        with self.__params:
+        with self.__params, self.__params_updated:
+            if self.__debug:
+                self.__PUBSUB_LOGGER.debug(
+                    "Publishing value %s to parameter %s on hub %s.",
+                    value, param_name, self.name
+                )
             if param_name not in self.__params:
                 self.__params[param_name] = (None, value)
             else:
                 _, old_value = self.__params[param_name]
                 self.__params[param_name] = (old_value, value)
-            with self.__params_updated:
-                self.__params_updated[param_name] = True
+            self.__params_updated[param_name] = True
 
     def __update_parameter_subscribers(self) -> None:
         """Update all subscribers of all parameters."""
@@ -359,6 +385,13 @@ class AloyPubSubHub:
                     self.__params_updated[param_name] = False
                     with (callback_funcs
                           := self.__subscribers_params[param_name]):
+                        if self.__debug:
+                            self.__PUBSUB_LOGGER.debug(
+                                "Updating %s subscribers of parameter %s on "
+                                "hub %s with:\nOld value: %s\nNew value: %s",
+                                len(callback_funcs), param_name, self.name,
+                                value[0], value[1]
+                            )
                         for func in callback_funcs:
                             func(param_name, *value)
 
