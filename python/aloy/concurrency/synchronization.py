@@ -848,3 +848,21 @@ class SynchronizedClass(metaclass=SynchronizedMeta):
     lockable_methods: tuple[str, ...]
     loop_locks: ReversableDict[str, int]
     group_locks: ReversableDict[str, str]
+
+
+@contextlib.contextmanager
+def get_instance_lock(
+    instance: SynchronizedClass
+) -> typing.Iterator[None]:
+    """
+    Context manager for acquiring the instance lock of a synchronized class.
+
+    Parameters
+    ----------
+    `instance: SynchronizedClass` - The instance to acquire the lock of.
+    """
+    instance.instance_lock.acquire()
+    try:
+        yield
+    finally:
+        instance.instance_lock.release()

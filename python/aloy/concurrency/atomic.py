@@ -124,13 +124,11 @@ class _Atomic(Generic[_AT], metaclass=ABCMeta):
     @abstractmethod
     def get_obj(self) -> _AT:
         """Returns the wrapped object."""
-        ...
 
     @_atomic_require_context
     @abstractmethod
     def set_obj(self, value: _AT, /) -> None:
         """Sets the wrapped object."""
-        ...
 
     def __enter__(self) -> "_Atomic[_AT]":
         self.__lock.acquire()
@@ -412,7 +410,6 @@ class AtomicList(_Atomic[list[_LT]], collections.abc.MutableSequence):
         AtomicList([])
         ```
         """
-        ...
 
     @overload
     def __init__(self, __iterable: Iterable[_LT], /) -> None:
@@ -427,7 +424,6 @@ class AtomicList(_Atomic[list[_LT]], collections.abc.MutableSequence):
         AtomicList(["one", "two"])
         ```
         """
-        ...
 
     def __init__(  # type: ignore[misc]
         self,
@@ -603,7 +599,6 @@ class AtomicDict(_Atomic[dict[_KT, _VT]], collections.abc.MutableMapping):
         AtomicDict({"one": 1, "two": 2})
         ```
         """
-        ...
 
     @overload
     def __init__(self, iterable: Iterable[tuple[_KT, _VT]], /) -> None:
@@ -618,7 +613,6 @@ class AtomicDict(_Atomic[dict[_KT, _VT]], collections.abc.MutableMapping):
         AtomicDict({"one": 1, "two": 2})
         ```
         """
-        ...
 
     @overload
     def __init__(self, **kwargs: _VT) -> None:
@@ -633,7 +627,6 @@ class AtomicDict(_Atomic[dict[_KT, _VT]], collections.abc.MutableMapping):
         AtomicDict({"one": 1, "two": 2})
         ```
         """
-        ...
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__()
@@ -711,7 +704,6 @@ class AtomicSet(_Atomic[set[_ET]], collections.abc.MutableSet):
         AtomicSet(set())
         ```
         """
-        ...
 
     @overload
     def __init__(self, __iterable: Iterable[_ET], /) -> None:
@@ -725,7 +717,6 @@ class AtomicSet(_Atomic[set[_ET]], collections.abc.MutableSet):
         AtomicSet({"one", "two"})
         ```
         """
-        ...
 
     def __init__(  # type: ignore[misc]
         self,

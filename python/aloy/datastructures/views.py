@@ -21,7 +21,7 @@ from typing import (Generic, Hashable, Iterator, Mapping, TypeVar, final,
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 __all__ = (
     "ListView",
@@ -37,11 +37,11 @@ def __dir__() -> tuple[str, ...]:
     return __all__
 
 
-LT = TypeVar("LT")
+_LT = TypeVar("_LT")
 
 
 @final
-class ListView(collections.abc.Sequence, Generic[LT]):
+class ListView(collections.abc.Sequence, Generic[_LT]):
     """
     Class defining a view of a list.
 
@@ -53,29 +53,27 @@ class ListView(collections.abc.Sequence, Generic[LT]):
         "__list": "The list being viewed."
     }
 
-    def __init__(self, list_: list[LT], /) -> None:
+    def __init__(self, list_: list[_LT], /) -> None:
         """Create a new list view."""
-        self.__list: list[LT] = list_
+        self.__list: list[_LT] = list_
 
     def __repr__(self) -> str:
         """Get an instantiable string representation of the list view."""
         return f"ListView({self.__list})"
 
     @overload
-    def __getitem__(self, index: int, /) -> LT:
+    def __getitem__(self, index: int, /) -> _LT:
         """Get the item at the given index."""
-        ...
 
     @overload
-    def __getitem__(self, index: slice, /) -> list[LT]:
+    def __getitem__(self, index: slice, /) -> list[_LT]:
         """Get the slice at the given index."""
-        ...
 
-    def __getitem__(self, index: int | slice, /) -> LT | list[LT]:
+    def __getitem__(self, index: int | slice, /) -> _LT | list[_LT]:
         """Get the item or slice at the given index."""
         return self.__list[index]
 
-    def __iter__(self) -> Iterator[LT]:
+    def __iter__(self) -> Iterator[_LT]:
         """Iterate over the items in the list."""
         return iter(self.__list)
 
@@ -84,12 +82,12 @@ class ListView(collections.abc.Sequence, Generic[LT]):
         return len(self.__list)
 
 
-KT = TypeVar("KT", bound=Hashable)
-VT_co = TypeVar("VT_co", bound=Hashable, covariant=True)
+_KT = TypeVar("_KT", bound=Hashable)
+_VT_co = TypeVar("_VT_co", bound=Hashable, covariant=True)
 
 
 @final
-class DictView(collections.abc.Mapping, Generic[KT, VT_co]):
+class DictView(collections.abc.Mapping, Generic[_KT, _VT_co]):
     """
     Class defining a of a dictionary.
 
@@ -101,9 +99,9 @@ class DictView(collections.abc.Mapping, Generic[KT, VT_co]):
         "__dict": "The dictionary being viewed."
     }
 
-    def __init__(self, dict_: dict[KT, VT_co], /) -> None:
+    def __init__(self, dict_: dict[_KT, _VT_co], /) -> None:
         """Create a new dictionary view."""
-        self.__dict: dict[KT, VT_co] = dict_
+        self.__dict: dict[_KT, _VT_co] = dict_
 
     def __repr__(self) -> str:
         """Get an instantiable string representation of the dictionary view."""
@@ -113,11 +111,11 @@ class DictView(collections.abc.Mapping, Generic[KT, VT_co]):
         """Check if a key is in the dictionary view."""
         return key in self.__dict
 
-    def __getitem__(self, key: KT, /) -> VT_co:
+    def __getitem__(self, key: _KT, /) -> _VT_co:
         """Get the item at the given key."""
         return self.__dict[key]
 
-    def __iter__(self) -> Iterator[KT]:
+    def __iter__(self) -> Iterator[_KT]:
         """Iterate over the items in the dictionary view."""
         return iter(self.__dict)
 
@@ -126,11 +124,11 @@ class DictView(collections.abc.Mapping, Generic[KT, VT_co]):
         return len(self.__dict)
 
 
-ST = TypeVar("ST", bound=Hashable)
+_ST = TypeVar("_ST", bound=Hashable)
 
 
 @final
-class SetView(collections.abc.Set, Generic[ST]):
+class SetView(collections.abc.Set, Generic[_ST]):
     """
     Class defining a view of a set.
 
@@ -142,9 +140,9 @@ class SetView(collections.abc.Set, Generic[ST]):
         "__set": "The set being viewed."
     }
 
-    def __init__(self, set_: set[ST], /) -> None:
+    def __init__(self, set_: set[_ST], /) -> None:
         """Create a new set view."""
-        self.__set: set[ST] = set_
+        self.__set: set[_ST] = set_
 
     def __repr__(self) -> str:
         """Get an instantiable string representation of the set view."""
@@ -154,7 +152,7 @@ class SetView(collections.abc.Set, Generic[ST]):
         """Check if an item is in the set view."""
         return item in self.__set
 
-    def __iter__(self) -> Iterator[ST]:
+    def __iter__(self) -> Iterator[_ST]:
         """Iterate over the items in the set view."""
         return iter(self.__set)
 
@@ -164,7 +162,7 @@ class SetView(collections.abc.Set, Generic[ST]):
 
 
 @final
-class ListValuedMappingView(collections.abc.Mapping, Generic[KT, VT_co]):
+class ListValuedMappingView(collections.abc.Mapping, Generic[_KT, _VT_co]):
     """
     Class defining a list-valued mapping view type.
 
@@ -176,9 +174,9 @@ class ListValuedMappingView(collections.abc.Mapping, Generic[KT, VT_co]):
         "__list_valued_mapping": "The list-valued mapping being viewed."
     }
 
-    def __init__(self, mapping: Mapping[KT, list[VT_co]], /) -> None:
+    def __init__(self, mapping: Mapping[_KT, list[_VT_co]], /) -> None:
         """Create a new list-valued mapping view."""
-        self.__list_valued_mapping: Mapping[KT, list[VT_co]] = mapping
+        self.__list_valued_mapping: Mapping[_KT, list[_VT_co]] = mapping
 
     def __repr__(self) -> str:
         """
@@ -191,11 +189,11 @@ class ListValuedMappingView(collections.abc.Mapping, Generic[KT, VT_co]):
         """Check if a key is in the list-valued mapping view."""
         return key in self.__list_valued_mapping
 
-    def __getitem__(self, key: KT, /) -> ListView[VT_co]:
+    def __getitem__(self, key: _KT, /) -> ListView[_VT_co]:
         """Get the list of items in the list-valued mapping view."""
         return ListView(self.__list_valued_mapping[key])
 
-    def __iter__(self) -> Iterator[KT]:
+    def __iter__(self) -> Iterator[_KT]:
         """Iterate over the items in the list-valued mapping view."""
         return iter(self.__list_valued_mapping)
 
@@ -205,7 +203,7 @@ class ListValuedMappingView(collections.abc.Mapping, Generic[KT, VT_co]):
 
 
 @final
-class SetValuedMappingView(collections.abc.Mapping, Generic[KT, VT_co]):
+class SetValuedMappingView(collections.abc.Mapping, Generic[_KT, _VT_co]):
     """
     Class defining a set-valued mapping view type.
 
@@ -217,9 +215,9 @@ class SetValuedMappingView(collections.abc.Mapping, Generic[KT, VT_co]):
         "__set_valued_mapping": "The set-valued mapping being viewed."
     }
 
-    def __init__(self, mapping: Mapping[KT, set[VT_co]], /) -> None:
+    def __init__(self, mapping: Mapping[_KT, set[_VT_co]], /) -> None:
         """Create a new set-valued mapping view."""
-        self.__set_valued_mapping: Mapping[KT, set[VT_co]] = mapping
+        self.__set_valued_mapping: Mapping[_KT, set[_VT_co]] = mapping
 
     def __repr__(self) -> str:
         """
@@ -232,11 +230,11 @@ class SetValuedMappingView(collections.abc.Mapping, Generic[KT, VT_co]):
         """Check if a key is in the set-valued mapping view."""
         return key in self.__set_valued_mapping
 
-    def __getitem__(self, key: KT, /) -> SetView[VT_co]:
+    def __getitem__(self, key: _KT, /) -> SetView[_VT_co]:
         """Get the set of items in the set-valued mapping view."""
         return SetView(self.__set_valued_mapping[key])
 
-    def __iter__(self) -> Iterator[KT]:
+    def __iter__(self) -> Iterator[_KT]:
         """Iterate over the items in the set-valued mapping view."""
         return iter(self.__set_valued_mapping)
 

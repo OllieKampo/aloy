@@ -40,12 +40,13 @@ from collections import defaultdict, deque
 import queue
 import time
 from typing import (Any, Callable, Concatenate, Final, NamedTuple, ParamSpec,
-                    TypeVar, final)
+                    Type, TypeVar, final)
 from aloy.concurrency.atomic import AtomicBool
 from aloy.concurrency.clocks import ClockThread
 
 from aloy.concurrency.executors import AloyThreadPool
-from aloy.concurrency.synchronization import SynchronizedMeta, sync
+from aloy.concurrency.synchronization import (SynchronizedMeta,
+                                              get_instance_lock, sync)
 from aloy.datastructures.mappings import TwoWayMap
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
@@ -76,7 +77,7 @@ def call_on_field_change(
     def decorator(
         func: Callable[["Listener", "Subject", str, Any, Any], None]
     ) -> Callable[["Listener", "Subject", str, Any, Any], None]:
-        func.__subject_field__ = field_name  # type: ignore
+        func.__subject_field__ = field_name  # type: ignore[attr-defined]
         return func
     return decorator
 
@@ -90,6 +91,7 @@ class Listener:
     `field_changed(source, field_name, old_value, new_value)` method.
     """
 
+    # pylint: disable=unused-argument
     def field_changed(
         self,
         source: "Subject",
@@ -110,7 +112,8 @@ class Listener:
 
         `new_value: Any` - The new value of the field.
         """
-        return NotImplemented  # type: ignore
+        return NotImplemented  # type: ignore[return-value]
+    # pylint: enable=unused-argument
 
 
 SP = ParamSpec("SP")
@@ -227,7 +230,7 @@ class _SubjectSynchronizedMeta(SynchronizedMeta):
     def __new__(
         mcs,
         name: str,
-        bases: tuple[str, ...],
+        bases: tuple[Type, ...],
         namespace: dict[str, Any]
     ) -> type:
         """Create a new synchronized subject class."""
@@ -480,7 +483,7 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
                         new_value=new_value
                     )
                     if value is NotImplemented:
-                        with self.instance_lock:  # type: ignore
+                        with get_instance_lock(self):  # type: ignore
                             self.__listeners.remove(listener, field_name)
                 except Exception as err:  # pylint: disable=broad-except
                     self.__log_exception(
@@ -528,13 +531,16 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
 
 def __main():
     """Entry point of the module."""
-    # logging.basicConfig(
-    #     level=logging.DEBUG,
-    #     format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    #     stream=sys.stdout
-    # )
+    import sys  # pylint: disable=import-outside-toplevel
+
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        stream=sys.stdout
+    )
 
     class MySubject(Subject):
+        """Test subject."""
         def __init__(self) -> None:
             super().__init__(log=True)
             self.__my_field = 0
@@ -542,22 +548,26 @@ def __main():
         @property
         @field(queue_size=3)
         def my_field(self) -> int:
+            """Get the value of my_field."""
             return self.__my_field
 
         @my_field.setter
         @field_change()
         def my_field(self, value: int) -> None:
+            """Set the value of my_field."""
             self.__my_field = value
 
     class MyListener(Listener):
+        """Test listener."""
         @call_on_field_change("my_field")
         def my_field_changed(
             self,
-            source: Subject,
+            source: Subject,  # pylint: disable=unused-argument
             field_name: str,
             old_value: int,
             new_value: int
         ) -> None:
+            """Called when my_field changes."""
             print(f"Listener {self} got notified that field {field_name} "
                   f"changed from {old_value} to {new_value}.")
 

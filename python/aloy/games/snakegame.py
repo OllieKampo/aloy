@@ -33,6 +33,7 @@ from aloy.moremath.vectors import (vector_add, vector_between_torus_wrapped,
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
+__version__ = "0.1.0"
 
 __all__ = (
     "SnakeGameLogic",
