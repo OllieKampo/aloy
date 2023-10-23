@@ -30,11 +30,11 @@ import weakref
 from PySide6.QtCore import QTimer  # pylint: disable=no-name-in-module
 
 from aloy.concurrency.atomic import AtomicDict, AtomicList
-from aloy.concurrency.executors import AloyQThreadPool
+from aloy.datastructures.views import ListView
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 
 __all__ = (
     "AloyPubSubHub",
@@ -178,7 +178,7 @@ class AloyPubSubHub:
 
         # Internal data structures.
         self.__subscribers_topics = AtomicDict[str, AtomicList[Callable]]()
-        self.__topics = AtomicDict[str, AtomicList[str]]()
+        self.__topics = AtomicDict[str, list[str]]()
         self.__topics_updated = AtomicDict[str, int | None]()
         self.__subscribers_params = AtomicDict[str, AtomicList[Callable]]()
         self.__params = AtomicDict[str, tuple[Any, Any]]()
@@ -194,13 +194,12 @@ class AloyPubSubHub:
         else:
             self.__updater_timer = qtimer
         self.__updater_timer.timeout.connect(
-            self.__update_all_topic_subscribers)
+            self.__update_topic_subscribers)
         self.__updater_timer.timeout.connect(
-            self.__update_all_parameter_subscribers)
+            self.__update_parameter_subscribers)
         self.__updater_timer.setInterval(1000 // tick_rate)
         if new_timer or start_timer:
             self.__updater_timer.start()
-        self.__qthreadpool = AloyQThreadPool()
 
         # Add hub to global list of hubs.
         _add_hub(self)
@@ -257,8 +256,8 @@ class AloyPubSubHub:
         with self.__subscribers_topics:
             if topic_name not in self.__subscribers_topics:
                 self.__subscribers_topics[topic_name] = AtomicList[Callable]()
-            with (callback_funcs := self.__subscribers_topics[topic_name]):
-                callback_funcs.append(callback)
+        with (callback_funcs := self.__subscribers_topics[topic_name]):
+            callback_funcs.append(callback)
 
     def publish_topic(self, topic_name: str, *messages: str) -> None:
         """
@@ -275,39 +274,31 @@ class AloyPubSubHub:
         """
         with self.__topics:
             if topic_name not in self.__topics:
-                self.__topics[topic_name] = AtomicList[str]()
-            with (topic_messages := self.__topics[topic_name]):
-                topic_messages.extend(messages)
+                self.__topics[topic_name] = list(messages)
+            else:
+                self.__topics[topic_name].extend(messages)
             with self.__topics_updated:
                 if (len_ := self.__topics_updated.get(topic_name)) is None:
                     self.__topics_updated[topic_name] = len(messages)
                 else:
                     self.__topics_updated[topic_name] = len_ + len(messages)
 
-    def __update_all_topic_subscribers(self) -> None:
+    def __update_topic_subscribers(self) -> None:
         """Update all subscribers of all topics."""
         with self.__topics, self.__topics_updated:
             for topic_name, messages in self.__topics.items():
+                messages_view = ListView(messages)
                 num_new_messages = self.__topics_updated[topic_name]
                 self.__topics_updated[topic_name] = None
                 if num_new_messages is not None:
-                    self.__qthreadpool.submit(
-                        self.__update_topic,
-                        topic_name,
-                        messages,
-                        messages[-num_new_messages:]
-                    )
-
-    def __update_topic(
-        self,
-        topic_name: str,
-        existing_messages: list[str],
-        new_messages: list[str]
-    ) -> None:
-        """Update all subscribers of the given topic."""
-        with (callback_funcs := self.__subscribers_topics[topic_name]):
-            for func in callback_funcs:
-                func(topic_name, existing_messages, new_messages)
+                    with (callback_funcs
+                          := self.__subscribers_topics[topic_name]):
+                        for func in callback_funcs:
+                            func(
+                                topic_name,
+                                messages_view,
+                                messages_view[-num_new_messages:]
+                            )
 
     def subscribe_param(
         self,
@@ -335,8 +326,8 @@ class AloyPubSubHub:
         with self.__subscribers_params:
             if param_name not in self.__subscribers_params:
                 self.__subscribers_params[param_name] = AtomicList[Callable]()
-            with (callback_funcs := self.__subscribers_params[param_name]):
-                callback_funcs.append(callback)
+        with (callback_funcs := self.__subscribers_params[param_name]):
+            callback_funcs.append(callback)
 
     def publish_param(self, param_name: str, value: Any) -> None:
         """
@@ -360,39 +351,28 @@ class AloyPubSubHub:
             with self.__params_updated:
                 self.__params_updated[param_name] = True
 
-    def __update_all_parameter_subscribers(self) -> None:
+    def __update_parameter_subscribers(self) -> None:
         """Update all subscribers of all parameters."""
         with self.__params, self.__params_updated:
             for param_name, value in self.__params.items():
                 if self.__params_updated[param_name]:
                     self.__params_updated[param_name] = False
-                    self.__qthreadpool.submit(
-                        self.__update_parameter,
-                        param_name,
-                        value
-                    )
-
-    def __update_parameter(
-        self,
-        param_name: str,
-        value: tuple[Any, Any]
-    ) -> None:
-        """Update all subscribers of the given parameter."""
-        with (callback_funcs := self.__subscribers_params[param_name]):
-            for func in callback_funcs:
-                func(param_name, *value)
+                    with (callback_funcs
+                          := self.__subscribers_params[param_name]):
+                        for func in callback_funcs:
+                            func(param_name, *value)
 
 
 _CT = TypeVar("_CT")
 _IT = TypeVar("_IT")
-_FT = TypeVar("_FT", Callable, property)
+_FT = TypeVar("_FT", bound=Callable)
 
 
 @overload
 def subscribe_topic(
     hub_name: str,
     topic_name: str,
-    func: Callable[[str, Any, Any], None]
+    func: Callable[[str, _IT, _IT], None]
 ) -> None:
     """
     Subscribe a callback function to the given topic.
@@ -403,7 +383,6 @@ def subscribe_topic(
 
     See `AloyPubSubHub.subscribe_topic` for more details.
     """
-    ...
 
 
 @overload
@@ -423,25 +402,19 @@ def subscribe_topic(
 
     See `AloyPubSubHub.subscribe_topic` for more details.
     """
-    ...
 
 
 def subscribe_topic(
     hub_name: str,
     topic_name: str,
     func: _FT | None = None
-) -> _FT | None:
+) -> Callable[[_FT], _FT] | None:
     """Subscribe a callback function to the given topic."""
     if func is None:
         def decorator(func_: _FT) -> _FT:
             subscribe_topic(hub_name, topic_name, func_)
             return func_
         return decorator
-
-    if isinstance(func, property):
-        if func.fset is None:
-            raise TypeError("Cannot subscribe to a read-only property.")
-        func = func.fset
 
     hub = get_hub(hub_name)
     if hub is not None:
@@ -459,8 +432,8 @@ def method_subscribe_topic(
     Callable[[_CT, str, _IT, _IT], None]
 ]:
     """
-    Decorate an instance method or property to subscribe it to the given
-    topic.
+    Decorate an instance method to subscribe it to the given topic. Note that
+    the class must be decorated with `@subscriber` for this to work.
 
     The subscribed callback will be called when a message is added to the given
     topic on the given hub. If the hub does not yet exist, the callback will be
@@ -468,7 +441,13 @@ def method_subscribe_topic(
 
     See `AloyPubSubHub.subscribe_topic` for more details.
     """
-    return subscribe_topic(hub_name, topic_name)  # type: ignore
+    def decorator(
+        func: Callable[[_CT, str, _IT, _IT], None]
+    ) -> Callable[[_CT, str, _IT, _IT], None]:
+        sub_topic = (hub_name, topic_name)
+        func.__sub_topic__ = sub_topic  # type: ignore[attr-defined]
+        return func
+    return decorator
 
 
 @overload
@@ -486,7 +465,6 @@ def subscribe_param(
 
     See `AloyPubSubHub.subscribe_param` for more details.
     """
-    ...
 
 
 @overload
@@ -506,25 +484,19 @@ def subscribe_param(
 
     See `AloyPubSubHub.subscribe_param` for more details.
     """
-    ...
 
 
 def subscribe_param(
     hub_name: str,
     field_name: str,
     func: _FT | None = None
-) -> _FT | None:
+) -> Callable[[_FT], _FT] | None:
     """Subscribe a callback function to the given parameter."""
     if func is None:
         def decorator(func_: _FT) -> _FT:
             subscribe_param(hub_name, field_name, func_)
             return func_
         return decorator
-
-    if isinstance(func, property):
-        if func.fset is None:
-            raise TypeError("Cannot subscribe to a read-only property.")
-        func = func.fset
 
     hub = get_hub(hub_name)
     if hub is not None:
@@ -536,14 +508,14 @@ def subscribe_param(
 
 def method_subscribe_param(
     hub_name: str,
-    field_name: str
+    param_name: str
 ) -> Callable[
     [Callable[[_CT, str, _IT, _IT], None]],
     Callable[[_CT, str, _IT, _IT], None]
 ]:
     """
-    Decorate an instance method or property to subscribe it to the given
-    parameter.
+    Decorate an instance method to subscribe it to the given parameter. Note
+    that the class must be decorated with `@subscriber` for this to work.
 
     The subscribed callback will be called when the given parameter is changed
     on the given hub. If the hub does not yet exist, the callback will be
@@ -551,7 +523,13 @@ def method_subscribe_param(
 
     See `AloyPubSubHub.subscribe_param` for more details.
     """
-    return subscribe_param(hub_name, field_name)  # type: ignore
+    def decorator(
+        func: Callable[[_CT, str, _IT, _IT], None]
+    ) -> Callable[[_CT, str, _IT, _IT], None]:
+        sub_param = (hub_name, param_name)
+        func.__sub_param__ = sub_param  # type: ignore[attr-defined]
+        return func
+    return decorator
 
 
 def publish_topic(hub_name: str, topic_name: str, *messages: str) -> None:
@@ -598,6 +576,30 @@ def publish_param(hub_name: str, param_name: str, value: Any) -> None:
         _PUBSUB_INIT_STORE_PARAMS[hub_name][param_name] = value
 
 
+def subscriber(
+    cls: type[_CT]
+) -> type[_CT]:
+    """
+    Decorate a class to subscribe its methods to topics and parameters.
+    """
+    __original_init__ = cls.__init__
+
+    def __init__(self: _CT, *args: Any, **kwargs: Any) -> None:
+        __original_init__(self, *args, **kwargs)
+        for attr_name in dir(self):
+            attr = getattr(self, attr_name)
+            if callable(attr):
+                if hasattr(attr, "__sub_topic__"):
+                    hub_name, topic_name = attr.__sub_topic__
+                    subscribe_topic(hub_name, topic_name, attr)
+                if hasattr(attr, "__sub_param__"):
+                    hub_name, param_name = attr.__sub_param__
+                    subscribe_param(hub_name, param_name, attr)
+
+    cls.__init__ = __init__  # type: ignore[assignment]
+    return cls
+
+
 def __main() -> None:
     # pylint: disable=import-outside-toplevel
     # pylint: disable=no-name-in-module
@@ -609,7 +611,7 @@ def __main() -> None:
 
     def topic_callback(
         topic_name: str,
-        all_messages: list[str],
+        all_messages: list[str],  # pylint: disable=unused-argument
         new_messages: list[str]
     ) -> None:
         print(f"Topic '{topic_name}' updated with {new_messages}")
