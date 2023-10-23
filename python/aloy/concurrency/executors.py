@@ -15,7 +15,8 @@
 
 """Module containing thread pools and concurrent executors."""
 
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from collections import deque
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, fields, field
 import functools
 import logging
@@ -25,9 +26,10 @@ import time
 import types
 from typing import Any, Callable, Iterable, Iterator, ParamSpec, TypeVar, final
 
-import urllib.request
-from PySide6.QtCore import (QThreadPool,  # pylint: disable=no-name-in-module
-                            QRunnable, QObject, Signal, Slot)
+from PySide6.QtCore import (  # pylint: disable=no-name-in-module
+    QTimer, QThreadPool,
+    QRunnable, QObject, Signal, Slot, Qt
+)
 
 from aloy.concurrency.atomic import AtomicNumber
 
@@ -36,7 +38,7 @@ __license__ = "GPL-3.0"
 __version__ = "0.0.2"
 
 __all__ = (
-    "AloyQThreadPool",
+    "AloyQThreadPoolExecutor",
     "AloyThreadPool",
     "AloyThreadJob",
     "AloyThreadFinishedJob"
@@ -58,7 +60,22 @@ class _AloyQRunnableSignals(QObject):
 
     start = Signal()
     result = Signal(object)
-    error = Signal(tuple[Any, ...])
+    error = Signal(Exception)
+
+    def __init__(
+        self,
+        parent: QObject | None = None,
+        start_callback: Callable[[], None] | None = None,
+        result_callback: Callable[[ST], None] | None = None,
+        error_callback: Callable[[Exception], None] | None = None
+    ) -> None:
+        super().__init__(parent=parent)
+        if start_callback is not None:
+            self.start.connect(start_callback)
+        if result_callback is not None:
+            self.result.connect(result_callback)
+        if error_callback is not None:
+            self.error.connect(error_callback)
 
 
 @final
@@ -69,46 +86,52 @@ class _AloyQRunnable(QRunnable):
         "__func": "The function to call.",
         "__args": "The positional arguments to pass to the function.",
         "__kwargs": "The keyword arguments to pass to the function.",
-        "_signals": "The signals emitted by the runnable."
+        "__signals": "The signals emitted by the runnable."
     }
 
     def __init__(
         self,
         func: Callable[SP, ST],
         *args: SP.args,
-        add_signals: bool,
+        signals: _AloyQRunnableSignals | None = None,
         **kwargs: SP.kwargs
     ) -> None:
         super().__init__()
         self.__func = func
         self.__args = args
         self.__kwargs = kwargs
-        if add_signals:
-            self._signals = _AloyQRunnableSignals()
-        else:
-            self._signals = None
+        self.__signals: _AloyQRunnableSignals | None = signals
 
     @Slot()
     def run(self) -> None:
-        if self._signals is None:
-            self.__func(*self.__args, **self.__kwargs)
+        if self.__signals is None:
+            try:
+                self.__func(*self.__args, **self.__kwargs)
+            except Exception:  # pylint: disable=broad-except
+                pass
         else:
             try:
-                self._signals.start.emit()
+                self.__signals.start.emit()
                 result = self.__func(*self.__args, **self.__kwargs)
             except Exception as exc:  # pylint: disable=broad-except
-                self._signals.error.emit(exc)
+                self.__signals.error.emit(exc)
             else:
-                self._signals.result.emit(result)
+                self.__signals.result.emit(result)
 
 
 @final
-class AloyQThreadPool:
-    """An executor that calls functions on a QThread."""
+class AloyQThreadPoolExecutor:
+    """An executor that calls functions on Qt threads."""
+
+    __slots__ = {
+        "__thread_pool": "The Qt thread pool."
+    }
 
     def __init__(self, max_workers: int | None = None) -> None:
         if max_workers is None:
             max_workers = os.cpu_count()
+            if max_workers is None:
+                max_workers = 1
         self.__thread_pool = QThreadPool()
         self.__thread_pool.setMaxThreadCount(max_workers)
 
@@ -118,7 +141,7 @@ class AloyQThreadPool:
         *args: SP.args,
         **kwargs: SP.kwargs
     ) -> None:
-        runnable = _AloyQRunnable(func, *args, add_signals=False, **kwargs)
+        runnable = _AloyQRunnable(func, *args, signals=None, **kwargs)
         self.__thread_pool.start(runnable)
 
     def submit_with_callbacks(
@@ -127,19 +150,85 @@ class AloyQThreadPool:
         *args: SP.args,
         start_callback: Callable[[], None] | None = None,
         result_callback: Callable[[ST], None] | None = None,
-        error_callback: Callable[[tuple[Any, ...]], None] | None = None,
+        error_callback: Callable[[Exception], None] | None = None,
         **kwargs: SP.kwargs
     ) -> None:
-        runnable = _AloyQRunnable(func, *args, add_signals=True, **kwargs)
-        # pylint: disable=protected-access
-        if start_callback is not None:
-            runnable._signals.start.connect(start_callback)
-        if result_callback is not None:
-            runnable._signals.result.connect(result_callback)
-        if error_callback is not None:
-            runnable._signals.error.connect(error_callback)
-        # pylint: enable=protected-access
+        signals = _AloyQRunnableSignals(
+            start_callback=start_callback,
+            result_callback=result_callback,
+            error_callback=error_callback
+        )
+        runnable = _AloyQRunnable(func, *args, signals=signals, **kwargs)
         self.__thread_pool.start(runnable)
+
+
+@final
+class AloyQTimerExecutor:
+    """
+    An executor that calls functions on a QTimer.
+
+    Unlike a AloyQThreadPoolExecutor, this executor will call functions on the
+    main Qt thread, which means that functions submitted to this executor can
+    set the parent or children of a Qt widget, and start other Qt timers.
+    """
+
+    def __init__(self, interval: float) -> None:
+        self.__queue: deque[_AloyQRunnable] = deque()
+        self.__lock = threading.Lock()
+        self.__timer = QTimer()
+        self.__timer.setInterval(int(interval * 1000))
+        self.__timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self.__timer.timeout.connect(self.__execute)
+
+    @property
+    def interval(self) -> float:
+        """Return the interval of the timer."""
+        return self.__timer.interval() / 1000
+
+    @interval.setter
+    def interval(self, interval: float) -> None:
+        """Set the interval of the timer."""
+        self.__timer.setInterval(int(interval * 1000))
+
+    def __execute(self) -> None:
+        with self.__lock:
+            if not self.__queue:
+                self.__timer.stop()
+                return
+            runnable = self.__queue.popleft()
+        runnable.run()
+
+    def __add_runnable(self, runnable: _AloyQRunnable) -> None:
+        with self.__lock:
+            self.__queue.append(runnable)
+            if not self.__timer.isActive():
+                self.__timer.start()
+
+    def submit(
+        self,
+        func: Callable[SP, ST],
+        *args: SP.args,
+        **kwargs: SP.kwargs
+    ) -> None:
+        runnable = _AloyQRunnable(func, *args, signals=None, **kwargs)
+        self.__add_runnable(runnable)
+
+    def submit_with_callbacks(
+        self,
+        func: Callable[SP, ST],
+        *args: SP.args,
+        start_callback: Callable[[], None] | None = None,
+        result_callback: Callable[[ST], None] | None = None,
+        error_callback: Callable[[Exception], None] | None = None,
+        **kwargs: SP.kwargs
+    ) -> None:
+        signals = _AloyQRunnableSignals(
+            start_callback=start_callback,
+            result_callback=result_callback,
+            error_callback=error_callback
+        )
+        runnable = _AloyQRunnable(func, *args, signals=signals, **kwargs)
+        self.__add_runnable(runnable)
 
 
 @dataclass(frozen=True)
@@ -385,7 +474,9 @@ class AloyThreadPool:
                     yield AloyThreadPool.__get_result(futures.pop())
                 else:
                     yield AloyThreadPool.__get_result(
-                        futures.pop(), end_time - time.monotonic())
+                        futures.pop(),
+                        end_time - time.monotonic()
+                    )
         finally:
             for future_ in futures:
                 future_.cancel()
@@ -393,72 +484,3 @@ class AloyThreadPool:
     @functools.wraps(ThreadPoolExecutor.shutdown, assigned=("__doc__",))
     def shutdown(self, wait: bool = True) -> None:
         self.__thread_pool.shutdown(wait=wait)
-
-
-class WebScraper:
-    """
-    https://realpython.com/beautiful-soup-web-scraper-python/
-    """
-
-    def __init__(self, max_workers: int | None = None) -> None:
-        self.__thread_pool = AloyThreadPool(
-            "WebScraper",
-            max_workers,
-            profile=True,
-            log=True
-        )
-
-    def scrape(self, urls: Iterable[str]) -> None:
-        with self.__thread_pool as executor:
-            futures: dict[Future, str] = {
-                executor.submit(url, self.load_url, url, 60): url
-                for url in urls
-            }
-            for future in as_completed(futures):
-                url = futures[future]
-                try:
-                    data = future.result()
-                except Exception as exc:
-                    print('%r generated an exception: %s' % (url, exc))
-                else:
-                    print('%r page is %d bytes' % (url, len(data)))
-                print(executor.get_job(future))
-
-    @staticmethod
-    def load_url(url: str, timeout: float) -> bytes:
-        with urllib.request.urlopen(url, timeout=timeout) as connection:
-            return connection.read()
-
-
-def __main() -> None:
-    # Setup logging.
-    format_ = "[%(asctime)s] %(levelname)-4s :: %(name)-8s >> %(message)s\n"
-
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format=format_,
-        datefmt="%H:%M:%S",
-        handlers=[
-            # logging.FileHandler("debug.log"),
-            # console_handler
-        ],
-    )
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.DEBUG)
-    console_handler.setFormatter(logging.Formatter(format_))
-    logging.getLogger("").addHandler(console_handler)
-
-    urls = [
-        "https://www.google.com",
-        "https://www.yahoo.com",
-        "https://www.bing.com",
-        "https://www.duckduckgo.com",
-        "https://www.aol.com",
-        "https://www.wolframalpha.com"
-    ]
-    scraper = WebScraper(max_workers=4)
-    scraper.scrape(urls)
-
-
-if __name__ == "__main__":
-    __main()
