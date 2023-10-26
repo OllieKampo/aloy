@@ -21,7 +21,7 @@ from typing import (Generic, Hashable, Iterator, Mapping, TypeVar, final,
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "1.0.1"
+__version__ = "1.1.0"
 
 __all__ = (
     "ListView",
@@ -80,6 +80,43 @@ class ListView(collections.abc.Sequence, Generic[_LT]):
     def __len__(self) -> int:
         """Get the number of items in the list."""
         return len(self.__list)
+
+
+@final
+class DequeView(collections.abc.Sequence, Generic[_LT]):
+    """
+    Class defining a view of a deque.
+
+    The deque cannot be modified through the view, but the view will reflect
+    changes made to the deque by its owner.
+    """
+
+    __slots__ = {
+        "__deque": "The deque being viewed."
+    }
+
+    def __init__(self, deque_: collections.deque[_LT], /) -> None:
+        """Create a new deque view."""
+        self.__deque: collections.deque[_LT] = deque_
+
+    def __repr__(self) -> str:
+        """Get an instantiable string representation of the deque view."""
+        return f"DequeView({self.__deque})"
+
+    def __getitem__(  # type: ignore[override]
+        self,
+        index: int, /
+    ) -> _LT | collections.deque[_LT]:
+        """Get the item at the given index."""
+        return self.__deque[index]
+
+    def __iter__(self) -> Iterator[_LT]:
+        """Iterate over the items in the deque."""
+        return iter(self.__deque)
+
+    def __len__(self) -> int:
+        """Get the number of items in the deque."""
+        return len(self.__deque)
 
 
 _KT = TypeVar("_KT", bound=Hashable)
