@@ -22,7 +22,7 @@ Subscribers are only updated when a topic or field they are subscribed to is
 updated or changed.
 """
 
-from collections import defaultdict
+from collections import defaultdict, deque
 import logging
 from typing import Any, Callable, TypeVar, final, Union, overload
 import weakref
@@ -30,11 +30,11 @@ import weakref
 from PySide6.QtCore import QTimer  # pylint: disable=no-name-in-module
 
 from aloy.concurrency.atomic import AtomicDict, AtomicList
-from aloy.datastructures.views import ListView
+from aloy.datastructures.views import DequeView
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "0.0.3"
+__version__ = "0.1.0"
 
 __all__ = (
     "AloyPubSubHub",
@@ -178,7 +178,7 @@ class AloyPubSubHub:
 
         # Internal data structures.
         self.__subscribers_topics = AtomicDict[str, AtomicList[Callable]]()
-        self.__topics = AtomicDict[str, list[str]]()
+        self.__topics = AtomicDict[str, deque[str]]()
         self.__topics_updated = AtomicDict[str, int | None]()
         self.__subscribers_params = AtomicDict[str, AtomicList[Callable]]()
         self.__params = AtomicDict[str, tuple[Any, Any]]()
@@ -243,7 +243,7 @@ class AloyPubSubHub:
 
         The callback will be called with the following arguments:
         - `topic_name: str` - The name of the topic.
-        - `all_messages: list[str]` - All messages in the topic.
+        - `all_messages: DequeView[str]` - All messages in the topic.
         - `new_messages: list[str]` - The most recently added new messages.
 
         Parameters
@@ -252,6 +252,11 @@ class AloyPubSubHub:
 
         `callback: Callable[[str, list[str], list[str]], None]` - The callback
         function to call when a message is added to the topic.
+
+        Notes
+        -----
+        See `aloy.datastructures.views.DequeView` for more information on the
+        type of the `all_messages` argument.
         """
         with self.__subscribers_topics:
             if topic_name not in self.__subscribers_topics:
@@ -263,6 +268,40 @@ class AloyPubSubHub:
                     callback, topic_name, self.name
                 )
             callback_funcs.append(callback)
+
+    def declare_topic(
+        self,
+        topic_name: str,
+        queue_length: int | None = None
+    ) -> None:
+        """
+        Declare a new topic of given name and max queue length.
+
+        Parameters
+        ----------
+        `topic_name: str` - The name of the topic to declare.
+
+        `queue_length: int | None = None` - The maximum number of messages to
+        store in the topic. If not given or None, the topic will store an
+        unlimited number of messages. Note that there is no guarantee that the
+        subscribers of a topic that has a maximum queue length will receive all
+        messages published to the topic if more messages are published than the
+        maximum queue length between each update of the subscribers. Defaults
+        to None.
+
+        Raises
+        ------
+        `ValueError` - If a topic with the given name already exists.
+        """
+        with self.__topics:
+            if self.__debug:
+                self.__PUBSUB_LOGGER.debug(
+                    "Declaring new topic %s on hub %s.", topic_name, self.name
+                )
+            if topic_name not in self.__topics:
+                self.__topics[topic_name] = deque(maxlen=queue_length)
+            else:
+                raise ValueError(f"Topic '{topic_name}' already exists.")
 
     def publish_topic(self, topic_name: str, *messages: str) -> None:
         """
@@ -276,6 +315,10 @@ class AloyPubSubHub:
         `topic_name: str` - The name of the topic to publish to.
 
         `*messages: str` - The messages to publish to the topic.
+
+        Raises
+        ------
+        `ValueError` - If the topic does not exist.
         """
         with self.__topics, self.__topics_updated:
             if self.__debug:
@@ -284,7 +327,7 @@ class AloyPubSubHub:
                     len(messages), topic_name, self.name, messages
                 )
             if topic_name not in self.__topics:
-                self.__topics[topic_name] = list(messages)
+                raise ValueError(f"Topic '{topic_name}' does not exist.")
             else:
                 self.__topics[topic_name].extend(messages)
             if (len_ := self.__topics_updated.get(topic_name)) is None:
@@ -296,7 +339,7 @@ class AloyPubSubHub:
         """Update all subscribers of all topics."""
         with self.__topics, self.__topics_updated:
             for topic_name, messages in self.__topics.items():
-                messages_view = ListView(messages)
+                messages_view = DequeView[str](messages)
                 num_new_messages = self.__topics_updated[topic_name]
                 self.__topics_updated[topic_name] = None
                 if num_new_messages is not None:
@@ -304,20 +347,20 @@ class AloyPubSubHub:
                     if callback_funcs is None or not callback_funcs:
                         continue
                     with callback_funcs:
+                        new_messages = [
+                            messages_view[-(num_new_messages - i)]
+                            for i in range(num_new_messages)
+                        ]
                         if self.__debug:
                             self.__PUBSUB_LOGGER.debug(
                                 "Updating %s subscribers of topic %s on hub %s"
                                 " with:\nAll messages: %s\nNew messages: \n%s",
                                 len(callback_funcs), topic_name, self.name,
                                 num_new_messages,
-                                messages_view[-num_new_messages:]
+                                new_messages
                             )
                         for func in callback_funcs:
-                            func(
-                                topic_name,
-                                messages_view,
-                                messages_view[-num_new_messages:]
-                            )
+                            func(topic_name, messages_view, new_messages)
 
     def subscribe_param(
         self,
