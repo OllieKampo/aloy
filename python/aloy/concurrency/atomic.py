@@ -45,11 +45,11 @@ from typing import (
     overload
 )
 from aloy.concurrency.synchronization import OwnedRLock
-from aloy.datastructures.views import DictView, ListView, SetView
+from aloy.datastructures.views import DequeView, DictView, ListView, SetView
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 __all__ = (
     "AloyAtomicObjectError",
@@ -632,9 +632,9 @@ class AtomicDeque(
             self.__deque = collections.deque()
 
     @_atomic_require_lock
-    def get_obj(self) -> collections.deque[_LT]:  # type: ignore[override]
+    def get_obj(self) -> DequeView[_LT]:  # type: ignore[override]
         """Returns a view of the current deque."""
-        return self.__deque
+        return DequeView(self.__deque)
 
     @_atomic_require_context
     def set_obj(self, value: Iterable[_LT], /) -> None:
