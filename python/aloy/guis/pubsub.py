@@ -300,8 +300,10 @@ class AloyPubSubHub:
                 num_new_messages = self.__topics_updated[topic_name]
                 self.__topics_updated[topic_name] = None
                 if num_new_messages is not None:
-                    with (callback_funcs
-                          := self.__subscribers_topics[topic_name]):
+                    callback_funcs = self.__subscribers_topics.get(topic_name)
+                    if callback_funcs is None or not callback_funcs:
+                        continue
+                    with callback_funcs:
                         if self.__debug:
                             self.__PUBSUB_LOGGER.debug(
                                 "Updating %s subscribers of topic %s on hub %s"
@@ -383,8 +385,10 @@ class AloyPubSubHub:
             for param_name, value in self.__params.items():
                 if self.__params_updated[param_name]:
                     self.__params_updated[param_name] = False
-                    with (callback_funcs
-                          := self.__subscribers_params[param_name]):
+                    callback_funcs = self.__subscribers_params.get(param_name)
+                    if callback_funcs is None or not callback_funcs:
+                        continue
+                    with callback_funcs:
                         if self.__debug:
                             self.__PUBSUB_LOGGER.debug(
                                 "Updating %s subscribers of parameter %s on "
