@@ -60,7 +60,8 @@ from abc import abstractmethod, ABCMeta
 from collections import defaultdict
 import functools
 import logging
-from typing import Any, Callable, Concatenate, ParamSpec, TypeVar, final
+from typing import (Any, Callable, Concatenate, ParamSpec, TypeVar, final,
+                    overload)
 import threading
 from PySide6.QtCore import QTimer  # pylint: disable=no-name-in-module
 
@@ -69,7 +70,7 @@ from aloy.concurrency.synchronization import SynchronizedClass, sync
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 __all__ = (
     "Observable",
@@ -297,11 +298,13 @@ class Observable(SynchronizedClass):
                 )
             self.__clock = clock
             if isinstance(clock, ClockThread):
-                self.__clock.schedule(self.__update_observers)
+                self.__clock.schedule(  # type: ignore
+                    self.__update_observers)
                 if start_clock:
                     self.__clock.start()
             elif isinstance(clock, QTimer):
-                self.__clock.timeout.connect(self.__update_observers)
+                self.__clock.timeout.connect(  # type: ignore
+                    self.__update_observers)
                 if start_clock:
                     self.__clock.start()
             else:
@@ -533,6 +536,11 @@ class Observable(SynchronizedClass):
     @sync(group_name="__observable_var__")
     def set_var(self, name: str, value: Any) -> None:
         """Set the variable with the given name."""
+        if self.__debug:
+            self.__OBSERVABLE_LOGGER.debug(
+                "%s: Setting variable %s to %s.",
+                self.__name, name, value
+            )
         self.__vars[name] = value
 
     @final
@@ -540,7 +548,20 @@ class Observable(SynchronizedClass):
     @sync(group_name="__observable_var__")
     def del_var(self, name: str) -> None:
         """Delete the variable associated with the given name."""
+        if self.__debug:
+            self.__OBSERVABLE_LOGGER.debug(
+                "%s: Deleting variable %s.",
+                self.__name, name
+            )
         self.__vars.pop(name)
+
+    @overload
+    def get_log_messages(self) -> dict[str, list[str]]:
+        """Get all log messages."""
+
+    @overload
+    def get_log_messages(self, kind: str) -> list[str]:
+        """Get log messages of a given kind."""
 
     @final
     @sync(group_name="__observable_log__")
@@ -559,6 +580,11 @@ class Observable(SynchronizedClass):
     @sync(group_name="__observable_log__")
     def add_log_message(self, kind: str, message: str) -> None:
         """Add a log message of a given kind."""
+        if self.__debug:
+            self.__OBSERVABLE_LOGGER.debug(
+                "%s: Adding log message of kind %s: %s",
+                self.__name, kind, message
+            )
         self.__messages[kind].append(message)
 
     @final
@@ -567,8 +593,18 @@ class Observable(SynchronizedClass):
     def clear_log_messages(self, kind: str | None = None) -> None:
         """Clear log messages, optionally of a given kind."""
         if kind is None:
+            if self.__debug:
+                self.__OBSERVABLE_LOGGER.debug(
+                    "%s: Clearing all log messages.",
+                    self.__name
+                )
             self.__messages.clear()
         else:
+            if self.__debug:
+                self.__OBSERVABLE_LOGGER.debug(
+                    "%s: Clearing log messages of kind %s.",
+                    self.__name, kind
+                )
             self.__messages[kind].clear()
 
 
@@ -604,14 +640,25 @@ class Observer(metaclass=ABCMeta):
 
         `debug: bool = False` - Whether to log debug messages.
         """
+        self.__debug: bool = debug
+        if self.__debug:
+            self.__OBSERVER_LOGGER.debug(
+                "Creating new observer with: name=%s, debug=%s",
+                name, debug
+            )
+
+        # All observer objects must have a name.
         self.__name: str
         if name is None:
             self.__name = f"{type(self).__name__}@{hex(id(self))}"
         else:
             self.__name = name
+
+        # Internal data structures.
         self.__observables: list[Observable] = []
+
+        # Lock for ensuring atomic updates to the observer.
         self.__lock = threading.RLock()
-        self.__debug: bool = debug
 
     @final
     @property
