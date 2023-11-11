@@ -924,9 +924,9 @@ class SnakeGameAloyWidget(AloyWidget):
                 start, end, self._logic.grid_size)
         add_x, add_y = (int(copysign(1, dif_x)), int(copysign(1, dif_y)))
         path: list[tuple[int, int]] = [start]
-        for _ in range(abs(dif_x)):
+        for _ in range(int(abs(dif_x))):
             path.append((path[-1][0] + add_x, path[-1][1]))
-        for _ in range(abs(dif_y)):
+        for _ in range(int(abs(dif_y))):
             path.append((path[-1][0], path[-1][1] + add_y))
         if not self._logic.walls:
             for index, step in enumerate(path):
