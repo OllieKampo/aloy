@@ -24,7 +24,7 @@ import tomllib
 import os
 
 import curses
-import pyfiglet
+import pyfiglet  # type: ignore[import-untyped]
 
 from aloy.auxiliary.argparseutils import (
     mapping_argument_factory,
@@ -34,7 +34,7 @@ from aloy.auxiliary.argparseutils import (
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 __all__ = ()
 
@@ -65,7 +65,7 @@ class _GameParam(NamedTuple):
 
     names: list[str]
     type_: type | Callable[[str], Any]
-    help: str
+    help_: str
     default: Any
     const: Any | None = None
     nargs: int | str | None = None
@@ -76,7 +76,7 @@ _STANDARD_PARAMS: Final[list[_GameParam]] = [
     _GameParam(
         names=["-l", "--list-games"],
         type_=optional_bool,
-        help="List the available games.",
+        help_="List the available games.",
         default=False,
         const=True,
         nargs="?"
@@ -84,7 +84,7 @@ _STANDARD_PARAMS: Final[list[_GameParam]] = [
     _GameParam(
         names=["--launcher"],
         type_=optional_bool,
-        help="Run the game launcher.",
+        help_="Run the game launcher.",
         default=False,
         const=True,
         nargs="?"
@@ -92,19 +92,19 @@ _STANDARD_PARAMS: Final[list[_GameParam]] = [
     _GameParam(
         names=["-w", "--width"],
         type_=optional_int,
-        help="The width of the game window, each game has its own default.",
+        help_="The width of the game window, each game has its own default.",
         default=None
     ),
     _GameParam(
         names=["-t", "--height"],
         type_=optional_int,
-        help="The height of the game window, each game has its own default.",
+        help_="The height of the game window, each game has its own default.",
         default=None
     ),
     _GameParam(
         names=["--debug"],
         type_=optional_bool,
-        help="Run the game in debug mode.",
+        help_="Run the game in debug mode.",
         default=False,
         const=True,
         nargs="?"
@@ -118,7 +118,7 @@ def _add_standard_parameters(parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
             *parameter.names,
             type=parameter.type_,
-            help=parameter.help,
+            help=parameter.help_,
             default=parameter.default,
             const=parameter.const,
             nargs=parameter.nargs,
@@ -130,7 +130,7 @@ def _add_standard_parameters(parser: argparse.ArgumentParser) -> None:
         action=mapping_argument_factory(),
         type=str,
         metavar="KEY_1=VALUE_1 KEY_i=VALUE_i [...] KEY_n=VALUE_n",
-        help="Parameters for the game."
+        help="Game specific parameters."
     )
 
 
@@ -224,7 +224,7 @@ def _register_game(
     module if it is not in the root package.
     """
     # Check if the module exists.
-    spec = importlib.util.find_spec(f".{module}", package=package)
+    spec = importlib.util.find_spec(name=f".{module}", package=package)
     if spec is None:
         raise ValueError(f"Module '{module}' does not exist.")
 
@@ -386,7 +386,7 @@ def _register_all_games() -> None:
                     names=[_param],
                     type_=_get_type(_spec["type"]),
                     default=_spec["default"],
-                    help=_spec["help"]
+                    help_=_spec["help"]
                 )
                 for _param, _spec in game["parameters"].items()
             ]
@@ -417,7 +417,7 @@ def _main() -> int:
             print(f"\t{_name}: {_game.description}")
             print(f"\t\tDefault size: {_game.default_size}")
             print(f"\t\tCompetitive: {_game.competitive}")
-            print("\t\tParameters:")
+            print("\t\tGame Specific Parameters:")
             for parameter in _game.parameters:
                 print(f"\t\t\t{parameter}")
         return 0
@@ -447,7 +447,7 @@ def _main() -> int:
     if height is None:
         height = game_registration.default_size[1]
 
-    # Get parameters.
+    # Get the game-specific parameters.
     final_params: dict[str, Any] = {}
     for parameter in game_registration.parameters:
         true_name = parameter.names[-1]
@@ -461,7 +461,7 @@ def _main() -> int:
 
     # Import the module and get the entry point.
     importlib.import_module(
-        f".{game_registration.module}",
+        name=f".{game_registration.module}",
         package=game_registration.package
     )
     entry_point = getattr(
