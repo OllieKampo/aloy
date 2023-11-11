@@ -14,6 +14,8 @@
 
 """Module defining a tetris game."""
 
+# pylint: disable=c-extension-no-member
+
 import enum
 import random
 import sys
@@ -234,6 +236,12 @@ _NUM_LINES_SCORE: dict[int, int] = {
 class TetrisGameLogic:
     """
     Internal logic of the tetris game.
+
+    Game options:
+    - speed: float - The speed of the game.
+    - ghost_piece_enabled: bool - Whether the ghost piece is enabled.
+    - allow_store_piece: bool - Whether the player can store a piece.
+    - show_grid: bool - Whether to show the grid.
     """
 
     __slots__ = (
@@ -274,7 +282,16 @@ class TetrisGameLogic:
         board_size: tuple[int, int],
         manual_udpate: bool = False
     ) -> None:
-        """Initialize the tetris game logic."""
+        """
+        Initialize the tetris game logic.
+
+        Parameters
+        ----------
+        `board_size: tuple[int, int]` - The size of the board (width, height).
+
+        `manual_update: bool` - Whether the game should be manually updated,
+        i.e. the `move_piece` method must be called to move the piece.
+        """
         if not isinstance(board_size, tuple):
             raise TypeError("The grid size must be a tuple. "
                             f"Got; {type(board_size)!r}.")
@@ -616,6 +633,7 @@ class TetrisGameLogic:
             )
 
         self.__pieces_used[self.__current_piece] += 1
+        self.__pieces_used["Total"] += 1
 
     def __set_initial_piece_position_and_rotation(self) -> None:
         """Set the initial position and rotation of the current piece."""
@@ -686,8 +704,8 @@ class TetrisGameAloyWidget(AloyWidget):
     def __init__(
         self,
         parent: QtWidgets.QWidget,
-        widget_size: tuple[int, int],
-        board_size: tuple[int, int], *,
+        widget_size: tuple[int, int], *,
+        board_size: tuple[int, int],
         manual_update: bool = False,
         debug: bool = False
     ) -> None:
@@ -697,8 +715,8 @@ class TetrisGameAloyWidget(AloyWidget):
     def __init__(
         self,
         parent: QtWidgets.QWidget,
-        widget_size: tuple[int, int],
-        tetris_game_logic: TetrisGameLogic, *,
+        widget_size: tuple[int, int], *,
+        tetris_game_logic: TetrisGameLogic,
         manual_update: bool = False,
         debug: bool = False
     ) -> None:
@@ -707,9 +725,9 @@ class TetrisGameAloyWidget(AloyWidget):
     def __init__(
         self,
         parent: QtWidgets.QWidget,
-        widget_size: tuple[int, int],
+        widget_size: tuple[int, int], *,
         board_size: tuple[int, int] | None = None,
-        tetris_game_logic: TetrisGameLogic | None = None, *,
+        tetris_game_logic: TetrisGameLogic | None = None,
         manual_update: bool = False,
         debug: bool = False
     ) -> None:
@@ -732,7 +750,7 @@ class TetrisGameAloyWidget(AloyWidget):
             if board_size is None:
                 raise ValueError("Board size must be given if game logic is "
                                  "not given.")
-            self._logic = TetrisGameLogic(board_size)
+            self._logic = TetrisGameLogic(board_size=board_size)
         else:
             self._logic = tetris_game_logic
             if board_size is not None and board_size != self._logic.board_size:
@@ -946,7 +964,7 @@ class TetrisGameAloyWidget(AloyWidget):
             QtWidgets.QSlider.TickPosition.TicksBelow
         )
         self.__speed_slider.setTickInterval(1)
-        def speed_slider_changed(value: int):
+        def speed_slider_changed(value: int):  # noqa: E301
             self._logic.speed = (
                 _DEFAULT_SPEED
                 + (_MAX_SPEED - _MIN_SPEED)
@@ -958,7 +976,7 @@ class TetrisGameAloyWidget(AloyWidget):
         # Add ghost piece toggle
         self.__ghost_toggle = QtWidgets.QCheckBox("Enable Ghost Piece")
         self.__ghost_toggle.setChecked(_DEFAULT_GHOST_PIECE_ENABLED)
-        def ghost_toggle_changed(checked: bool):
+        def ghost_toggle_changed(checked: bool):  # noqa: E301
             self._logic.ghost_piece_enabled = checked
         self.__ghost_toggle.stateChanged.connect(ghost_toggle_changed)
         self.__options_layout.addRow(self.__ghost_toggle)
@@ -966,7 +984,7 @@ class TetrisGameAloyWidget(AloyWidget):
         # Add store piece toggle
         self.__store_toggle = QtWidgets.QCheckBox("Allow Store Piece")
         self.__store_toggle.setChecked(_DEFAULT_ALLOW_STORE_PIECE)
-        def store_toggle_changed(checked: bool):
+        def store_toggle_changed(checked: bool):  # noqa: E301
             self._logic.allow_store_piece = checked
         self.__store_toggle.stateChanged.connect(store_toggle_changed)
         self.__options_layout.addRow(self.__store_toggle)
@@ -974,7 +992,7 @@ class TetrisGameAloyWidget(AloyWidget):
         # Add grid toggle
         self.__grid_toggle = QtWidgets.QCheckBox("Show Grid")
         self.__grid_toggle.setChecked(_DEFAULT_SHOW_GRID)
-        def grid_toggle_changed(checked: bool):
+        def grid_toggle_changed(checked: bool):  # noqa: E301
             self._logic.show_grid = checked
         self.__grid_toggle.stateChanged.connect(grid_toggle_changed)
         self.__options_layout.addRow(self.__grid_toggle)
@@ -1287,6 +1305,7 @@ def play_tetris_game(
     height: int,
     ghost_piece_enabled: bool = _DEFAULT_GHOST_PIECE_ENABLED,
     allow_store_piece: bool = _DEFAULT_ALLOW_STORE_PIECE,
+    show_grid: bool = _DEFAULT_SHOW_GRID,
     debug: bool = False
 ) -> None:
     """Play the tetris game."""
@@ -1315,11 +1334,11 @@ def play_tetris_game(
     )
     tetris_game_logic.ghost_piece_enabled = ghost_piece_enabled
     tetris_game_logic.allow_store_piece = allow_store_piece
+    tetris_game_logic.show_grid = show_grid
 
     tetris_game_aloy_widget = TetrisGameAloyWidget(
         parent=tetris_qwidget,
         widget_size=size,
-        board_size=(10, 20),
         tetris_game_logic=tetris_game_logic,
         debug=debug
     )
