@@ -25,13 +25,11 @@ competitive = false
 package = "aloy.games"
 
 [games.register.snakegame.parameters.walls]
-name = "walls"
 type = "bool"
 default = true
-help = "Enable walls."
+help = "Enable walls around the edges of the game."
 
 [games.register.snakegame.parameters.show_path]
-name = "show_path"
 type = "bool"
 default = false
 help = "Show the path of the snake to the food."
@@ -56,3 +54,8 @@ help = "Show the ghost piece."
 type = "bool"
 default = true
 help = "Allow the player to store a piece."
+
+[games.register.tetrisgame.parameters.show_grid]
+type = "bool"
+default = false
+help = "Show the grid."
