@@ -45,11 +45,11 @@ from typing import (
     overload
 )
 from aloy.concurrency.synchronization import OwnedRLock
-from aloy.datastructures.views import DictView, ListView, SetView
+from aloy.datastructures.views import DequeView, DictView, ListView, SetView
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 __all__ = (
     "AloyAtomicObjectError",
@@ -526,14 +526,18 @@ class AtomicList(_Atomic[list[_LT]], collections.abc.MutableSequence):
         start: int = 0,
         stop: int = sys.maxsize, /
     ) -> int:
+        """
+        Return first index of value.
+
+        Raises ValueError if the value is not present.
+        """
         super().index(value, start, stop)
         return self.__list.index(value, start, stop)
-    index.__doc__ = list.index.__doc__
 
     @_atomic_require_lock
     def count(self, value: _LT) -> int:
+        """Return number of occurrences of value."""
         return self.__list.count(value)
-    count.__doc__ = list.count.__doc__
 
     @_atomic_require_context
     def append(self, value: _LT) -> None:
@@ -552,13 +556,17 @@ class AtomicList(_Atomic[list[_LT]], collections.abc.MutableSequence):
 
     @_atomic_require_context
     def pop(self, index: int = -1) -> _LT:
+        """Remove and return an element at the given index."""
         return self.__list.pop(index)
-    pop.__doc__ = list.pop.__doc__
 
     @_atomic_require_context
     def remove(self, value: _LT) -> None:
+        """
+        Remove the first occurrence of value.
+
+        Raises ValueError if the value is not present.
+        """
         self.__list.remove(value)
-    remove.__doc__ = list.remove.__doc__
 
     @_atomic_require_context
     def clear(self) -> None:
@@ -569,6 +577,200 @@ class AtomicList(_Atomic[list[_LT]], collections.abc.MutableSequence):
     def reverse(self) -> None:
         """Reverse the elements of the list in-place."""
         self.__list.reverse()
+
+
+class AtomicDeque(
+    _Atomic[collections.deque[_LT]],
+    collections.abc.MutableSequence
+):
+    """
+    A thread-safe deque whose updates are atomic.
+
+    Updates to the deque are only allowed within a context manager.
+    """
+
+    __slots__ = {
+        "__deque": "The wrapped deque."
+    }
+
+    @overload
+    def __init__(self) -> None:
+        """
+        Create a new empty atomic deque.
+
+        For example:
+        ```
+        >>> adeque = AtomicDeque()
+        >>> adeque
+        AtomicDeque(deque([]))
+        ```
+        """
+
+    @overload
+    def __init__(self, __iterable: Iterable[_LT], /) -> None:
+        """
+        Create a new atomic deque with given initial value. The initial value
+        will be copied into the deque.
+
+        For example:
+        ```
+        >>> adeque = AtomicDeque(["one", "two"])
+        >>> adeque
+        AtomicDeque(deque(["one", "two"]))
+        ```
+        """
+
+    def __init__(  # type: ignore[misc]
+        self,
+        __iterable: Iterable[_LT] | None = None, /
+    ) -> None:
+        super().__init__()
+        self.__deque: collections.deque[_LT]
+        if __iterable is not None:
+            self.__deque = collections.deque(__iterable)
+        else:
+            self.__deque = collections.deque()
+
+    @_atomic_require_lock
+    def get_obj(self) -> DequeView[_LT]:  # type: ignore[override]
+        """Returns a view of the current deque."""
+        return DequeView(self.__deque)
+
+    @_atomic_require_context
+    def set_obj(self, value: Iterable[_LT], /) -> None:
+        """Sets the deque to the given value."""
+        self.__deque = collections.deque(value)
+
+    @_atomic_require_lock
+    def __len__(self) -> int:
+        return len(self.__deque)
+
+    @_atomic_require_lock
+    def __getitem__(  # type: ignore[override]
+        self,
+        key: int, /
+    ) -> _LT | "collections.deque[_LT]":
+        return self.__deque[key]
+
+    @_atomic_require_lock
+    def __contains__(self, value: object) -> bool:
+        return value in self.__deque
+
+    @_atomic_require_lock
+    def __iter__(self) -> Iterator[_LT]:
+        return iter(self.__deque)
+
+    @_atomic_require_context
+    def __setitem__(  # type: ignore[override]
+        self,
+        key: int,
+        value: _LT, /
+    ) -> None:
+        self.__deque[key] = value
+
+    @_atomic_require_context
+    def __delitem__(self, key: int, /) -> None:  # type: ignore[override]
+        del self.__deque[key]
+
+    @_atomic_require_context
+    def __iadd__(self, value: Iterable[_LT]) -> "AtomicDeque[_LT]":
+        self.__deque += value
+        return self
+
+    @_atomic_require_lock
+    def __add__(self, value: collections.deque[_LT]) -> collections.deque[_LT]:
+        return self.__deque + value
+
+    @_atomic_require_context
+    def __imul__(self, value: int) -> "AtomicDeque[_LT]":
+        self.__deque *= value
+        return self
+
+    @_atomic_require_lock
+    def __mul__(self, value: int) -> collections.deque[_LT]:
+        return self.__deque * value
+
+    @_atomic_require_lock
+    def index(  # pylint: disable=arguments-differ
+        self,
+        value: _LT,
+        start: int = 0,
+        stop: int = sys.maxsize, /
+    ) -> int:
+        """
+        Return first index of value.
+
+        Raises ValueError if the value is not present.
+        """
+        super().index(value, start, stop)
+        return self.__deque.index(value, start, stop)
+
+    @_atomic_require_lock
+    def count(self, value: _LT) -> int:
+        """Return number of occurrences of value."""
+        return self.__deque.count(value)
+
+    @_atomic_require_context
+    def append(self, value: _LT) -> None:
+        """Append an element to the end of the deque."""
+        self.__deque.append(value)
+
+    @_atomic_require_context
+    def appendleft(self, value: _LT) -> None:
+        """Append an element to the beginning of the deque."""
+        self.__deque.appendleft(value)
+
+    @_atomic_require_context
+    def extend(self, values: Iterable[_LT]) -> None:
+        """Extend the deque by appending elements from the iterable."""
+        self.__deque.extend(values)
+
+    @_atomic_require_context
+    def extendleft(self, values: Iterable[_LT]) -> None:
+        """Extend the deque by appending elements from the iterable."""
+        self.__deque.extendleft(values)
+
+    @_atomic_require_context
+    def insert(self, index: int, value: _LT) -> None:
+        """Insert an element before the given index."""
+        self.__deque.insert(index, value)
+
+    # pylint: disable=arguments-differ
+    @_atomic_require_context
+    def pop(  # type: ignore[override]
+        self
+    ) -> _LT:
+        """
+        Remove and return an element from the right side (end) of the deque.
+        """
+        return self.__deque.pop()
+    # pylint: enable=arguments-differ
+
+    @_atomic_require_context
+    def popleft(self) -> _LT:
+        """
+        Remove and return an element from the left side (start) of the deque.
+        """
+        return self.__deque.popleft()
+
+    @_atomic_require_context
+    def remove(self, value: _LT) -> None:
+        """
+        Remove the first occurrence of value.
+
+        Raises ValueError if the value is not present.
+        """
+        self.__deque.remove(value)
+
+    @_atomic_require_context
+    def clear(self) -> None:
+        """Remove all elements from the deque."""
+        self.__deque.clear()
+
+    @_atomic_require_context
+    def reverse(self) -> None:
+        """Reverse the elements of the deque in-place."""
+        self.__deque.reverse()
 
 
 _KT = TypeVar("_KT", bound=Hashable)
