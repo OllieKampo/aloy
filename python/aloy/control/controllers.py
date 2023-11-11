@@ -38,7 +38,7 @@ from aloy.datastructures.views import SetView
 
 __copyright__ = "Copyright (C) 2022 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 __all__ = (
     "Controller",
@@ -69,9 +69,9 @@ def clamp(
 
     If the maximum or minimum values are `None` then they are ignored.
     """
-    if max_ is not None and value > max_:  # type: ignore
+    if max_ is not None and value > max_:  # type: ignore[operator]
         return max_
-    if min_ is not None and value < min_:  # type: ignore
+    if min_ is not None and value < min_:  # type: ignore[operator]
         return min_
     return value
 
@@ -89,7 +89,7 @@ def calc_error(
     the control input to the specified range before calculating the error.
     """
     control_input = clamp(control_input, max_, min_)
-    return control_input - setpoint  # type: ignore
+    return control_input - setpoint  # type: ignore[operator]
 
 
 class Controller(metaclass=ABCMeta):
@@ -692,12 +692,12 @@ class MultiVariateController:
         self.__modules: dict[str, dict[str, Controller]] = {}
 
         # Maps: input_names <-> output_names
-        self.__input_output_mapping = TwoWayMap[str]()
+        self.__input_output_mapping = TwoWayMap[str, str]()
 
         # Maps: output_name <-> input_names
         # An output can cascade to multiple inputs, but an input can only
         # be cascaded to from one output, therefore the mapping is one-to-many.
-        self.__cascades = TwoWayMap[str]()
+        self.__cascades = TwoWayMap[str, str]()
 
         # Maps: output_name -> order
         self.__order = ReversableDict[str, int]()
@@ -735,7 +735,7 @@ class MultiVariateController:
         """Get the cascades from a given output name."""
         return self.__cascades.forwards[output_name]
 
-    def cascade_to(self, input_name: str) -> SetView[str]:
+    def cascade_to(self, input_name: str) -> str:
         """Get the cascade to a given input name."""
         return next(iter(self.__cascades.backwards[input_name]))
 
@@ -1234,7 +1234,7 @@ class MultiVariateController:
         # input is used for multiple outputs.
         cache: dict[tuple[str, Controller], float] = {}
         for order in sorted(self.__order.values()):
-            output_names = self.__order.reversed_get(order)
+            output_names = self.__order(order)
             for output_name in output_names:
                 module = self.__modules[output_name]
                 total_output: list[float] = []
@@ -1534,7 +1534,6 @@ class SystemController:
         `get_output_limits: bool = False` - Whether to get the output limits
         from the controlled system and set them to the controller.
         """
-        ...
 
     @overload
     def __init__(
@@ -1576,7 +1575,6 @@ class SystemController:
         `get_output_limits: bool = False` - Whether to get the output limits
         from the controlled system and set them to the controller.
         """
-        ...
 
     def __init__(
         self,
@@ -2088,8 +2086,8 @@ class AutoSystemController:
                             total_time
                         )
 
-                    # Could add something to handle time errors and catch up.
-                    # Keep track of actual tick rate and variance in tick
+                    # TODO: Could add something to handle time errors and catch
+                    # up. Keep track of actual tick rate and variance in tick
                     # rate, and number of skipped ticks. If the tick rate is
                     # too high, emit warnings and slow down the tick rate.
                     loop_time = time.perf_counter() - start_time
@@ -2196,7 +2194,7 @@ class AutoSystemController:
         self,
         tick_rate: int = 10,
         time_factor: float = 1.0,
-        data_callback: DataCallback = None,
+        data_callback: DataCallback | None = None,
         reset: bool = True
     ) -> Iterator[None]:
         """
@@ -2257,7 +2255,7 @@ class AutoSystemController:
         self,
         tick_rate: int = 10,
         time_factor: float = 1.0,
-        data_callback: DataCallback = None
+        data_callback: DataCallback | None = None
     ) -> None:
         """
         Run the controller in a seperate thread until a stop call is made.
@@ -2303,7 +2301,7 @@ class AutoSystemController:
         max_time: Optional[Real] = None,
         tick_rate: int = 10,
         time_factor: float = 1.0,
-        data_callback: DataCallback = None
+        data_callback: DataCallback | None = None
     ) -> None:
         """
         Run the controller for a given number of ticks or amount of time.
@@ -2379,7 +2377,7 @@ class AutoSystemController:
         condition: Condition,
         tick_rate: int = 10,
         time_factor: float = 1.0,
-        data_callback: DataCallback = None
+        data_callback: DataCallback | None = None
     ) -> None:
         """
         Run the controller while a condition is true.
