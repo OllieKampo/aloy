@@ -63,10 +63,12 @@ import logging
 from typing import (Any, Callable, Concatenate, ParamSpec, TypeVar, final,
                     overload)
 import threading
+
 from PySide6.QtCore import QTimer  # pylint: disable=no-name-in-module
 
 from aloy.concurrency.clocks import ClockThread
 from aloy.concurrency.synchronization import SynchronizedClass, sync
+from aloy.guis._utils import create_clock
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
@@ -258,7 +260,7 @@ class Observable(SynchronizedClass):
                 name, clock, tick_rate, start_clock, debug
             )
 
-        # All observable objects must have a name.
+        # All subjects must have a name.
         self.__name: str
         if name is None:
             self.__name = f"{type(self).__name__}@{id(self):#x}"
@@ -278,38 +280,15 @@ class Observable(SynchronizedClass):
 
         # The lock and clock used when updateding the observers.
         self.__notify_update_lock = threading.Lock()
-        self.__clock: ClockThread | QTimer
-        if clock is None:
-            if self.__debug:
-                self.__OBSERVABLE_LOGGER.debug(
-                    "%s: Creating new ClockThread with tick rate %s.",
-                    self.__name, tick_rate
-                )
-            self.__clock = ClockThread(
-                self.__update_observers,
-                tick_rate=tick_rate
-            )
-            self.__clock.start()
-        else:
-            if self.__debug:
-                self.__OBSERVABLE_LOGGER.debug(
-                    "%s: Using existing clock of type %s.",
-                    self.__name, type(clock)
-                )
-            self.__clock = clock
-            if isinstance(clock, ClockThread):
-                self.__clock.schedule(  # type: ignore
-                    self.__update_observers)
-                if start_clock:
-                    self.__clock.start()
-            elif isinstance(clock, QTimer):
-                self.__clock.timeout.connect(  # type: ignore
-                    self.__update_observers)
-                if start_clock:
-                    self.__clock.start()
-            else:
-                raise TypeError("Clock must be of type ClockThread or QTimer."
-                                f"Got; {clock} of {type(clock)}.")
+        self.__clock: ClockThread | QTimer = create_clock(
+            self.__update_observers,
+            name=self.__name,
+            clock=clock,
+            tick_rate=tick_rate,
+            start_clock=start_clock,
+            logger=self.__OBSERVABLE_LOGGER,
+            debug=self.__debug
+        )
 
     @final
     @property
