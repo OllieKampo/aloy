@@ -1,16 +1,48 @@
-from collections import deque
-import itertools
-from typing import Any, Callable, Generic, Hashable, Iterable, Iterator, KeysView, Mapping, Optional, SupportsFloat, TypeVar, overload
+###############################################################################
+# Copyright (C) 2023 Oliver Michael Kamperis
+# Email: olliekampo@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
+
+"""Module defining a graph data structure."""
 
 import collections.abc
-import numpy as np
+import itertools
+from collections import deque
+from typing import (Any, Callable, Generic, Hashable, Iterable, Iterator,
+                    KeysView, Mapping, Optional, SupportsFloat, TypeVar,
+                    overload)
 
-from aloy.auxiliary.getters import default_get
 from aloy.auxiliary.progressbars import ResourceProgressBar
 from aloy.datastructures.disjointset import DisjointSet
 from aloy.datastructures.mappings import TwoWayMap
 from aloy.datastructures.queues import PriorityQueue, SortedQueue
 from aloy.datastructures.views import SetView
+
+__copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
+__license__ = "GPL-3.0"
+__version__ = "0.0.1"
+
+__all__ = (
+    "euclidean_distance_heuristic",
+    "manhattan_distance_heuristic",
+    "chebyshev_distance_heuristic",
+    "Graph"
+)
+
+
+def __dir__() -> tuple[str, ...]:
+    """Get the names of module attributes."""
+    return __all__
 
 
 def euclidean_distance_heuristic(
@@ -488,16 +520,15 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
             raise ValueError(f"Vertex {vertex} not in graph {self}.")
         self.__vertex_tags.add_many(vertex, tags)
 
-    def untag_vertex(  # pylint: disable=keyword-arg-before-vararg
+    def untag_vertex(
         self,
         vertex: VT,
-        tag: str | None = None, /,
         *tags: str,
     ) -> None:
         """Remove the given tag from the given vertex."""
         if vertex not in self:
             raise ValueError(f"Vertex {vertex} not in graph {self}.")
-        if tag is None:
+        if not tags:
             self.__vertex_tags.forwards_remove(vertex)
         else:
             self.__vertex_tags.remove_many(vertex, tags)
@@ -525,15 +556,16 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         """Tag the given edge."""
         self.__edge_tags.add_many((start, end), tags) 
 
-    def untag_edge(  # pylint: disable=keyword-arg-before-vararg
+    def untag_edge(
         self,
         start: VT,
         end: VT,
-        tag: str | None = None, /,
         *tags: str,
     ) -> None:
         """Remove the given tag from the given edge."""
-        if tag is None:
+        if (start, end) not in self:
+            raise ValueError(f"Edge {start} -> {end} not in graph {self}.")
+        if not tags:
             self.__edge_tags.forwards_remove((start, end))
         else:
             self.__edge_tags.remove_many((start, end), tags)
@@ -1145,8 +1177,24 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
 
     #     return None
 
+    # TODO: This doesn't work if the graph contains disconnected sub-graphs.
     def contains_cycle(self, start_vertex: Optional[VT] = None) -> bool:
-        """Determine if the graph contains a cycle."""
+        """
+        Determine if the graph contains a cycle.
+
+        A graph contains a cycle if there is a path from a vertex back to
+        itself, where a path may be formed by an arbitrary length sequence of
+        edges.
+
+        Parameters
+        ----------
+        `start_vertex: VT | None` - A vertex from which to start searching.
+
+        Returns
+        -------
+        `bool` - A Boolean, True if the graph contains a cycle, False
+        otherwise.
+        """
         if not self.__directed:
             return True
 
@@ -1155,13 +1203,22 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         elif start_vertex not in self:
             raise ValueError(f"The vertex {start_vertex} is not in {self!s}.")
 
-        frontier: set[VT] = {start_vertex}
+        # Variables for tracking progress of the search;
+        # - The set of vertices that have been found to be connected to the
+        #   graph,
+        # - The frontier is the set of nodes that have been found to be
+        #   connected to the graph, but have not yet been expanded, where
+        #   expansion of a vertex is the process of marking the vertices it
+        #   directly connects (via a single edge) as connected.
         expanded: set[VT] = set()
+        frontier: set[VT] = {start_vertex}
 
         while frontier:
             vertex: VT = frontier.pop()
             expanded.add(vertex)
 
+            # If the vertex is connected to a vertex that has already been
+            # expanded, then there is must be a cycle.
             connected_to: set[VT] = self[vertex]
             if connected_to & expanded:
                 return True
@@ -1172,9 +1229,9 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
 
         return False
 
-    def is_connected(self, start_node: VT | None = None) -> bool:
+    def is_connected(self, start_vertex: VT | None = None) -> bool:
         """
-        Determine if this undirected graph is connected.
+        Determine if this graph is connected.
 
         A graph is connected, if there is a path from all vertices to all
         other vertices, where a path may be formed by an arbitrary length
@@ -1183,8 +1240,8 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
 
         Parameters
         ----------
-        `start_node: VT | None` - A vertex, from which to start searching.
-        Intuitively, a vertex is connected to an undirected graph iff;
+        `start_vertex: VT | None` - A vertex from which to start searching.
+        Intuitively, a vertex is connected to the graph iff;
             - It is the start node,
             - It is connected to the start node via some path.
 
@@ -1192,29 +1249,28 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
         -------
         `bool` - A Boolean, True if the graph is connected, False otherwise.
         """
+        if start_vertex is None:
+            start_vertex = next(iter(self))
+        elif start_vertex not in self:
+            raise ValueError(f"The vertex {start_vertex} is not in {self!s}.")
+
         # Variables for tracking progress of the search;
-        #       - The set of vertices that have been found to be connected to
-        #         the graph,
-        #       - The frontier is the set of nodes that have been found to be
-        #         connected to the graph, but have not yet been expanded,
-        #         where expansion of a vertex is the process of marking the
-        #         vertices it directly connects (via a single edge) as
-        #         connected.
-        connected_nodes: set[VT] = set()
-        frontier: set[VT] = set()
+        # - The set of vertices that have been found to be connected to the
+        #   graph,
+        # - The frontier is the set of nodes that have been found to be
+        #   connected to the graph, but have not yet been expanded, where
+        #   expansion of a vertex is the process of marking the vertices it
+        #   directly connects (via a single edge) as connected.
+        expanded: set[VT] = set()
+        frontier: set[VT] = {start_vertex}
 
-        # Start from the given vertex if it was given, otherwise start from
-        # any vertex.
-        _start_node: VT = default_get(start_node, next(iter(self)))
-        connected_nodes.add(_start_node)
-
-        new_nodes: set[VT] = self[_start_node].difference(connected_nodes)
-        connected_nodes.update(new_nodes)
-        frontier.update(new_nodes)
+        new_vertices: set[VT] = self[start_vertex] - expanded
+        expanded |= new_vertices
+        frontier |= new_vertices
 
         # Whilst there are nodes to search, and we have not already found a
         # connection to all nodes;
-        while (frontier and len(self) != len(connected_nodes)):
+        while (frontier and len(self) != len(expanded)):
 
             # Get and remove a node from the frontier randomly
             # (order in which they are visited does not matter)
@@ -1222,14 +1278,14 @@ class Graph(collections.abc.MutableMapping, Generic[VT, WT]):
 
             # Get all the nodes adjacent to this node that are not already
             # connected to the graph as a whole.
-            new_nodes = self[vertex].difference(connected_nodes)
+            new_vertices = self[vertex] - expanded
 
             # Mark those nodes as connected, and add them to the frontier.
-            connected_nodes.update(new_nodes)
-            frontier.update(new_nodes)
+            expanded |= new_vertices
+            frontier |= new_vertices
 
         # The graph is connected, if all vertices are in the connected set.
-        return len(self) == len(connected_nodes)
+        return len(self) == len(expanded)
 
 
 if __name__ == "__main__":

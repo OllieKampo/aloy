@@ -20,6 +20,8 @@ The main Aloy GUI components are; AloyGuiWindow which wrap PySide6 QMainWindow
 and AloyWidget which wraps PySide6 QWidget. Both of these are observers.
 """
 
+# pylint: disable=c-extension-no-member
+
 import itertools
 from abc import abstractmethod
 from typing import Any, Literal, NamedTuple, Sequence, Union, final
@@ -222,6 +224,58 @@ class GridScaler:
             self.__spacing,
             self.__margins
         )
+
+    def set_size(
+        self,
+        widget: QtWidgets.QWidget,
+        widget_shape: tuple[int, int],
+        set_size: Literal[
+            "fix",
+            "min",
+            "max",
+            "hint",
+            "hint-min"
+        ] | None = None,
+        size_policy: tuple[
+            QtWidgets.QSizePolicy.Policy,
+            QtWidgets.QSizePolicy.Policy
+        ] | None = None
+    ) -> None:
+        """
+        Set the size of a widget of the given shape in the grid.
+
+        Parameters
+        ----------
+        `widget: QtWidgets.QWidget` - The widget to set the size of.
+
+        `widget_shape: tuple[int, int]` - The shape of the widget, i.e. the
+        number of rows and columns it occupies.
+        """
+        size = self.get_size(widget_shape)
+        if set_size is not None:
+            if set_size == "fix":
+                widget.setFixedSize(*size)
+            elif set_size == "min":
+                widget.setMinimumSize(*size)
+            elif set_size == "max":
+                widget.setMaximumSize(*size)
+            elif "hint" in set_size:
+                def get_size() -> QtCore.QSize:
+                    return QtCore.QSize(*size)
+                if set_size == "hint":
+                    widget.sizeHint = get_size  # type: ignore
+                elif set_size == "hint-min":
+                    widget.minimumSizeHint = get_size  # type: ignore
+            else:
+                raise ValueError(
+                    f"Invalid set_size value: {set_size}."
+                    "Choose from: fix, min, max, hint, hint-min."
+                )
+        if size_policy is not None:
+            widget.setSizePolicy(
+                size_policy[0],
+                size_policy[1]
+            )
 
 
 def combine_aloy_widgets(
@@ -761,7 +815,8 @@ class AloyGuiWindow(observable.Observer):
         self.__default_qwidget = PlaceholderWidget(
             text="No views have been added to this window."
         )
-        self.__default_qwidget.sizeHint = self.__default_size_hint
+        self.__default_qwidget.sizeHint = (  # type: ignore
+            self.__default_size_hint)
         self.__stack.addWidget(self.__default_qwidget)
         self.__stack.setCurrentWidget(self.__default_qwidget)
 

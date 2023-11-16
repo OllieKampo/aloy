@@ -25,12 +25,22 @@ stdscr.refresh()
 
 # Cycle to update text. Enter a 'q' to quit
 k = 0
-stdscr.nodelay(1)
+stdscr.nodelay(True)
 while (k != ord('q')):
     # write 10 lines text with a label and then some random numbers
     for i in range(1, 11):
-        stdscr.addstr(4 + i, 5, "Sensor " + str(i) + " : ", curses.A_BOLD)
-        stdscr.addstr(4 + i, 20, str(random.randint(10, 99)), curses.color_pair(2))
+        stdscr.addstr(
+            4 + i,
+            5,
+            f"Sensor {i:<2d} : ",
+            curses.A_BOLD
+        )
+        stdscr.addstr(
+            4 + i,
+            20,
+            str(random.randint(10, 99)),
+            curses.color_pair(2)
+        )
         time.sleep(2)
         k = stdscr.getch()
 

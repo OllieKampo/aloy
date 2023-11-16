@@ -1,5 +1,5 @@
 import curses
-import pyfiglet
+import pyfiglet  # type: ignore[import-untyped]
 
 title = pyfiglet.figlet_format("Sensor Reading Example", font="small")
 stdscr = curses.initscr()
