@@ -16,6 +16,20 @@
 """
 Module defining the subject-listener design pattern.
 
+A subject declares a set of fields that can be listened to. A field is a
+method or property of the subject whose return value is the value of the
+field. The subject can then also declare methods that change the value of
+fields. A listener is an object that can be registered with a subject. A
+listener declares what fields it is interested in listening to. When such a
+field changes, the listener is notified automatically.
+
+There are three ways for a listener to listen to a subject:
+- Register a listener object (a sub-class of `Listener`) with the
+  `field_changed(source, field_name, old_value, new_value)` method defined,
+- Register a (set of) callback(s) to the subject, or
+- Decorate method(s) of a class with `@call_on_field_change()` and egister
+  instances of that class with the subject.
+
 The subject-listener pattern is a middle ground between the observable-observer
 and publisher-subscriber patterns. It is similar to the observable-observer in
 that listeners are registered with a subject and are notified when the subject
@@ -23,14 +37,10 @@ changes. It is similar to the publisher-subscriber pattern in that listeners
 can subscribe to specific fields of the subject. Unlike the observable-observer
 pattern, listeners are notified only when a field they are subscribed to
 changes, and are only sent the relevant information, greatly increasing the
-sacalability of the pattern. Unlike the publisher-subscriber pattern, a
-subject is not a global singleton, and the intended method is to sub-class
-the subject class to create a new subject type containing the fields that
-listeners can subscribe to.
-
-Because the subject-listener pattern only updates listeners when a field
-they are listening to changes, there is less generality to the pattern than
-the observerable-observer pattern.
+sacalability of the pattern. Unlike the publisher-subscriber pattern, instead
+of declaring named topics or parameters on a hub, the intended method is to
+sub-class the subject class to create a new subject type containing the fields
+that listeners can subscribe to.
 """
 
 import functools
@@ -41,13 +51,16 @@ import queue
 import time
 from typing import (Any, Callable, Concatenate, Final, NamedTuple, ParamSpec,
                     Type, TypeVar, final)
+
+from PySide6.QtCore import QTimer  # pylint: disable=no-name-in-module
+
 from aloy.concurrency.atomic import AtomicBool
 from aloy.concurrency.clocks import ClockThread
-
-from aloy.concurrency.executors import AloyThreadPool
+from aloy.concurrency.executors import AloyQTimerExecutor, AloyThreadPool
 from aloy.concurrency.synchronization import (SynchronizedMeta,
                                               get_instance_lock, sync)
 from aloy.datastructures.mappings import TwoWayMap
+from aloy.guis._utils import create_clock
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
@@ -292,59 +305,88 @@ class _SubjectSynchronizedMeta(SynchronizedMeta):
 class Subject(metaclass=_SubjectSynchronizedMeta):
     """
     A subject is an object that can be observed by listeners.
+
+    A subject declares a set of fields that can be listened to. A field is a
+    method or property of the subject whose return value is the value of the
+    field. To declare a field, decorate a method or property with the
+    `@field(name: str | None = None, queue_size: int | None = None)`
+    decorator. The decorated method must have be callable with no arguments
+    and return the current value of the field. If the `name` argument is given
+    and not None, it is used as the name of the field. Otherwise, the name of
+    the method is used. If the `queue_size` argument is given and not None, a
+    queue of that size is used to store previous values of the field.
+    Otherwise, the field is not queued and only the current value is available.
+
+    The subject can then also declare methods that change the value of fields.
+    To declare a method that changes a field, decorate it with the
+    `@field_change(name: str | None = None)` decorator. There are no
+    restrictions on the method signature. If the `name` argument is given and
+    not None, it is used as the name of the field. Otherwise, the name of the
+    method is used. A field with the same name must have been defined prior to
+    this decorator being applied. When the method is called, the field is
+    updated and all listeners and callbacks of the field are notified.
     """
 
     __SUBJECT_LOGGER = logging.getLogger("Subject")
     __SUBJECT_FIELDS__: dict[str, _SubjectField] = _NO_FIELDS
 
     __slots__ = {
+        "__weakref__": "Weak references to the object.",
+        "__name": "The name of the subject.",
         "__listeners": "The listeners registered with the subject.",
         "__callbacks": "The callbacks registered with the subject.",
-        "__clock": "The clock used to update all listeners.",
-        "__executor": "The thread pool executor used to update listeners.",
         "__queues": "The queues used to store values of queued fields.",
         "__updated_fields": "The fields that have been updated.",
         "__updating_fields": "The fields that are currently being updated.",
-        "__update_queue": "The queue used to update listeners."
+        "__update_queue": "The queue used to update listeners.",
+        "__clock": "The clock used to update all listeners.",
+        "__executor": "The thread pool executor used to update listeners.",
+        "__debug": "Whether to log debug messages."
     }
 
     def __init__(
         self,
+        name: str | None = None,
+        clock: ClockThread | QTimer | None = None,
+        tick_rate: int = 10,
+        start_clock: bool = True,
         max_workers: int = 10,
-        profile: bool = False,
-        log: bool = False
+        debug: bool = False
     ) -> None:
         """
         Create a new subject.
 
-        There are three ways for a listener to listen to a subject:
-        - Register a listener object (a sub-class of `Listener`) with the
-          `field_changed(...)` method defined,
-        - Register a (set of) callback(s) to the subject, or
-        - Decorate method(s) of a class with `@call_on_field_change()` and
-          register instances of that class with the subject.
+        Parameters
+        ----------
+        `max_workers: int = 10` - The maximum number of threads to use to
+        update listeners.
+
+        `profile: bool = False` - Whether to profile the threads used to update
+        listeners.
+
+        `log: bool = False` - Whether to log the calls on threads used to
+        update listeners.
         """
+        self.__debug: bool = debug
+        if self.__debug:
+            self.__SUBJECT_LOGGER.debug(
+                "Creating new subject with: "
+                "name=%s, clock=%s, tick_rate=%s, start_clock=%s, "
+                "max_workers=%s, debug=%s",
+                name, clock, tick_rate, start_clock, max_workers, debug
+            )
+
+        # Subjects are optionally named.
+        self.__name: str | None = name
+
+        # Internal data structures.
         self.__listeners = TwoWayMap[Listener, str]()
         self.__callbacks = TwoWayMap[Callable[..., None], str]()
-
-        self.__clock = ClockThread(
-            self.__schedule_updates,
-            tick_rate=20
-        )
-        self.__executor = AloyThreadPool(
-            pool_name="Subject :: Thread Pool Executor",
-            max_workers=max(max_workers, 1),
-            thread_name_prefix="Subject :: Thread Pool Executor :: Thread",
-            profile=bool(profile),
-            log=bool(log)
-        )
-
         self.__queues: dict[str, deque[Any]] = defaultdict(deque)
         for field_name, (_, queue_size) \
                 in self.__SUBJECT_FIELDS__.items():
             if queue_size is not None:
                 self.__queues[field_name] = deque(maxlen=queue_size)
-
         self.__updated_fields: dict[str, AtomicBool] = defaultdict(
             AtomicBool)
         self.__updating_fields: dict[str, AtomicBool] = defaultdict(
@@ -352,7 +394,28 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
         self.__update_queue: dict[str, queue.SimpleQueue[tuple[Any, Any]]] = \
             defaultdict(queue.SimpleQueue)
 
-        self.__clock.start()
+        self.__clock: ClockThread | QTimer = create_clock(
+            self.__schedule_updates,
+            name=self.__name,
+            clock=clock,
+            tick_rate=tick_rate,
+            start_clock=start_clock,
+            logger=self.__SUBJECT_LOGGER,
+            debug=self.__debug
+        )
+        self.__executor: AloyThreadPool | AloyQTimerExecutor
+        if isinstance(self.__clock, ClockThread):
+            self.__executor = AloyThreadPool(
+                pool_name=f"Subject {name} :: Thread Pool Executor",
+                max_workers=max(max_workers, 1),
+                thread_name_prefix=f"Subject {name} :: Thread",
+                profile=True,
+                log=bool(debug)
+            )
+        elif isinstance(self.__clock, QTimer):
+            self.__executor = AloyQTimerExecutor(
+                interval=1.0 / tick_rate
+            )
 
     def __get_field__(self, field_name: str) -> Any:
         subject_field = self.__SUBJECT_FIELDS__.get(field_name)
@@ -427,26 +490,28 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
             if subject_field.queue_size is not None and new_value is not None:
                 old_value = list(self.__queues[field_name])
                 self.__queues[field_name].append(new_value)
-            with (atomic_bool := self.__updated_fields[field_name]):
-                atomic_bool.set_obj(True)
+            is_updated = self.__updated_fields[field_name]
+            is_updating = self.__updating_fields[field_name]
+            with is_updated, is_updating:
+                is_updated.set_obj(True)
                 self.__update_queue[field_name].put(
                     (old_value, new_value)
                 )
 
     def __schedule_updates(self) -> None:
         """Schedule an update of all listeners and callbacks of a field."""
-        for field_name, atomic_bool in self.__updated_fields.items():
-            with atomic_bool:
-                if atomic_bool:
-                    with (is_updating := self.__updating_fields[field_name]):
-                        if not is_updating:
-                            is_updating.set_obj(True)
-                            self.__executor.submit(
-                                f"Subject Update ({field_name})",
-                                self.__update_all_async,
-                                field_name
-                            )
-                    atomic_bool.set_obj(False)
+        for field_name, is_updated in self.__updated_fields.items():
+            is_updating = self.__updating_fields[field_name]
+            with is_updated, is_updating:
+                if is_updated:
+                    if not is_updating:
+                        is_updating.set_obj(True)
+                        self.__executor.submit(
+                            f"Subject Update ({field_name})",
+                            self.__update_all_async,
+                            field_name
+                        )
+                    is_updated.set_obj(False)
 
     def __update_all_async(self, field_name: str) -> None:
         """Asynchronously update all listeners and callbacks of a field."""
@@ -457,6 +522,10 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
                 old_value, new_value = queue_.get_nowait()
                 self.__update_async(field_name, old_value, new_value)
             except queue.Empty:
+                is_updated = self.__updated_fields[field_name]
+                is_updating = self.__updating_fields[field_name]
+                with is_updated, is_updating:
+                    is_updating.set_obj(False)
                 break
 
     def __update_async(
@@ -542,11 +611,12 @@ def __main():
     class MySubject(Subject):
         """Test subject."""
         def __init__(self) -> None:
-            super().__init__(log=True)
+            super().__init__(debug=True)
             self.__my_field = 0
+            self.__my_queued_field = 0
 
         @property
-        @field(queue_size=3)
+        @field()
         def my_field(self) -> int:
             """Get the value of my_field."""
             return self.__my_field
@@ -556,6 +626,18 @@ def __main():
         def my_field(self, value: int) -> None:
             """Set the value of my_field."""
             self.__my_field = value
+
+        @property
+        @field(queue_size=3)
+        def my_queued_field(self) -> int:
+            """Get the value of my_field."""
+            return self.__my_queued_field
+
+        @my_queued_field.setter
+        @field_change()
+        def my_queued_field(self, value: int) -> None:
+            """Set the value of my_field."""
+            self.__my_queued_field = value
 
     class MyListener(Listener):
         """Test listener."""
@@ -568,6 +650,29 @@ def __main():
             new_value: int
         ) -> None:
             """Called when my_field changes."""
+            print(f"Listener {self} got notified that field {field_name} "
+                  f"changed from {old_value} to {new_value}.")
+
+        @call_on_field_change("my_queued_field")
+        def my_queued_field_changed(
+            self,
+            source: Subject,  # pylint: disable=unused-argument
+            field_name: str,
+            old_value: int,
+            new_value: int
+        ) -> None:
+            """Called when my_queued_field changes."""
+            print(f"Listener {self} got notified that field {field_name} "
+                  f"changed from {old_value} to {new_value}.")
+
+        def field_changed(
+            self,
+            source: Subject,  # pylint: disable=unused-argument
+            field_name: str,
+            old_value: Any,
+            new_value: Any
+        ) -> None:
+            """Called when a field changes."""
             print(f"Listener {self} got notified that field {field_name} "
                   f"changed from {old_value} to {new_value}.")
 
@@ -584,6 +689,17 @@ def __main():
     subject.my_field = 4
     subject.my_field = 5
     subject.my_field = 5
+    time.sleep(1)
+    subject.my_queued_field = 1
+    subject.my_queued_field = 1
+    subject.my_queued_field = 2
+    subject.my_queued_field = 2
+    subject.my_queued_field = 3
+    subject.my_queued_field = 3
+    subject.my_queued_field = 4
+    subject.my_queued_field = 4
+    subject.my_queued_field = 5
+    subject.my_queued_field = 5
     time.sleep(1)
 
 
