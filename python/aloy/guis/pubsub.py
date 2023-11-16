@@ -683,9 +683,17 @@ def subscriber(
 def __main() -> None:
     # pylint: disable=import-outside-toplevel
     # pylint: disable=no-name-in-module
+    import sys
     import time
     import itertools
+
     from PySide6.QtWidgets import QApplication
+
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        stream=sys.stdout
+    )
 
     _qapp = QApplication([])
 
