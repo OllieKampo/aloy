@@ -56,23 +56,25 @@ three main reasons for this:
   usually to help mitigate the prior two problems.
 """
 
-from abc import abstractmethod, ABCMeta
-from collections import defaultdict
 import functools
 import logging
+import threading
+from abc import ABCMeta, abstractmethod
+from collections import defaultdict
 from typing import (Any, Callable, Concatenate, ParamSpec, TypeVar, final,
                     overload)
-import threading
 
 from PySide6.QtCore import QTimer  # pylint: disable=no-name-in-module
 
 from aloy.concurrency.clocks import ClockThread
 from aloy.concurrency.synchronization import SynchronizedClass, sync
+from aloy.datastructures.views import (DictView, ListValuedMappingView,
+                                       ListView, SetView)
 from aloy.guis._utils import create_clock
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 __all__ = (
     "Observable",
@@ -300,9 +302,9 @@ class Observable(SynchronizedClass):
     @final
     @property
     @sync(group_name="__observable_observers__")
-    def observers(self) -> set["Observer"]:
+    def observers(self) -> SetView["Observer"]:
         """Return the observers of this observable."""
-        return self.__observers
+        return SetView(self.__observers)
 
     @final
     @sync(group_name="__observable_observers__")
@@ -361,10 +363,11 @@ class Observable(SynchronizedClass):
         self.__chained[observable_.observable_name] = observable_
 
     @final
+    @property
     @sync(group_name="__observable_chain__")
-    def get_chained_observables(self) -> dict[str, "Observable"]:
+    def chained_observables(self) -> DictView[str, "Observable"]:
         """Return the observables that this observable is chained to."""
-        return self.__chained
+        return DictView(self.__chained)
 
     @property
     @sync(group_name="__observable_tick_rate__")
@@ -535,11 +538,11 @@ class Observable(SynchronizedClass):
         self.__vars.pop(name)
 
     @overload
-    def get_log_messages(self) -> dict[str, list[str]]:
+    def get_log_messages(self) -> ListValuedMappingView[str, list[str]]:
         """Get all log messages."""
 
     @overload
-    def get_log_messages(self, kind: str) -> list[str]:
+    def get_log_messages(self, kind: str) -> ListView[str]:
         """Get log messages of a given kind."""
 
     @final
@@ -547,12 +550,12 @@ class Observable(SynchronizedClass):
     def get_log_messages(
         self,
         kind: str | None = None
-    ) -> dict[str, list[str]] | list[str]:
+    ) -> ListValuedMappingView[str, list[str]] | ListView[str]:
         """Get log messages, optionally of a given kind."""
         if kind is None:
-            return self.__messages
+            return ListValuedMappingView(self.__messages)
         else:
-            return self.__messages[kind]
+            return ListView(self.__messages[kind])
 
     @final
     @notifies_observers()
@@ -669,14 +672,14 @@ class Observer(metaclass=ABCMeta):
 
     @final
     @property
-    def observables(self) -> list[Observable]:
+    def observables(self) -> ListView[Observable]:
         """
         Return the observables being observed by the observer.
 
         This field updated automatically when the observer is added to or
         removed from an observable.
         """
-        return self.__observables
+        return ListView(self.__observables)
 
     @final
     def _add_observable(self, observable: Observable) -> None:
