@@ -15,12 +15,12 @@
 
 """Module containing thread pools and concurrent executors."""
 
-from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, fields, field
 import functools
 import logging
 import os
+import queue
 import threading
 import time
 import types
@@ -35,7 +35,7 @@ from aloy.concurrency.atomic import AtomicNumber
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 
 __all__ = (
     "AloyQThreadPoolExecutor",
@@ -168,12 +168,19 @@ class AloyQTimerExecutor:
     An executor that calls functions on a QTimer.
 
     Unlike a AloyQThreadPoolExecutor, this executor will call functions on the
-    main Qt thread, which means that functions submitted to this executor can
-    set the parent or children of a Qt widget, and start other Qt timers.
+    Qt thread that started the executor. This means that functions submitted
+    to this executor can set the parent or children of a Qt widget, and start
+    other Qt timers.
     """
 
+    __slots__ = {
+        "__queue": "The queue of runnables.",
+        "__lock": "The lock used to protect the queue.",
+        "__timer": "The timer used to execute the runnables."
+    }
+
     def __init__(self, interval: float) -> None:
-        self.__queue: deque[_AloyQRunnable] = deque()
+        self.__queue: queue.Queue[_AloyQRunnable] = queue.Queue()
         self.__lock = threading.Lock()
         self.__timer = QTimer()
         self.__timer.setInterval(int(interval * 1000))
@@ -190,19 +197,23 @@ class AloyQTimerExecutor:
         """Set the interval of the timer."""
         self.__timer.setInterval(int(interval * 1000))
 
+    def start(self) -> None:
+        """Start the timer."""
+        self.__timer.start()
+
     def __execute(self) -> None:
-        with self.__lock:
-            if not self.__queue:
-                self.__timer.stop()
-                return
-            runnable = self.__queue.popleft()
-        runnable.run()
+        start_time = time.monotonic()
+        try:
+            while (time.monotonic() - start_time) < self.interval:
+                with self.__lock:
+                    runnable = self.__queue.get_nowait()
+                runnable.run()
+        except queue.Empty:
+            return
 
     def __add_runnable(self, runnable: _AloyQRunnable) -> None:
         with self.__lock:
-            self.__queue.append(runnable)
-            if not self.__timer.isActive():
-                self.__timer.start()
+            self.__queue.put(runnable)
 
     def submit(
         self,
@@ -295,13 +306,38 @@ class AloyThreadPool:
         initargs: tuple[Any, ...] = ()
     ) -> None:
         """
-        max_workers: The maximum number of threads that can be used to
-        execute the given calls.
-        thread_name_prefix: An optional name prefix to give our threads.
-        initializer: A callable used to initialize worker threads.
-        initargs: A tuple of arguments to pass to the initializer.
+        Create a new aloy thread pool.
+
+        Parameters
+        ----------
+        `pool_name: str | None` - The name of the thread pool. If not given or
+        None, a unique name is generated.
+
+        `max_workers: int | None` - The maximum number of workers allowed in
+        the thread pool. If not given or None, the number of workers is set to
+        the number of CPUs on the system.
+
+        `thread_name_prefix: str` - A prefix to give to the names of the
+        threads in the thread pool.
+
+        `profile: bool` - Whether to profile jobs submitted to the thread
+        pool.
+
+        `log: bool` - Whether to log jobs submitted to the thread pool.
+
+        `initializer: Callable[SP, None] | None` - A callable used to
+        initialize worker threads.
+
+        `initargs: tuple[Any, ...]` - A tuple of arguments to pass to the
+        initializer.
+
+        Raises
+        ------
+        `ValueError` - If `max_workers` is less than or equal to 0.
         """
-        self.__name: str = pool_name or self.__get_pool_name()
+        if pool_name is None:
+            pool_name = self.__get_pool_name()
+        self.__name: str = pool_name
         self.__logger = logging.getLogger("AloyThreadPool")
         self.__logger.setLevel(logging.DEBUG)
         self.__log: bool = log
@@ -314,6 +350,10 @@ class AloyThreadPool:
 
         if max_workers is None:
             max_workers = os.cpu_count()
+        if max_workers is None:
+            max_workers = 1
+        if max_workers <= 0:
+            raise ValueError("max_workers must be greater than 0")
         self.__max_workers: int = max_workers
         self.__main_thread: threading.Thread = threading.current_thread()
         self.__thread_pool = ThreadPoolExecutor(
@@ -380,7 +420,7 @@ class AloyThreadPool:
 
         start_time: float | None = None
         if self.__profile:
-            start_time = time.perf_counter()
+            start_time = time.monotonic()
 
         if self.__log:
             self.__logger.debug(
@@ -437,17 +477,17 @@ class AloyThreadPool:
         func: Callable[SP, ST],
         *iterables: Iterable[SP.args],
         timeout: float | None = None
-    ) -> Iterator[Future[ST]]:
+    ) -> Iterator[ST | None]:
         if timeout is not None:
-            end_time = timeout + time.perf_counter()
+            end_time = timeout + time.monotonic()
 
-        futures = [
+        futures: list[Future[ST]] = [
             self.submit(name, func, *args)
             for args in zip(*iterables)
         ]
         futures.reverse()
 
-        return AloyThreadPool.__iter_results(futures, timeout, end_time)
+        return AloyThreadPool.__iter_results(futures, end_time)
 
     @staticmethod
     def __get_result(
@@ -464,13 +504,12 @@ class AloyThreadPool:
 
     @staticmethod
     def __iter_results(
-        futures: list[Future],
-        timeout: float | None = None,
+        futures: list[Future[ST]],
         end_time: float | None = None
-    ) -> Iterator[ST]:
+    ) -> Iterator[ST | None]:
         try:
             while futures:
-                if timeout is None:
+                if end_time is None:
                     yield AloyThreadPool.__get_result(futures.pop())
                 else:
                     yield AloyThreadPool.__get_result(
