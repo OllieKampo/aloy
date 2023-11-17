@@ -74,7 +74,7 @@ from aloy.guis._utils import create_clock
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "1.1.1"
+__version__ = "1.1.2"
 
 __all__ = (
     "Observable",
@@ -538,7 +538,7 @@ class Observable(SynchronizedClass):
         self.__vars.pop(name)
 
     @overload
-    def get_log_messages(self) -> ListValuedMappingView[str, list[str]]:
+    def get_log_messages(self) -> ListValuedMappingView[str, str]:
         """Get all log messages."""
 
     @overload
@@ -550,7 +550,7 @@ class Observable(SynchronizedClass):
     def get_log_messages(
         self,
         kind: str | None = None
-    ) -> ListValuedMappingView[str, list[str]] | ListView[str]:
+    ) -> ListValuedMappingView[str, str] | ListView[str]:
         """Get log messages, optionally of a given kind."""
         if kind is None:
             return ListValuedMappingView(self.__messages)

@@ -21,7 +21,7 @@ from typing import (Generic, Hashable, Iterator, Mapping, TypeVar, final,
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 __all__ = (
     "ListView",
@@ -120,7 +120,7 @@ class DequeView(collections.abc.Sequence, Generic[_LT]):
 
 
 _KT = TypeVar("_KT", bound=Hashable)
-_VT_co = TypeVar("_VT_co", bound=Hashable, covariant=True)
+_VT_co = TypeVar("_VT_co", covariant=True)
 
 
 @final
