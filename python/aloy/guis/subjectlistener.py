@@ -396,7 +396,7 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
 
         self.__clock: ClockThread | QTimer = create_clock(
             self.__schedule_updates,
-            name=self.__name,
+            name=self.__name if self.__name is not None else "New Subject",
             clock=clock,
             tick_rate=tick_rate,
             start_clock=start_clock,

@@ -2,8 +2,19 @@
 
 The content of this repository is currently under development. Eventually, the aim is that this repository will contain a comprehensive suite of algorithms and data structures for artificial intelligence, machine learning, and autonomous robots.
 
+Aloy will be split into 6 parts:
+- Concurrency: Tools for concurrent multi-threaded programming and thread-safe synchronization.
+- Control: Algorithms and systems for building control systems and controller, including GUIs for viewing control system responses.
+- Data structures: Easy to use and efficient data structures for general programming problems and artificial intelligence.
+- Games: Implementations of various simple 2D games with PySide6 based GUIs, all of which are compatible with Gymnasium for testing reinforcement learning algorithms.
+- GUIs: Systems easing the development of complex GUI based applications with PySide6.
+- Intelligence: Algorithms for artificial intelligence, with a focus on reinforcement learning and game playing.
+- Optimization: Algorithms for optimization, with a focus on control systems optimisation.
+
 ## Current Ideas
 
+- Re-implement thread-queues (including channeled queue) and heap-queue (in Rust).
+- Add MultiClockThread.
 - Lead-lag compensators for controllers,
 - Control system demonstration and testing GUI,
     - Reimplement master's thesis design, but better!
