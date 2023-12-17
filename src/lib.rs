@@ -38,7 +38,7 @@ fn vectors(_py: Python, m: &PyModule) -> PyResult<()> {
 
 #[pymodule]
 #[pyo3(name="moremath")]
-fn moremath(_py: Python, m: &PyModule) -> PyResult<()> {
+fn moremath_py(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(vectors))?;
     Ok(())
 }
@@ -47,7 +47,15 @@ fn moremath(_py: Python, m: &PyModule) -> PyResult<()> {
 #[pymodule]
 #[pyo3(name="rrt")]
 fn rrt(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(planning::rrt::rapidly_exploring_random_tree, m)?)?;
+    m.add_function(wrap_pyfunction!(planning::rrt::rrt, m)?)?;
+    Ok(())
+}
+
+
+#[pymodule]
+#[pyo3(name="planning")]
+fn planning_py(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_wrapped(wrap_pymodule!(rrt))?;
     Ok(())
 }
 
@@ -55,7 +63,7 @@ fn rrt(_py: Python, m: &PyModule) -> PyResult<()> {
 #[pymodule]
 #[pyo3(name="rost")]
 fn rost(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_wrapped(wrap_pymodule!(moremath))?;
-    m.add_wrapped(wrap_pymodule!(rrt))?;
+    m.add_wrapped(wrap_pymodule!(moremath_py))?;
+    m.add_wrapped(wrap_pymodule!(planning_py))?;
     Ok(())
 }

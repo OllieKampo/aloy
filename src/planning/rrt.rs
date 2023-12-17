@@ -10,9 +10,9 @@ pub struct Tree {
 #[pymethods]
 impl Tree {
     #[new]
-    fn new(start: Vec<f64>) -> Self {
+    fn new(start: Vec<f64>, goal: Vec<f64>) -> Self {
         Tree {
-            nodes: vec![start],
+            nodes: vec![start, goal],
             adjacency_list: vec![vec![]],
         }
     }
@@ -67,8 +67,8 @@ pub struct CostedTree {
 #[pymethods]
 impl CostedTree {
     #[new]
-    fn new(start: Vec<f64>) -> (Self, Tree) {
-        (CostedTree { costs: vec![0.0] }, Tree::new(start))
+    fn new(start: Vec<f64>, goal: Vec<f64>) -> (Self, Tree) {
+        (CostedTree { costs: vec![0.0] }, Tree::new(start, goal))
     }
 
     fn costs(&self) -> Vec<f64> {
@@ -84,41 +84,145 @@ impl CostedTree {
 
 
 #[pyfunction]
-pub fn rapidly_exploring_random_tree(
+pub fn simple_rrt(
     _py: Python,
     start: Vec<f64>,
     goal: Vec<f64>,
     boundaries: Vec<f64>,
     obstacles: Vec<Vec<f64>>,
-    step_size: f64,
     max_iterations: usize,
 ) -> PyResult<Tree> {
-    let mut tree = Tree::new(start);
+    return rrt(_py, start, goal, boundaries, obstacles, max_iterations, -1.0);
+}
+
+#[pyfunction]
+/// Runs the RRT algorithm.
+/// 
+/// # Arguments
+/// 
+/// * `start` - A vector of floats representing the start point.
+/// * `goal` - A vector of floats representing the goal point.
+/// * `boundaries` - A vector of floats representing the boundaries of the space.
+/// * `obstacles` - A vector of vectors representing the obstacles.
+/// * `max_iterations` - An integer representing the maximum number of iterations to run the
+/// algorithm for.
+/// * `step_size` - A float representing the maximum distance the random point can be from the
+/// nearest neighbor. If this is negative, the random point will be generated within the boundaries
+/// and not moved towards the nearest neighbor.
+/// 
+/// # Returns
+/// 
+/// A vector of vectors representing the tree.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// use rrt::planning::rrt;
+/// 
+/// let start = vec![0.0, 0.0];
+/// let goal = vec![10.0, 10.0];
+/// let boundaries = vec![10.0, 10.0];
+/// let obstacles = vec![
+///    vec![5.0, 5.0],
+///    vec![5.0, 6.0],
+///    vec![6.0, 5.0],
+///    vec![6.0, 6.0],
+/// ];
+/// let max_iterations = 1000;
+/// let step_size = 1.0;
+/// let tree = rrt(start, goal, boundaries, obstacles, max_iterations, step_size);
+/// ```
+/// 
+/// ```python
+/// from aloy.rost.planning.rrt import rrt
+///
+/// start = [0.0, 0.0]
+/// goal = [10.0, 10.0]
+/// rrt(start, goal)
+/// ```
+pub fn rrt(
+    _py: Python,
+    start: Vec<f64>,
+    goal: Vec<f64>,
+    boundaries: Vec<f64>,
+    obstacles: Vec<Vec<f64>>,
+    max_iterations: usize,
+    step_size: f64,
+) -> PyResult<Tree> {
+    let mut tree = Tree::new(start, goal);
     let mut i = 0;
     while i < max_iterations {
-        // Generate random point as a float between 0 and the boundary.
-        let random_point = vec![
-            rand::thread_rng().gen_range(0.0..boundaries[0]),
-            rand::thread_rng().gen_range(0.0..boundaries[1]),
-        ];
-        // Check if random point is not in an obstacle.
-        if !collision_free(&random_point, &obstacles) {
-            continue;
-        }
-        // Find nearest neighbor to the random point.
-        let nearest_index = nearest_neighbor(&tree, &random_point);
+        // Generate random point.
+        let (random_point, nearest_index) = new_random_point(
+            &tree, &obstacles, &boundaries, step_size);
+        // Move the nearest neighbor towards the random point.
+        let new_point = move_point(&tree[nearest_index], &random_point, step_size);
         // Add new point to the tree.
-        tree.push(random_point);
-        // 
+        tree.push(new_point);
+        // Connect the nearest neighbor to the new point.
         tree.connect(nearest_index, tree.len()-1);
-        if distance(&tree[tree.len()-1], &goal) < step_size {
-            tree.push(goal);
-            tree.connect(tree.len()-2, tree.len()-1);
+        // Stop if the nearest neighbor was the goal.
+        if nearest_index == 1 {
             return Ok(tree);
         }
         i += 1;
     }
     return Ok(tree);
+}
+
+
+/// Generates a random point within the given boundaries.
+/// 
+/// # Arguments
+/// 
+/// * `tree` - A vector of vectors representing the tree.
+/// * `obstacles` - A vector of vectors representing the obstacles.
+/// * `boundaries` - A vector of floats representing the boundaries of the space.
+/// * `step_size` - A float representing the maximum distance the random point can be from the
+/// nearest neighbor.
+/// 
+/// # Returns
+/// 
+/// A vector of floats representing the random point.
+/// 
+fn new_random_point(
+    tree: &Tree,
+    obstacles: &Vec<Vec<f64>>,
+    boundaries: &Vec<f64>,
+    step_size: f64
+) -> (Vec<f64>, usize) {
+    if step_size < 0.0 {
+        loop {
+            // Generate random point as a float between 0 and the boundary.
+            let random_point = vec![
+                rand::thread_rng().gen_range(0.0..boundaries[0]),
+                rand::thread_rng().gen_range(0.0..boundaries[1]),
+            ];
+            // Check if random point is not in an obstacle.
+            if !collision_free(&random_point, &obstacles) {
+                continue;
+            }
+            // Find nearest neighbor to the random point.
+            let nearest_index = nearest_neighbor(&tree, &random_point);
+            return (random_point, nearest_index);
+        }
+    }
+    loop {
+        // Generate random point as a float between 0 and the boundary.
+        let random_point = vec![
+            rand::thread_rng().gen_range(0.0..boundaries[0]),
+            rand::thread_rng().gen_range(0.0..boundaries[1]),
+        ];
+        // Find nearest neighbor to the random point.
+        let nearest_index = nearest_neighbor(&tree, &random_point);
+        // Move the random point closer to the nearest neighbor.
+        let moved_point = move_point(&tree[nearest_index], &random_point, step_size);
+        // Check if random point is not in an obstacle.
+        if !collision_free(&moved_point, &obstacles) {
+            continue;
+        }
+        return (moved_point, nearest_index);
+    }
 }
 
 
@@ -148,19 +252,40 @@ fn nearest_neighbor(tree: &Tree, point: &Vec<f64>) -> usize {
 }
 
 
-// fn new_state(nearest_point: &Vec<f64>, random_point: &Vec<f64>, step_size: f64) -> Vec<f64> {
-//     let mut new_point = nearest_point.clone();
-//     let distance = distance(&nearest_point, &random_point);
-//     if distance <= step_size {
-//         return random_point.clone();
-//     }
-//     let theta = (random_point[1] - nearest_point[1]).atan2(random_point[0] - nearest_point[0]);
-//     new_point[0] += step_size * theta.cos();
-//     new_point[1] += step_size * theta.sin();
-//     return new_point;
-// }
+/// Moves a point towards a random point within a given step size.
+///
+/// # Arguments
+///
+/// * `nearest_point` - The nearest point to the random point.
+/// * `random_point` - The random point to move towards.
+/// * `step_size` - The maximum distance to move towards the random point.
+///
+/// # Returns
+///
+/// The new point after moving towards the random point.
+fn move_point(nearest_point: &Vec<f64>, random_point: &Vec<f64>, step_size: f64) -> Vec<f64> {
+    let distance = distance(&nearest_point, &random_point);
+    if distance <= step_size {
+        return random_point.clone();
+    }
+    let theta = (random_point[1] - nearest_point[1]).atan2(random_point[0] - nearest_point[0]);
+    let mut new_point = nearest_point.clone();
+    new_point[0] += step_size * theta.cos();
+    new_point[1] += step_size * theta.sin();
+    return new_point;
+}
 
 
+/// Checks if a given point is collision-free with a set of obstacles.
+///
+/// # Arguments
+///
+/// * `point` - The coordinates of the point to check for collision.
+/// * `obstacles` - A list of obstacles, where each obstacle is represented by a list of coordinates.
+///
+/// # Returns
+///
+/// Returns `true` if the point is collision-free, `false` otherwise.
 fn collision_free(point: &Vec<f64>, obstacles: &Vec<Vec<f64>>) -> bool {
     for obstacle in obstacles {
         if distance(&point, &obstacle) < 1.0 {
@@ -171,6 +296,16 @@ fn collision_free(point: &Vec<f64>, obstacles: &Vec<Vec<f64>>) -> bool {
 }
 
 
+/// Calculates the Euclidean distance between two points in n-dimensional space.
+///
+/// # Arguments
+///
+/// * `point_a` - The coordinates of the first point.
+/// * `point_b` - The coordinates of the second point.
+///
+/// # Returns
+///
+/// The Euclidean distance between `point_a` and `point_b`.
 fn distance(point_a: &Vec<f64>, point_b: &Vec<f64>) -> f64 {
     let mut sum = 0.0;
     for (a, b) in point_a.iter().zip(point_b.iter()) {
