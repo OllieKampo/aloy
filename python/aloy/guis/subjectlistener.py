@@ -55,7 +55,7 @@ from typing import (Any, Callable, Concatenate, Final, NamedTuple, ParamSpec,
 from PySide6.QtCore import QTimer  # pylint: disable=no-name-in-module
 
 from aloy.concurrency.atomic import AtomicBool
-from aloy.concurrency.clocks import ClockThread
+from aloy.concurrency.clocks import SimpleClockThread
 from aloy.concurrency.executors import AloyQTimerExecutor, AloyThreadPool
 from aloy.concurrency.synchronization import (SynchronizedMeta,
                                               get_instance_lock, sync)
@@ -347,7 +347,7 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
     def __init__(
         self,
         name: str | None = None,
-        clock: ClockThread | QTimer | None = None,
+        clock: SimpleClockThread | QTimer | None = None,
         tick_rate: int = 10,
         start_clock: bool = True,
         max_workers: int = 10,
@@ -394,7 +394,7 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
         self.__update_queue: dict[str, queue.SimpleQueue[tuple[Any, Any]]] = \
             defaultdict(queue.SimpleQueue)
 
-        self.__clock: ClockThread | QTimer = create_clock(
+        self.__clock: SimpleClockThread | QTimer = create_clock(
             self.__schedule_updates,
             name=self.__name if self.__name is not None else "New Subject",
             clock=clock,
@@ -404,7 +404,7 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
             debug=self.__debug
         )
         self.__executor: AloyThreadPool | AloyQTimerExecutor
-        if isinstance(self.__clock, ClockThread):
+        if isinstance(self.__clock, SimpleClockThread):
             self.__executor = AloyThreadPool(
                 pool_name=f"Subject {name} :: Thread Pool Executor",
                 max_workers=max(max_workers, 1),

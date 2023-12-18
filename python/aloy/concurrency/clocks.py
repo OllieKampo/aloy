@@ -15,10 +15,9 @@
 
 """Module containing functions and classes for thread clocks."""
 
-import inspect
 import threading
 import time
-from typing import Callable, Final, Protocol, final, runtime_checkable
+from typing import Any, Callable, Final, Protocol, final, runtime_checkable
 import warnings
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
@@ -26,7 +25,7 @@ __license__ = "GPL-3.0"
 __version__ = "0.1.0"
 
 __all__ = (
-    "ClockThread",
+    "SimpleClockThread",
     "Tickable"
 )
 
@@ -40,15 +39,48 @@ def __dir__() -> tuple[str, ...]:
 class Tickable(Protocol):
     """A protocol for tickable objects."""
 
-    def tick(self) -> None:
+    def tick(self, *args: Any, **kwargs: Any) -> None:
         """Tick the object."""
-        ...
 
 
 @final
-class ClockThread:
+class _SimpleClockItem:
+    """Class defining a simple clock item."""
+
+    __slots__ = {
+        "__func": "The function to call.",
+        "__args": "The arguments to pass to the function.",
+        "__kwargs": "The keyword arguments to pass to the function."
+    }
+
+    def __init__(
+        self,
+        func: Callable[..., None],
+        *args: Any,
+        **kwargs: Any
+    ) -> None:
+        """Create a new simple clock item."""
+        self.__func = func
+        self.__args = args
+        self.__kwargs = kwargs
+
+    def __call__(self) -> None:
+        """Call the function."""
+        self.__func(*self.__args, **self.__kwargs)
+
+    def __eq__(self, __value: object) -> bool:
+        """Return whether the value is equal to the item."""
+        if isinstance(__value, _SimpleClockItem):
+            return self.__func == __value.__func  # pylint: disable=W0212
+        if callable(__value):
+            return self.__func == __value
+        return NotImplemented
+
+
+@final
+class SimpleClockThread:
     """
-    Class defining threads used to run a clock for
+    Class defining a thread used to run a clock for
     regularly calling functions at a given tick rate.
     """
 
@@ -66,33 +98,18 @@ class ClockThread:
 
     def __init__(
         self,
-        *items: Tickable | Callable[[], None],
-        tick_rate: int = 10,
-        check_items: bool = True
+        tick_rate: int = 10
     ) -> None:
         """
         Create a new clock thread with the given tickable items.
 
-        Parameters
-        ----------
-        `*items: Tickable | Callable[[], None]` - The items to tick.
-        Must be either;
-            - A tickable object implementing `tick()`, see the protocol
-              `aloy.concurrency.clocks.Tickable`,
-            - A callable object that takes no parameters.
-
         `tick_rate: int = 10` - The tick rate of the clock (ticks/second).
         This is approximate, the actual tick rate may vary, the only
         guarantee is that the tick rate will not exceed the given value.
-
-        `check_items: bool = True` - Whether to check that items either
-        implement `tick()` or are callable with no parameters. If they
-        do not, a `TypeError` will be raised.
         """
         # Schedule items.
         self.__atomic_update_lock = threading.Lock()
-        self.__items: list[Callable[[], None]] = []
-        self.schedule(*items, check_items=check_items)
+        self.__items: list[_SimpleClockItem] = []
         self.tick_rate = tick_rate
 
         # Variables for the clock thread.
@@ -107,40 +124,35 @@ class ClockThread:
         return (f"ClockThread: with {len(self.__items)} items "
                 f"at tick rate {self.tick_rate} ticks/second.")
 
-    @property
-    def items(self) -> list[Callable[[], None]]:
-        """Return the items scheduled to be ticked by the clock."""
-        return self.__items
-
     def schedule(
         self,
-        *items: Tickable | Callable[[], None],
-        check_items: bool = True
+        func: Tickable | Callable[..., None],
+        *args: Any,
+        **kwargs: Any
     ) -> None:
-        """Schedule an item to be ticked by the clock."""
-        with self.__atomic_update_lock:
-            for item in items:
-                if isinstance(item, Tickable):
-                    self.__items.append(item.tick)
-                elif callable(item):
-                    self.__items.append(item)
-                else:
-                    raise TypeError(f"Item {item!r} of type {type(item)} is "
-                                    "not tickable or callable.")
-                if check_items:
-                    item = self.__items[-1]
-                    params = inspect.signature(item).parameters
-                    if not (num_params := len(params)) == 0:
-                        raise ValueError(f"Function {item!r} must take no "
-                                         f"parameters. Got {num_params}.")
+        """
+        Schedule an item to be ticked by the clock.
 
-    def unschedule(self, *items: Tickable | Callable[[], None]) -> None:
+        Parameters
+        ----------
+        """
+        with self.__atomic_update_lock:
+            if isinstance(func, Tickable):
+                func = func.tick
+            elif not callable(func):
+                raise TypeError(f"Item {func!r} of type {type(func)} is "
+                                "not tickable or callable.")
+            self.__items.append(_SimpleClockItem(func, *args, **kwargs))
+
+    def unschedule(self, func: Tickable | Callable[..., None]) -> None:
         """Unschedule an item from being ticked by the clock."""
         with self.__atomic_update_lock:
-            for item in items:
-                if isinstance(item, Tickable):
-                    item = item.tick
-                self.__items.remove(item)
+            if isinstance(func, Tickable):
+                func = func.tick
+            elif not callable(func):
+                raise TypeError(f"Item {func!r} of type {type(func)} is "
+                                "not tickable or callable.")
+            self.__items.remove(func)  # type: ignore[arg-type]
 
     @property
     def tick_rate(self) -> int:
@@ -193,10 +205,10 @@ class ClockThread:
                     sleep_time = 0.0
                     warnings.warn(
                         f"[{self!s}] Tick rate too high for scheduled items. "
-                        "Sleep time longer than update time. Actual sleep "
-                        f"time = {actual_sleep_time:.3f} seconds, items tick "
-                        f"time = {update_time:.3f} seconds. Setting sleep "
-                        "time to 0.0 seconds."
+                        "Update time longer than sleep time. Actual sleep "
+                        f"time = {actual_sleep_time:.3f} seconds, items "
+                        f"update time = {update_time:.3f} seconds. Setting "
+                        "sleep time to 0.0 seconds."
                     )
                 else:
                     # Adjust sleep time to account for update time.
