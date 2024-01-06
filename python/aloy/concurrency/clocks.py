@@ -20,6 +20,8 @@ import time
 from typing import Any, Callable, Final, Protocol, final, runtime_checkable
 import warnings
 
+from aloy.datahandling.runningstats import MovingAverage
+
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
 __version__ = "0.1.0"
@@ -103,13 +105,19 @@ class SimpleClockThread:
         """
         Create a new clock thread with the given tickable items.
 
+        Parameters
+        ----------
         `tick_rate: int = 10` - The tick rate of the clock (ticks/second).
         This is approximate, the actual tick rate may vary, the only
         guarantee is that the tick rate will not exceed the given value.
         """
-        # Schedule items.
-        self.__atomic_update_lock = threading.Lock()
+        # Scheduled items.
         self.__items: list[_SimpleClockItem] = []
+
+        # Lock for atomic start and stop calls.
+        self.__atomic_update_lock = threading.Lock()
+
+        # Clock tick rate, sets the sleep time.
         self.tick_rate = tick_rate
 
         # Variables for the clock thread.
@@ -135,6 +143,11 @@ class SimpleClockThread:
 
         Parameters
         ----------
+        `func: Tickable | Callable[..., None]` - The function to call.
+
+        `*args: Any` - The positional arguments to pass to the function.
+
+        `**kwargs: Any` - The keyword arguments to pass to the function.
         """
         with self.__atomic_update_lock:
             if isinstance(func, Tickable):
@@ -230,3 +243,84 @@ class SimpleClockThread:
             if self.__running.is_set():
                 self.__stopped.set()
                 self.__running.wait()
+
+
+@final
+class _TimedClockItem:
+    """Class defining a timed clock item."""
+
+    __slots__ = {
+        "__func": "The function to call.",
+        "__args": "The arguments to pass to the function.",
+        "__kwargs": "The keyword arguments to pass to the function.",
+        "_interval": "The interval between calls to the function.",
+        "_last_time": "The last time the function was called.",
+        "_next_time": "The next time to call the function."
+    }
+
+    def __init__(
+        self,
+        interval: float,
+        last_time: float,
+        next_time: float,
+        func: Callable[..., None],
+        *args: Any,
+        **kwargs: Any
+    ) -> None:
+        """Create a new timed clock item."""
+        # Function to call.
+        self.__func = func
+        self.__args = args
+        self.__kwargs = kwargs
+
+        # Timing variables.
+        self._interval = interval
+        self._last_time = last_time
+        self._next_time = next_time
+
+    def __call__(self) -> None:
+        """Call the function."""
+        self.__func(*self.__args, **self.__kwargs)
+
+    def __eq__(self, __value: object) -> bool:
+        """Return whether the value is equal to the item."""
+        if isinstance(__value, _TimedClockItem):
+            return self.__func == __value.__func  # pylint: disable=W0212
+        if callable(__value):
+            return self.__func == __value
+        return NotImplemented
+
+
+@final
+class ClockThread:
+    """
+    Class defining a thread used to run multiple clocks for
+    regularly calling functions at a given tick rate.
+    """
+
+    def __init__(self) -> None:
+        """Create a new clock thread."""
+        self.__next_time: float = time.perf_counter()
+        self.__last_time: float | None = None
+
+        self.__frequency = MovingAverage[float](60)
+
+    @property
+    def frequency(self) -> float:
+        """Return the frequency of the clock."""
+        return 1.0 / self.__frequency.average
+
+    def __get_time(self) -> float:
+        """Return the time since the last update."""
+        current_time: float = time.perf_counter()
+        delta_time: float
+        if self.__last_time is None:
+            delta_time = 0.0
+        else:
+            delta_time = current_time - self.__last_time
+            self.__frequency.append(delta_time)
+        return delta_time
+
+    def __tick(self) -> None:
+        """Tick the clock."""
+        delta_time: float = self.__get_time()
