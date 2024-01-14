@@ -79,46 +79,27 @@ class _SimpleClockItem:
         return NotImplemented
 
 
-@final
-class SimpleClockThread:
-    """
-    Class defining a thread used to run a clock for
-    regularly calling functions at a given tick rate.
-    """
+class _ClockBase:
+    """Base class for clocks."""
 
     __DELAYED_TICKS_WARNING: Final[int] = 100
     __DELAYED_TICKS_RESET: Final[int] = 10
 
     __slots__ = {
-        "__items": "The items to tick.",
-        "__atomic_update_lock": "A lock making start and stop calls atomic.",
-        "__sleep_time": "The time to sleep between ticks.",
+        "_sleep_time": "The time to sleep between ticks.",
+        "_atomic_update_lock": "A lock making start and stop calls atomic.",
         "__thread": "The thread that runs the clock.",
         "__running": "Event handling whether the clock is running.",
         "__stopped": "Event handling whether the clock should stop."
     }
 
-    def __init__(
-        self,
-        tick_rate: int = 10
-    ) -> None:
-        """
-        Create a new clock thread with the given tickable items.
-
-        Parameters
-        ----------
-        `tick_rate: int = 10` - The tick rate of the clock (ticks/second).
-        This is approximate, the actual tick rate may vary, the only
-        guarantee is that the tick rate will not exceed the given value.
-        """
-        # Scheduled items.
-        self.__items: list[_SimpleClockItem] = []
+    def __init__(self) -> None:
+        """Create a new clock."""
+        # Sleep time between ticks.
+        self._sleep_time: float = 1.0
 
         # Lock for atomic start and stop calls.
-        self.__atomic_update_lock = threading.Lock()
-
-        # Clock tick rate, sets the sleep time.
-        self.tick_rate = tick_rate
+        self._atomic_update_lock = threading.Lock()
 
         # Variables for the clock thread.
         self.__thread = threading.Thread(target=self.__run)
@@ -127,65 +108,30 @@ class SimpleClockThread:
         self.__stopped = threading.Event()
         self.__thread.start()
 
-    def __str__(self) -> str:
-        """Return a string representation of the clock thread."""
-        return (f"ClockThread: with {len(self.__items)} items "
-                f"at tick rate {self.tick_rate} ticks/second.")
+    def _call_items(self) -> None:
+        """Call the items."""
+        raise NotImplementedError
 
-    def schedule(
-        self,
-        func: Tickable | Callable[..., None],
-        *args: Any,
-        **kwargs: Any
-    ) -> None:
-        """
-        Schedule an item to be ticked by the clock.
+    def start(self) -> None:
+        """Start the clock."""
+        with self._atomic_update_lock:
+            if not self.__running.is_set():
+                self.__stopped.clear()
+                self.__running.set()
 
-        Parameters
-        ----------
-        `func: Tickable | Callable[..., None]` - The function to call.
-
-        `*args: Any` - The positional arguments to pass to the function.
-
-        `**kwargs: Any` - The keyword arguments to pass to the function.
-        """
-        with self.__atomic_update_lock:
-            if isinstance(func, Tickable):
-                func = func.tick
-            elif not callable(func):
-                raise TypeError(f"Item {func!r} of type {type(func)} is "
-                                "not tickable or callable.")
-            self.__items.append(_SimpleClockItem(func, *args, **kwargs))
-
-    def unschedule(self, func: Tickable | Callable[..., None]) -> None:
-        """Unschedule an item from being ticked by the clock."""
-        with self.__atomic_update_lock:
-            if isinstance(func, Tickable):
-                func = func.tick
-            elif not callable(func):
-                raise TypeError(f"Item {func!r} of type {type(func)} is "
-                                "not tickable or callable.")
-            self.__items.remove(func)  # type: ignore[arg-type]
-
-    @property
-    def tick_rate(self) -> int:
-        """Return the tick rate of the clock."""
-        return int(1.0 / self.__sleep_time)
-
-    @tick_rate.setter
-    def tick_rate(self, value: int) -> None:
-        """Set the tick rate of the clock."""
-        if value <= 0:
-            raise ValueError("Tick rate must be greater than 0. "
-                             f"Got; {value}.")
-        self.__sleep_time = 1.0 / value
+    def stop(self) -> None:
+        """Stop the clock."""
+        with self._atomic_update_lock:
+            if self.__running.is_set():
+                self.__stopped.set()
+                self.__running.wait()
 
     def __run(self) -> None:
         """Run the clock."""
         while True:
             self.__running.wait()
 
-            sleep_time: float = self.__sleep_time
+            sleep_time: float = self._sleep_time
             start_sleep_time: float = time.perf_counter()
             delayed_ticks: int = 0
             ticks_since_last_delayed_tick: int = 0
@@ -209,9 +155,8 @@ class SimpleClockThread:
                     ticks_since_last_delayed_tick = 0
 
                 start_update_time = time.perf_counter()
-                with self.__atomic_update_lock:
-                    for item in self.__items:
-                        item()
+                with self._atomic_update_lock:
+                    self._call_items()
                 update_time = time.perf_counter() - start_update_time
 
                 if update_time > actual_sleep_time:
@@ -225,24 +170,101 @@ class SimpleClockThread:
                     )
                 else:
                     # Adjust sleep time to account for update time.
-                    sleep_time = ((sleep_time + self.__sleep_time)
+                    sleep_time = ((sleep_time + self._sleep_time)
                                   - (actual_sleep_time + update_time))
 
                 start_sleep_time = time.perf_counter()
 
-    def start(self) -> None:
-        """Start the clock."""
-        with self.__atomic_update_lock:
-            if not self.__running.is_set():
-                self.__stopped.clear()
-                self.__running.set()
 
-    def stop(self) -> None:
-        """Stop the clock."""
-        with self.__atomic_update_lock:
-            if self.__running.is_set():
-                self.__stopped.set()
-                self.__running.wait()
+@final
+class SimpleClockThread(_ClockBase):
+    """
+    Class defining a thread used to run a clock for
+    regularly calling functions at a given tick rate.
+    """
+
+    __slots__ = {
+        "__items": "The items to tick."
+    }
+
+    def __init__(
+        self,
+        tick_rate: int = 20
+    ) -> None:
+        """
+        Create a new clock thread with the given tickable items.
+
+        Parameters
+        ----------
+        `tick_rate: int = 10` - The tick rate of the clock (ticks/second).
+        This is approximate, the actual tick rate may vary, the only
+        guarantee is that the tick rate will not exceed the given value.
+        """
+        super().__init__()
+
+        # Scheduled items.
+        self.__items: list[_SimpleClockItem] = []
+
+        # Clock tick rate, sets the sleep time.
+        self.tick_rate = tick_rate
+
+    def __str__(self) -> str:
+        """Return a string representation of the clock thread."""
+        return (f"ClockThread: with {len(self.__items)} items "
+                f"at tick rate {self.tick_rate} ticks/second.")
+
+    @property
+    def tick_rate(self) -> int:
+        """Return the tick rate of the clock."""
+        return int(1.0 / self._sleep_time)
+
+    @tick_rate.setter
+    def tick_rate(self, value: int) -> None:
+        """Set the tick rate of the clock."""
+        if value <= 0:
+            raise ValueError("Tick rate must be greater than 0. "
+                             f"Got; {value}.")
+        self._sleep_time = 1.0 / value
+
+    def schedule(
+        self,
+        func: Tickable | Callable[..., None],
+        *args: Any,
+        **kwargs: Any
+    ) -> None:
+        """
+        Schedule an item to be ticked by the clock.
+
+        Parameters
+        ----------
+        `func: Tickable | Callable[..., None]` - The function to call.
+
+        `*args: Any` - The positional arguments to pass to the function.
+
+        `**kwargs: Any` - The keyword arguments to pass to the function.
+        """
+        with self._atomic_update_lock:
+            if isinstance(func, Tickable):
+                func = func.tick
+            elif not callable(func):
+                raise TypeError(f"Item {func!r} of type {type(func)} is "
+                                "not tickable or callable.")
+            self.__items.append(_SimpleClockItem(func, *args, **kwargs))
+
+    def unschedule(self, func: Tickable | Callable[..., None]) -> None:
+        """Unschedule an item from being ticked by the clock."""
+        with self._atomic_update_lock:
+            if isinstance(func, Tickable):
+                func = func.tick
+            elif not callable(func):
+                raise TypeError(f"Item {func!r} of type {type(func)} is "
+                                "not tickable or callable.")
+            self.__items.remove(func)  # type: ignore[arg-type]
+
+    def _call_items(self) -> None:
+        """Call the items."""
+        for item in self.__items:
+            item()
 
 
 @final
@@ -253,9 +275,9 @@ class _TimedClockItem:
         "__func": "The function to call.",
         "__args": "The arguments to pass to the function.",
         "__kwargs": "The keyword arguments to pass to the function.",
-        "_interval": "The interval between calls to the function.",
-        "_last_time": "The last time the function was called.",
-        "_next_time": "The next time to call the function."
+        "interval": "The interval between calls to the function.",
+        "last_time": "The last time the function was called.",
+        "next_time": "The next time to call the function."
     }
 
     def __init__(
@@ -274,9 +296,9 @@ class _TimedClockItem:
         self.__kwargs = kwargs
 
         # Timing variables.
-        self._interval = interval
-        self._last_time = last_time
-        self._next_time = next_time
+        self.interval = interval
+        self.last_time = last_time
+        self.next_time = next_time
 
     def __call__(self) -> None:
         """Call the function."""
@@ -292,35 +314,113 @@ class _TimedClockItem:
 
 
 @final
-class ClockThread:
+class ClockThread(_ClockBase):
     """
     Class defining a thread used to run multiple clocks for
-    regularly calling functions at a given tick rate.
+    regularly calling functions at given intervals.
     """
 
     def __init__(self) -> None:
         """Create a new clock thread."""
-        self.__next_time: float = time.perf_counter()
-        self.__last_time: float | None = None
+        super().__init__()
 
-        self.__frequency = MovingAverage[float](60)
+        # Scheduled items.
+        self.__items: list[_TimedClockItem] = []
+
+        # Variables for timing.
+        self.__last_time: float | None = None
+        self.__frequency = MovingAverage(60)
 
     @property
     def frequency(self) -> float:
         """Return the frequency of the clock."""
         return 1.0 / self.__frequency.average
 
-    def __get_time(self) -> float:
-        """Return the time since the last update."""
+    def schedule(
+        self,
+        interval: float,
+        func: Tickable | Callable[..., None],
+        *args: Any,
+        **kwargs: Any
+    ) -> None:
+        """
+        Schedule an item to be ticked by the clock.
+
+        Parameters
+        ----------
+        `interval: float` - The interval between calls to the function.
+
+        `func: Tickable | Callable[..., None]` - The function to call.
+
+        `*args: Any` - The positional arguments to pass to the function.
+
+        `**kwargs: Any` - The keyword arguments to pass to the function.
+        """
+        with self._atomic_update_lock:
+            if isinstance(func, Tickable):
+                func = func.tick
+            elif not callable(func):
+                raise TypeError(f"Item {func!r} of type {type(func)} is "
+                                "not tickable or callable.")
+            last_time: float
+            next_time: float
+            if self.__last_time is None:
+                last_time = time.perf_counter()
+                next_time = last_time + interval
+            else:
+                last_time = self.__last_time
+                next_time = last_time + interval
+                if next_time <= last_time:
+                    next_time = last_time + interval
+            self.__items.append(
+                _TimedClockItem(
+                    interval,
+                    last_time,
+                    next_time,
+                    func,
+                    *args,
+                    **kwargs
+                )
+            )
+
+    def unschedule(self, func: Tickable | Callable[..., None]) -> None:
+        """Unschedule an item from being ticked by the clock."""
+        with self._atomic_update_lock:
+            if isinstance(func, Tickable):
+                func = func.tick
+            elif not callable(func):
+                raise TypeError(f"Item {func!r} of type {type(func)} is "
+                                "not tickable or callable.")
+            self.__items.remove(func)  # type: ignore[arg-type]
+
+    def _call_items(self) -> None:
+        """Call the items."""
+        do_tick, current_time = self.__do_update()
+        if do_tick:
+            for item in self.__items:
+                if item.next_time <= current_time:
+                    item()
+                    next_time = item.last_time + item.interval
+                    if next_time <= current_time:
+                        next_time = current_time + item.interval
+                    item.next_time = next_time
+                    item.last_time = current_time
+
+    def __do_update(self) -> tuple[bool, float]:
+        """
+        Return whether to do an update tick and the current time.
+        """
         current_time: float = time.perf_counter()
+
         delta_time: float
         if self.__last_time is None:
             delta_time = 0.0
         else:
             delta_time = current_time - self.__last_time
             self.__frequency.append(delta_time)
-        return delta_time
 
-    def __tick(self) -> None:
-        """Tick the clock."""
-        delta_time: float = self.__get_time()
+        do_tick: bool = delta_time > self._sleep_time
+        if do_tick:
+            self.__last_time = current_time
+
+        return do_tick, current_time
