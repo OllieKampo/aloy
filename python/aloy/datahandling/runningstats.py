@@ -1,5 +1,6 @@
+###############################################################################
 # Copyright (C) 2023 Oliver Michael Kamperis
-# Email: o.m.kamperis@gmail.com
+# Email: olliekampo@gmail.com
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
@@ -9,8 +10,8 @@
 # ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
 # FOR A PARTICULAR PURPOSE. See the GNU General Public License for details.
 #
-# You should have received a copy of the GNU General Public License
-# along with this program. If not, see <https://www.gnu.org/licenses/>.
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
 
 """Module containing classes for calculating running statistics."""
 
@@ -21,6 +22,7 @@ from typing import Callable, Generic, TypeVar, final
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
+__version__ = "0.1.0"
 
 __all__ = (
     "MovingAverage",
@@ -38,14 +40,15 @@ NT = TypeVar("NT", int, float)
 
 
 @final
-class MovingAverage(Generic[NT]):
+class MovingAverage:
     """A running average of a stream of numbers."""
 
     __slots__ = {
         "__window": "The current window size.",
         "__total": "The current total value in the window.",
         "__average": "The current average in the window.",
-        "__under_full_initial": "Whether to return the initial value if the window is not full.",
+        "__under_full_initial": "Whether to return the initial value if the "
+                                "window is not full.",
         "__data": "The data in the window if tracking is enabled.",
         "__stored": "The number of items stored in the window if tracking is "
                     "disabled.",
@@ -57,7 +60,7 @@ class MovingAverage(Generic[NT]):
     def __init__(
         self,
         window: int,
-        initial: NT | None = None,
+        initial: float | None = None,
         track_window: bool = True,
         fast_track: bool = False,
         under_full_initial: bool = True
@@ -81,7 +84,7 @@ class MovingAverage(Generic[NT]):
         ----------
         `window: int` - The size of the window.
 
-        `initial: NT | None = None` - The initial value to use for the
+        `initial: float | None = None` - The initial value to use for the
         average. If `None`, the average will start at 0.
 
         `track_window: bool = True` - If `True`, the data will be stored in a
@@ -112,13 +115,13 @@ class MovingAverage(Generic[NT]):
                 f"Got; {initial} of {type(initial)} instead."
             )
 
-        self.__total: NT = 0 if initial is None else (initial * window)
-        self.__average: NT = 0 if initial is None else initial
+        self.__total: float = 0 if initial is None else (initial * window)
+        self.__average: float = 0 if initial is None else initial
         self.__under_full_initial: bool = under_full_initial
-        self.__data: deque[NT] | None
+        self.__data: deque[float] | None
         self.__stored: int | None
         self.__ratio: float = (window - 1) / window
-        self.__append: Callable[[NT], None]
+        self.__append: Callable[[float], None]
 
         if track_window:
             self.__data = deque(maxlen=window)
@@ -159,33 +162,33 @@ class MovingAverage(Generic[NT]):
         return self.__window
 
     @property
-    def total(self) -> NT:
+    def total(self) -> float:
         """The current total of the window."""
         return self.__total
 
     @property
-    def average(self) -> NT:
+    def average(self) -> float:
         """The current average of the window."""
         return self.__average
 
     @property
-    def data(self) -> deque[NT] | None:
+    def data(self) -> deque[float] | None:
         """The data in the window if tracking is enabled."""
         return self.__data
 
-    def append(self, value: NT) -> None:
+    def append(self, value: float) -> None:
         """Append a value to the moving average."""
         self.__append(value)
 
     @functools.wraps(append)
-    def __append_track(self, value: NT) -> None:
+    def __append_track(self, value: float) -> None:
         self.__data.append(value)
         self.__total = sum(self.__data)
         if len(self.__data) == self.__window or not self.__under_full_initial:
             self.__average = self.__total / len(self.__data)
 
     @functools.wraps(append)
-    def __append_track_fast(self, value: NT) -> None:
+    def __append_track_fast(self, value: float) -> None:
         if len(self.__data) == self.__window:
             self.__total -= self.__data[0]
         self.__data.append(value)
@@ -194,7 +197,7 @@ class MovingAverage(Generic[NT]):
             self.__average = self.__total / len(self.__data)
 
     @functools.wraps(append)
-    def __append_no_track(self, value: NT) -> None:
+    def __append_no_track(self, value: float) -> None:
         if self.__stored < self.__window:
             self.__total += value
             self.__stored += 1
