@@ -15,22 +15,24 @@
 
 """Module containing functions and classes for synchronization."""
 
-from collections import defaultdict
 import contextlib
 import functools
 import threading
 import types
-import typing
 import weakref
+from collections import defaultdict
+from typing import (Any, Callable, Concatenate, Iterable, Iterator, Literal,
+                    ParamSpec, Type, TypeVar, final, overload)
 
-from aloy.auxiliary.metaclasses import create_if_not_exists_in_slots
 from aloy.auxiliary.introspection import loads_functions
+from aloy.auxiliary.metaclasses import create_if_not_exists_in_slots
+from aloy.concurrency.atomic import AtomicNumber
 from aloy.datastructures.graph import Graph
 from aloy.datastructures.mappings import ReversableDict
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = (
     "OwnedRLock",
@@ -46,21 +48,23 @@ def __dir__() -> tuple[str, ...]:
     return __all__
 
 
-@typing.final
+@final
 class OwnedRLock(contextlib.AbstractContextManager):
     """
     Class defining a reentrant lock that keeps track of its owner and
     recursion depth.
     """
 
-    __slots__ = (
-        "__name",
-        "__lock",
-        "__owner",
-        "__recursion_depth",
-        "__waiting_lock",
-        "__waiting"
-    )
+    __slots__ = {
+        "__name": "The name of the lock.",
+        "__lock": "The underlying reentrant lock.",
+        "__owner": "The thread that currently owns the lock.",
+        "__recursion_depth": "The number of times the lock has been acquired "
+                             "by the current thread.",
+        "__waiting_lock": "The lock used to protect the waiting set.",
+        "__waiting": "The threads that are currently waiting to acquire the "
+                     "lock."
+    }
 
     def __init__(self, lock_name: str | None = None) -> None:
         """
@@ -224,7 +228,7 @@ def atomic_context(
     context_name: str, /,
     cls: type | None = None,
     inst: object | None = None
-) -> typing.Iterator[None]:
+) -> Iterator[None]:
     """
     Context manager that ensures atomic updates in the context.
 
@@ -261,15 +265,15 @@ def atomic_context(
         lock_.release()
 
 
-CT = typing.TypeVar("CT")
-SP = typing.ParamSpec("SP")
-ST = typing.TypeVar("ST")
+CT = TypeVar("CT")
+SP = ParamSpec("SP")
+ST = TypeVar("ST")
 
 
 def atomic_update(
     global_lock: str | None = None,
     method: bool = False
-) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
+) -> Callable[[Callable[SP, ST]], Callable[SP, ST]]:
     """
     Decorate a function to ensure atomic updates in the decorated function.
 
@@ -306,7 +310,7 @@ def atomic_update(
     >>> foo.x
     0
     """
-    def decorator(func: typing.Callable[SP, ST]) -> typing.Callable[SP, ST]:
+    def decorator(func: Callable[SP, ST]) -> Callable[SP, ST]:
         lock_name: str
         if method:
             if global_lock is not None:
@@ -335,31 +339,31 @@ def atomic_update(
     return decorator
 
 
-@typing.overload
+@overload
 def sync(
-) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
+) -> Callable[[Callable[SP, ST]], Callable[SP, ST]]:
     ...
 
 
-@typing.overload
+@overload
 def sync(
-    lock: typing.Literal["all", "method"],
+    lock: Literal["all", "method"],
     group_name: str | None = None
-) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
+) -> Callable[[Callable[SP, ST]], Callable[SP, ST]]:
     ...
 
 
-@typing.overload
+@overload
 def sync(
     *, group_name: str
-) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
+) -> Callable[[Callable[SP, ST]], Callable[SP, ST]]:
     ...
 
 
 def sync(
-    lock: typing.Literal["all", "method"] | None = None,
+    lock: Literal["all", "method"] | None = None,
     group_name: str | None = None
-) -> typing.Callable[[typing.Callable[SP, ST]], typing.Callable[SP, ST]]:
+) -> Callable[[Callable[SP, ST]], Callable[SP, ST]]:
     """
     Decorate a method or property of a synchronized class to synchronize
     access to the decorated method or property. A synchronized method or
@@ -407,7 +411,7 @@ def sync(
         else:
             lock = "method"
 
-    def sync_dec(method: typing.Callable[SP, ST]) -> typing.Callable[SP, ST]:
+    def sync_dec(method: Callable[SP, ST]) -> Callable[SP, ST]:
         """
         Assign the lock name and group to the method's `__sync__` and
         `__group__` attributes.
@@ -440,29 +444,17 @@ def sync(
     return sync_dec
 
 
-# TODO: Problem with this, is that if a method-locked method if executing,
-# then executing another method-locked method always takes precedence over
-# executing an instance-locked method, even if the instance-locked method
-# was called first or many threads are waiting to the instance-locked method,
-# because the instance-locked method has to wait for all method-locked
-# methods to finish executing, but method-locked methods do not.
-# Solution: Keep a count of how many threads are waiting for the
-# instance-locked method, and if we reach a certain threshold, then
-# stop the method-locked methods from executing until the instance-locked
-# method has executed.
-
-
 def synchronize_method(
-    lock: typing.Literal["all", "method"] = "all"
-) -> typing.Callable[
-    [typing.Callable[typing.Concatenate[CT, SP], ST]],
-    typing.Callable[typing.Concatenate[CT, SP], ST]
+    lock: Literal["all", "method"] = "all"
+) -> Callable[
+    [Callable[Concatenate[CT, SP], ST]],
+    Callable[Concatenate[CT, SP], ST]
 ]:
     """Decorate a method to synchronize it in a synchronized class."""
 
     def synchronize_method_decorator(
-        method: typing.Callable[typing.Concatenate[CT, SP], ST]
-    ) -> typing.Callable[typing.Concatenate[CT, SP], ST]:
+        method: Callable[Concatenate[CT, SP], ST]
+    ) -> Callable[Concatenate[CT, SP], ST]:
         """Return a synchronized method wrapper."""
         if lock == "all":
             @functools.wraps(method)
@@ -487,48 +479,64 @@ def synchronize_method(
                 **kwargs: SP.kwargs
             ) -> ST:
                 """Return a synchronized method wrapper."""
-                # If no method-locked methods are executing;
-                if self.__event__.is_set():
-                    # If the current thread owns the instance lock, then
-                    # an instance-locked method is calling a method-locked
-                    # method, so simply execute the method.
-                    if self.__lock__.owner is threading.current_thread():
-                        with self.__lock__:
-                            return method(self, *args, **kwargs)
+                while True:
+                    # If no method-locked methods are executing;
+                    if self.__event__.is_set():
+                        # If the current thread owns the instance lock, then
+                        # an instance-locked method is calling a method-locked
+                        # method, so simply execute the method.
+                        if self.__lock__.owner is threading.current_thread():
+                            with self.__lock__:
+                                return method(self, *args, **kwargs)
 
-                    # Otherwise, wait to acquire the instance lock, to prevent
-                    # any instance-locked methods executing beyond this point
-                    # until the method-locks are updated.
-                    self.__lock__.acquire()
+                        # Otherwise, wait to acquire the instance lock, to
+                        # prevent any instance-locked methods executing beyond
+                        # this point until the method-locks are updated.
+                        self.__lock__.acquire()
 
-                    # Attempt to acquire the method lock.
-                    self.__method_locks__[method.__name__].acquire()
+                        # Attempt to acquire the method lock.
+                        self.__method_locks__[method.__name__].acquire()
 
-                    # Update the state to reflect that a method-locked method
-                    # is executing. A given thread could only ever pass this
-                    # point once, as a method-locked method would be executing
-                    # on the second call, and we'd go through the else block.
-                    # Therefore, we always acquire the semaphore here, as the
-                    # recursion depth will always be one.
-                    self.__semaphore__.acquire()
-                    self.__event__.clear()
-
-                    # Release the instance lock, no instance-locked methods
-                    # can be executed, until all method locks are released.
-                    self.__lock__.release()
-
-                # If a method-locked method is already executing;
-                else:
-                    # Simply acquire the method lock.
-                    self.__method_locks__[method.__name__].acquire()
-
-                    # If this is the first time the given thread has called
-                    # this method, then acquire the semaphore to show that
-                    # this method-locked method is executing.
-                    if (self.__method_locks__[method.__name__].recursion_depth
-                            == 1):
+                        # Update the state to reflect that a method-locked
+                        # method is executing. A given thread could only ever
+                        # pass this point once, as a method-locked method
+                        # would be executing on the second call, and we'd go
+                        # through the else block. Therefore, we always acquire
+                        # the semaphore here, as the recursion depth will
+                        # always be one.
                         self.__semaphore__.acquire()
                         self.__event__.clear()
+
+                        # Release the instance lock, no instance-locked methods
+                        # can be executed, until all method locks are released.
+                        self.__lock__.release()
+
+                        break
+
+                    # If a method-locked method is already executing;
+                    else:
+                        # Simply acquire the method lock.
+                        self.__num_method_threads_waiting__ += 1
+                        self.__method_locks__[method.__name__].acquire()
+                        self.__num_method_threads_waiting__ -= 1
+
+                        # Go back to the start of the loop, as another thread
+                        # has acquired the instance lock, and we need to wait
+                        # for all instance-locked methods to finish executing.
+                        if self.__event__.is_set():
+                            self.__method_locks__[method.__name__].release()
+                            continue
+
+                        # If this is the first time the given thread has called
+                        # this method, then acquire the semaphore to show that
+                        # this method-locked method is executing.
+                        if (self.__method_locks__[method.__name__]
+                                .recursion_depth == 1):
+                            self.__num_threads_acquired_semaphore__ += 1
+                            self.__semaphore__.acquire()
+                            self.__event__.clear()
+
+                        break
 
                 # Execute the method.
                 result = method(self, *args, **kwargs)
@@ -537,21 +545,36 @@ def synchronize_method(
                 # has finished executing before releasing the method lock.
                 # If the current thread is about to exit its first call to
                 # the method, then release the semaphore to show that this
-                # method-locked method has finished executing. If all method
-                # locks are released, set the event to allow instance-locked
-                # methods to execute again. The exception is if another thread
-                # is waiting to execute the same method, in which case, we
-                # don't want to set the event, as we want to allow the other
-                # thread to execute the method-locked method, before we allow
-                # instance-locked methods to execute again.
+                # method-locked method has finished executing.
                 if self.__method_locks__[method.__name__].recursion_depth == 1:
                     self.__semaphore__.release()
+
                 # pylint: disable=protected-access
-                if (not self.__method_locks__[method.__name__]
-                        .any_threads_waiting
-                        and self.__semaphore__._value == self.__semaphore__
-                            ._initial_value):
-                    self.__event__.set()
+                # If all method locks are released, set the event to allow
+                # instance-locked methods to execute again.
+                if (self.__semaphore__._value
+                        == self.__semaphore__._initial_value):
+                    # If another thread is waiting to execute the same method,
+                    # don't set the event, to allow the other thread to
+                    # execute the method-locked method, before allowing
+                    # instance-locked methods to execute again.
+                    if (not self.__method_locks__[method.__name__]
+                            .any_threads_waiting):
+                        self.__num_threads_acquired_semaphore__ = 0
+                        self.__event__.set()
+                    # If the number of threads that have acquired the
+                    # the semaphore since the last time an instance-locked
+                    # method was executed, minus the number of threads that
+                    # are waiting to execute any method-locked method, is
+                    # greater than the number of threads waiting to execute
+                    # an instance-locked method, then set the event to allow
+                    # instance-locked methods to execute again.
+                    elif ((self.__num_threads_acquired_semaphore__
+                           - self.__num_method_threads_waiting__)
+                          > self.__lock__.num_threads_waiting):
+                        self.__num_threads_acquired_semaphore__ = 0
+                        self.__event__.set()
+                # pylint: enable=protected-access
                 self.__method_locks__[method.__name__].release()
 
                 # Return the method's result.
@@ -565,12 +588,12 @@ def synchronize_method(
 
 
 def _check_for_sync(
-    func: typing.Callable,
-    all_methods: dict[str, typing.Callable],
+    func: Callable,
+    all_methods: dict[str, Callable],
     method_locked_methods: set[str],
     method_locked_methods_groups: ReversableDict[str, str],
     instance_locked_methods: set[str]
-) -> typing.Callable:
+) -> Callable:
     if func is not None:
         all_methods[func.__name__] = func
         if (lock_name := getattr(func, "__sync__", None)) is not None:
@@ -597,8 +620,8 @@ class SynchronizedMeta(type):
     def __new__(
         mcs,
         cls_name: str,
-        bases: tuple[typing.Type, ...],
-        class_dict: dict[str, typing.Any]
+        bases: tuple[Type, ...],
+        class_dict: dict[str, Any]
     ) -> type:
         """
         Metaclass for synchronized classes.
@@ -612,19 +635,26 @@ class SynchronizedMeta(type):
             __semaphore__="Method-locks semaphore (counts locked "
                           "method-locked methods).",
             __event__="Event signalling when all method-locked methods are "
-                      "unlocked."
+                      "unlocked.",
+            __num_method_threads_waiting__="Number of threads waiting to "
+                                           "acquire a method lock.",
+            __num_threads_acquired_semaphore__="Number of threads that have "
+                                               "acquired the semaphore since "
+                                               "the last time an "
+                                               "instance-locked method was "
+                                               "executed."
         )
 
-        all_methods = dict[str, typing.Callable]()
+        all_methods = dict[str, Callable]()
         method_locked_methods = set[str]()
         method_lock_groups = ReversableDict[str, str]()
         instance_locked_methods = set[str]()
 
         # Check through the class's attributes to find methods and properties
         # to synchronize.
-        methods_to_sync: dict[str, typing.Callable] = {}
+        methods_to_sync: dict[str, Callable] = {}
         properties_to_sync: dict[
-            str, tuple[typing.Callable | None, ...]] = {}
+            str, tuple[Callable | None, ...]] = {}
         for attr_name, attr in class_dict.items():
             if (attr_name.startswith("__")
                     or attr_name.endswith("__")):
@@ -654,7 +684,7 @@ class SynchronizedMeta(type):
 
         if method_locked_methods:
             # Obtain a graph of which methods load each other.
-            load_graph = Graph[str, typing.Any](directed=True)
+            load_graph = Graph[str, Any](directed=True)
             for method_name, method in all_methods.items():
                 load_graph[method_name] = set(
                     loads_functions(
@@ -777,6 +807,11 @@ class SynchronizedMeta(type):
             if not hasattr(self, "__event__"):
                 self.__event__ = threading.Event()
                 self.__event__.set()
+            if not hasattr(self, "__num_method_threads_waiting__"):
+                self.__num_method_threads_waiting__ = AtomicNumber[int]()
+            if not hasattr(self, "__num_threads_acquired_semaphore__"):
+                self.__num_threads_acquired_semaphore__ \
+                    = AtomicNumber[int]()
             original_init(self, *args, **kwargs)
 
         # Assign the wrapped init method to the class.
@@ -822,7 +857,7 @@ class SynchronizedMeta(type):
 
         return super().__new__(mcs, cls_name, bases, class_dict)
 
-    def __dir__(cls) -> typing.Iterable[str]:
+    def __dir__(cls) -> Iterable[str]:
         """Return the attributes of the class."""
         return list(super().__dir__()) + [
             "is_instance_locked",
@@ -843,8 +878,8 @@ class SynchronizedClass(metaclass=SynchronizedMeta):
         super().__init__(*args, **kwargs)
 
     instance_lock: OwnedRLock
-    is_instance_locked: typing.Callable[[], bool]
-    is_method_locked: typing.Callable[[str | None], bool]
+    is_instance_locked: Callable[[], bool]
+    is_method_locked: Callable[[str | None], bool]
     lockable_methods: tuple[str, ...]
     loop_locks: ReversableDict[str, int]
     group_locks: ReversableDict[str, str]
@@ -853,7 +888,7 @@ class SynchronizedClass(metaclass=SynchronizedMeta):
 @contextlib.contextmanager
 def get_instance_lock(
     instance: SynchronizedClass
-) -> typing.Iterator[None]:
+) -> Iterator[None]:
     """
     Context manager for acquiring the instance lock of a synchronized class.
 
