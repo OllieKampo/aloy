@@ -24,7 +24,7 @@ from aloy.datahandling.runningstats import MovingAverage
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = (
     "SimpleClockThread",
@@ -362,6 +362,7 @@ class ClockThread(_ClockBase):
             elif not callable(func):
                 raise TypeError(f"Item {func!r} of type {type(func)} is "
                                 "not tickable or callable.")
+
             last_time: float
             next_time: float
             if self.__last_time is None:
@@ -370,8 +371,10 @@ class ClockThread(_ClockBase):
             else:
                 last_time = self.__last_time
                 next_time = last_time + interval
-                if next_time <= last_time:
-                    next_time = last_time + interval
+
+            if interval < self._sleep_time:
+                self._sleep_time = interval
+
             self.__items.append(
                 _TimedClockItem(
                     interval,
@@ -391,36 +394,35 @@ class ClockThread(_ClockBase):
             elif not callable(func):
                 raise TypeError(f"Item {func!r} of type {type(func)} is "
                                 "not tickable or callable.")
-            self.__items.remove(func)  # type: ignore[arg-type]
+
+            update_sleep_time: bool = False
+            for item in self.__items:
+                if item == func:
+                    if item.interval <= self._sleep_time:
+                        update_sleep_time = True
+                    self.__items.remove(item)
+                    break
+
+            if update_sleep_time:
+                self._sleep_time = min(
+                    (item.interval for item in self.__items),
+                    default=1.0
+                )
 
     def _call_items(self) -> None:
         """Call the items."""
-        do_tick, current_time = self.__do_update()
-        if do_tick:
-            for item in self.__items:
-                if item.next_time <= current_time:
-                    item()
-                    next_time = item.last_time + item.interval
-                    if next_time <= current_time:
-                        next_time = current_time + item.interval
-                    item.next_time = next_time
-                    item.last_time = current_time
-
-    def __do_update(self) -> tuple[bool, float]:
-        """
-        Return whether to do an update tick and the current time.
-        """
         current_time: float = time.perf_counter()
-
-        delta_time: float
-        if self.__last_time is None:
-            delta_time = 0.0
-        else:
+        delta_time: float = 0.0
+        if self.__last_time is not None:
             delta_time = current_time - self.__last_time
             self.__frequency.append(delta_time)
+        self.__last_time = current_time
 
-        do_tick: bool = delta_time > self._sleep_time
-        if do_tick:
-            self.__last_time = current_time
-
-        return do_tick, current_time
+        for item in self.__items:
+            if item.next_time <= current_time:
+                item()
+                next_time = item.last_time + item.interval
+                if next_time <= current_time:
+                    next_time = current_time + item.interval
+                item.next_time = next_time
+                item.last_time = current_time
