@@ -15,6 +15,8 @@
 
 """Module containing functions and classes for thread clocks."""
 
+from concurrent.futures import Future, ThreadPoolExecutor
+import math
 import threading
 import time
 from typing import Any, Callable, Final, Protocol, final, runtime_checkable
@@ -24,11 +26,13 @@ from aloy.datahandling.runningstats import MovingAverage
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = (
+    "Tickable",
     "SimpleClockThread",
-    "Tickable"
+    "ClockThread",
+    "RequesterClockThread"
 )
 
 
@@ -372,8 +376,12 @@ class ClockThread(_ClockBase):
                 last_time = self.__last_time
                 next_time = last_time + interval
 
-            if interval < self._sleep_time:
-                self._sleep_time = interval
+            self._sleep_time = math.gcd(
+                *(
+                    int(item.interval * 100)
+                    for item in self.__items
+                )
+            )
 
             self.__items.append(
                 _TimedClockItem(
@@ -426,3 +434,203 @@ class ClockThread(_ClockBase):
                     next_time = current_time + item.interval
                 item.next_time = next_time
                 item.last_time = current_time
+
+
+class _TimedClockFutureItem:
+    """Class defining a timed clock future item."""
+
+    __slots__ = {
+        "__func": "The function to call.",
+        "__args": "The arguments to pass to the function.",
+        "__kwargs": "The keyword arguments to pass to the function.",
+        "interval": "The interval between calls to the function.",
+        "timeout": "The timeout for the function.",
+        "last_time": "The last time the function was called.",
+        "next_time": "The next time to call the function.",
+        "next_timeout": "The next timeout for the function."
+    }
+
+    def __init__(
+        self,
+        interval: float,
+        timeout: float,
+        last_time: float,
+        next_time: float,
+        next_timeout: float,
+        func: Callable[..., None],
+        *args: Any,
+        **kwargs: Any
+    ) -> None:
+        """Create a new timed clock future item."""
+        # Function to call.
+        self.__func = func
+        self.__args = args
+        self.__kwargs = kwargs
+
+        # Timing variables.
+        self.interval = interval
+        self.timeout = timeout
+        self.last_time = last_time
+        self.next_time = next_time
+        self.next_timeout = next_timeout
+
+    def __call__(self) -> None:
+        """Call the function."""
+        self.__func(*self.__args, **self.__kwargs)
+
+    def __eq__(self, __value: object) -> bool:
+        """Return whether the value is equal to the item."""
+        if isinstance(__value, _TimedClockFutureItem):
+            return self.__func == __value.__func  # pylint: disable=W0212
+        if callable(__value):
+            return self.__func == __value
+        return NotImplemented
+
+
+@final
+class RequesterClockThread(_ClockBase):
+    """
+    Class defining a thread used to run multiple clocks for
+    regularly calling functions at given intervals.
+    """
+
+    def __init__(self, max_workers: int | None = None) -> None:
+        """Create a new requester clock thread."""
+        super().__init__()
+
+        # Scheduled items.
+        self.__items: dict[_TimedClockFutureItem, Future | None] = {}
+
+        # Threadpool for running requests.
+        self.__threadpool = ThreadPoolExecutor(
+            max_workers=max_workers
+        )
+
+        # Variables for timing.
+        self.__last_time: float | None = None
+        self.__frequency = MovingAverage(60)
+
+    @property
+    def frequency(self) -> float:
+        """Return the frequency of the clock."""
+        return 1.0 / self.__frequency.average
+
+    def schedule(
+        self,
+        interval: float,
+        timeout: float,
+        func: Tickable | Callable[..., None],
+        *args: Any,
+        **kwargs: Any
+    ) -> None:
+        """
+        Schedule an item to be ticked by the clock.
+
+        Parameters
+        ----------
+        `interval: float` - The interval between calls to the function.
+
+        `timeout: float` - The timeout for the function.
+
+        `func: Tickable | Callable[..., None]` - The function to call.
+
+        `*args: Any` - The positional arguments to pass to the function.
+
+        `**kwargs: Any` - The keyword arguments to pass to the function.
+        """
+        with self._atomic_update_lock:
+            if isinstance(func, Tickable):
+                func = func.tick
+            elif not callable(func):
+                raise TypeError(f"Item {func!r} of type {type(func)} is "
+                                "not tickable or callable.")
+
+            last_time: float
+            next_time: float
+            next_timeout: float
+            if self.__last_time is None:
+                last_time = time.perf_counter()
+                next_time = last_time + interval
+                next_timeout = last_time + timeout
+            else:
+                last_time = self.__last_time
+                next_time = last_time + interval
+                next_timeout = last_time + timeout
+
+            self._sleep_time = math.gcd(
+                *(
+                    int(item.interval * 100)
+                    for item in self.__items
+                )
+            )
+
+            self.__items[_TimedClockFutureItem(
+                interval,
+                timeout,
+                last_time,
+                next_time,
+                next_timeout,
+                func,
+                *args,
+                **kwargs
+            )] = None
+
+    def unschedule(self, func: Tickable | Callable[..., None]) -> None:
+        """Unschedule an item from being ticked by the clock."""
+        with self._atomic_update_lock:
+            if isinstance(func, Tickable):
+                func = func.tick
+            elif not callable(func):
+                raise TypeError(f"Item {func!r} of type {type(func)} is "
+                                "not tickable or callable.")
+
+            update_sleep_time: bool = False
+            for item in self.__items:
+                if item == func:
+                    if item.interval <= self._sleep_time:
+                        update_sleep_time = True
+                    self.__items[item] = None
+                    break
+
+            if update_sleep_time:
+                self._sleep_time = min(
+                    (item.interval for item in self.__items),
+                    default=1.0
+                )
+
+    def _call_items(self) -> None:
+        """Call the items."""
+        current_time: float = time.perf_counter()
+        delta_time: float = 0.0
+        if self.__last_time is not None:
+            delta_time = current_time - self.__last_time
+            self.__frequency.append(delta_time)
+        self.__last_time = current_time
+
+        for item, future in self.__items.items():
+            if future is None:
+                if item.next_time <= current_time:
+                    self._submit_item(current_time, item)
+            elif item.next_timeout <= current_time:
+                if future.running():
+                    future.cancel()
+                self._submit_item(current_time, item)
+            elif future.done():
+                self.__items[item] = None
+                future.result()
+
+    def _submit_item(
+        self,
+        current_time: float,
+        item: _TimedClockFutureItem
+    ) -> None:
+        """Submit an item to the threadpool."""
+        self.__items[item] = self.__threadpool.submit(item)
+        next_time = item.last_time + item.interval
+        next_timeout = item.last_time + item.timeout
+        if next_time <= current_time:
+            next_time = current_time + item.interval
+            next_timeout = current_time + item.timeout
+        item.next_time = next_time
+        item.next_timeout = next_timeout
+        item.last_time = current_time
