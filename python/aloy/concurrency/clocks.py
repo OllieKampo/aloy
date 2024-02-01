@@ -87,7 +87,7 @@ class _ClockBase:
         with self._atomic_update_lock:
             if self.__running.is_set():
                 self.__stopped.set()
-                self.__running.wait()
+                self.__running.clear()
 
     def __run(self) -> None:
         """Run the clock."""
@@ -411,13 +411,6 @@ class ClockThread(_ClockBase):
                 last_time = self.__last_time
                 next_time = last_time + interval
 
-            self._sleep_time = math.gcd(
-                *(
-                    int(item.interval * 100)
-                    for item in self.__items
-                )
-            )
-
             self.__items.append(
                 _TimedClockItem(
                     interval,
@@ -429,6 +422,13 @@ class ClockThread(_ClockBase):
                     **kwargs
                 )
             )
+
+            self._sleep_time = math.gcd(
+                *(
+                    int(item.interval * 100)
+                    for item in self.__items
+                )
+            ) / 100
 
     def unschedule(
         self,
@@ -451,10 +451,12 @@ class ClockThread(_ClockBase):
                     break
 
             if update_sleep_time:
-                self._sleep_time = min(
-                    (item.interval for item in self.__items),
-                    default=1.0
-                )
+                self._sleep_time = math.gcd(
+                    *(
+                        int(item.interval * 100)
+                        for item in self.__items
+                    )
+                ) / 100
 
     def _call_items(self) -> None:
         """Call the items."""
@@ -529,6 +531,10 @@ class _TimedClockFutureItem(Generic[PS, TV_co]):
         if callable(__value):
             return self.__func == __value
         return NotImplemented
+
+    def __hash__(self) -> int:
+        """Return the hash of the item."""
+        return hash(self.__func)
 
 
 @final
@@ -606,13 +612,6 @@ class RequesterClockThread(_ClockBase):
                 next_time = last_time + interval
                 next_timeout = last_time + timeout
 
-            self._sleep_time = math.gcd(
-                *(
-                    int(item.interval * 100)
-                    for item in self.__items
-                )
-            )
-
             self.__items[_TimedClockFutureItem(
                 interval,
                 timeout,
@@ -624,6 +623,13 @@ class RequesterClockThread(_ClockBase):
                 return_callback=return_callback,
                 **kwargs
             )] = None
+
+            self._sleep_time = math.gcd(
+                *(
+                    int(item.interval * 100)
+                    for item in self.__items
+                )
+            ) / 100
 
     def unschedule(
         self,
@@ -646,10 +652,12 @@ class RequesterClockThread(_ClockBase):
                     break
 
             if update_sleep_time:
-                self._sleep_time = min(
-                    (item.interval for item in self.__items),
-                    default=1.0
-                )
+                self._sleep_time = math.gcd(
+                    *(
+                        int(item.interval * 100)
+                        for item in self.__items
+                    )
+                ) / 100
 
     def _call_items(self) -> None:
         """Call the items."""
@@ -687,3 +695,57 @@ class RequesterClockThread(_ClockBase):
         item.next_time = next_time
         item.next_timeout = next_timeout
         item.last_time = current_time
+
+
+def __main() -> None:
+    simple_clock = SimpleClockThread()
+    simple_clock.schedule(print, "Hello, world!")
+    simple_clock.start()
+    time.sleep(2)
+    simple_clock.stop()
+
+    count1 = 0
+    count2 = 0
+    count3 = 0
+    def print1(text: str) -> None:
+        """Print text."""
+        nonlocal count1
+        count1 += 1
+        print(f"{count1}: {text}")
+    def print2(text: str) -> None:
+        """Print text."""
+        nonlocal count2
+        count2 += 1
+        print(f"{count2}: {text}")
+    def print3(text: str) -> None:
+        """Print text."""
+        nonlocal count3
+        count3 += 1
+        print(f"{count3}: {text}")
+
+    clock = ClockThread()
+    clock.schedule(0.2, print1, "Hello, world!")
+    clock.schedule(0.4, print2, "Goodbye, world!")
+    clock.schedule(1.0, print3, "See you later!")
+    clock.start()
+    time.sleep(10)
+    clock.stop()
+
+    import random
+    def mock_request() -> None:
+        """Mock a request."""
+        time_ = random.random() * 0.8
+        time.sleep(time_)
+        if time_ > 0.5:
+            print("Request took too long.")
+        else:
+            print("Request complete.")
+    requester_clock = RequesterClockThread()
+    requester_clock.schedule(0.2, 0.5, mock_request)
+    requester_clock.start()
+    time.sleep(10)
+    requester_clock.stop()
+
+
+if __name__ == "__main__":
+    __main()
