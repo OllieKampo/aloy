@@ -15,18 +15,19 @@
 
 """Module containing functions and classes for thread clocks."""
 
-from concurrent.futures import Future, ThreadPoolExecutor
 import math
 import threading
 import time
-from typing import Any, Callable, Final, Protocol, final, runtime_checkable
 import warnings
+from concurrent.futures import Future, ThreadPoolExecutor
+from typing import (Callable, Final, Generic, ParamSpec, Protocol, TypeVar,
+                    final, runtime_checkable)
 
 from aloy.datahandling.runningstats import MovingAverage
 
-__copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
+__copyright__ = "Copyright (C) 2024 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = (
     "Tickable",
@@ -39,48 +40,6 @@ __all__ = (
 def __dir__() -> tuple[str, ...]:
     """Get the names of module attributes."""
     return __all__
-
-
-@runtime_checkable
-class Tickable(Protocol):
-    """A protocol for tickable objects."""
-
-    def tick(self, *args: Any, **kwargs: Any) -> None:
-        """Tick the object."""
-
-
-@final
-class _SimpleClockItem:
-    """Class defining a simple clock item."""
-
-    __slots__ = {
-        "__func": "The function to call.",
-        "__args": "The arguments to pass to the function.",
-        "__kwargs": "The keyword arguments to pass to the function."
-    }
-
-    def __init__(
-        self,
-        func: Callable[..., None],
-        *args: Any,
-        **kwargs: Any
-    ) -> None:
-        """Create a new simple clock item."""
-        self.__func = func
-        self.__args = args
-        self.__kwargs = kwargs
-
-    def __call__(self) -> None:
-        """Call the function."""
-        self.__func(*self.__args, **self.__kwargs)
-
-    def __eq__(self, __value: object) -> bool:
-        """Return whether the value is equal to the item."""
-        if isinstance(__value, _SimpleClockItem):
-            return self.__func == __value.__func  # pylint: disable=W0212
-        if callable(__value):
-            return self.__func == __value
-        return NotImplemented
 
 
 class _ClockBase:
@@ -180,11 +139,62 @@ class _ClockBase:
                 start_sleep_time = time.perf_counter()
 
 
+PS = ParamSpec("PS")
+TV_co = TypeVar("TV_co", covariant=True)  # pylint: disable=invalid-name
+
+
+@runtime_checkable
+class Tickable(Protocol[PS, TV_co]):
+    """A protocol for tickable objects."""
+
+    def tick(self, *args: PS.args, **kwargs: PS.kwargs) -> TV_co:
+        """Tick the object."""
+
+
+@final
+class _SimpleClockItem(Generic[PS, TV_co]):
+    """Class defining a simple clock item."""
+
+    __slots__ = {
+        "__func": "The function to call.",
+        "__args": "The arguments to pass to the function.",
+        "__kwargs": "The keyword arguments to pass to the function.",
+        "__return_callback": "The callback to call with the return value."
+    }
+
+    def __init__(
+        self,
+        func: Callable[PS, TV_co],
+        *args: PS.args,
+        return_callback: Callable[[TV_co], None] | None = None,
+        **kwargs: PS.kwargs
+    ) -> None:
+        """Create a new simple clock item."""
+        self.__func = func
+        self.__args = args
+        self.__kwargs = kwargs
+        self.__return_callback = return_callback
+
+    def __call__(self) -> None:
+        """Call the function."""
+        return_: TV_co = self.__func(*self.__args, **self.__kwargs)
+        if self.__return_callback is not None:
+            self.__return_callback(return_)
+
+    def __eq__(self, __value: object) -> bool:
+        """Return whether the value is equal to the item."""
+        if isinstance(__value, _SimpleClockItem):
+            return self.__func == __value.__func  # pylint: disable=W0212
+        if callable(__value):
+            return self.__func == __value
+        return NotImplemented
+
+
 @final
 class SimpleClockThread(_ClockBase):
     """
-    Class defining a thread used to run a clock for
-    regularly calling functions at a given tick rate.
+    Class defining a thread running a clock that regularly calls a set of
+    functions at a global tick rate.
     """
 
     __slots__ = {
@@ -232,18 +242,23 @@ class SimpleClockThread(_ClockBase):
 
     def schedule(
         self,
-        func: Tickable | Callable[..., None],
-        *args: Any,
-        **kwargs: Any
+        func: Tickable[PS, TV_co] | Callable[PS, TV_co],
+        *args: PS.args,
+        return_callback: Callable[[TV_co], None] | None = None,
+        **kwargs: PS.kwargs
     ) -> None:
         """
         Schedule an item to be ticked by the clock.
 
         Parameters
         ----------
-        `func: Tickable | Callable[..., None]` - The function to call.
+        `func: Tickable[PS, TV_co] | Callable[PS, TV_co]` - The function to
+        call.
 
         `*args: Any` - The positional arguments to pass to the function.
+
+        `return_callback: Callable[[TV_co], None] | None` - A callback to
+        call with the return value of the function every time it is called.
 
         `**kwargs: Any` - The keyword arguments to pass to the function.
         """
@@ -253,9 +268,19 @@ class SimpleClockThread(_ClockBase):
             elif not callable(func):
                 raise TypeError(f"Item {func!r} of type {type(func)} is "
                                 "not tickable or callable.")
-            self.__items.append(_SimpleClockItem(func, *args, **kwargs))
+            self.__items.append(
+                _SimpleClockItem(
+                    func,
+                    *args,
+                    return_callback=return_callback,
+                    **kwargs
+                )
+            )
 
-    def unschedule(self, func: Tickable | Callable[..., None]) -> None:
+    def unschedule(
+        self,
+        func: Tickable[PS, TV_co] | Callable[PS, TV_co]
+    ) -> None:
         """Unschedule an item from being ticked by the clock."""
         with self._atomic_update_lock:
             if isinstance(func, Tickable):
@@ -272,13 +297,14 @@ class SimpleClockThread(_ClockBase):
 
 
 @final
-class _TimedClockItem:
+class _TimedClockItem(Generic[PS, TV_co]):
     """Class defining a timed clock item."""
 
     __slots__ = {
         "__func": "The function to call.",
         "__args": "The arguments to pass to the function.",
         "__kwargs": "The keyword arguments to pass to the function.",
+        "__return_callback": "The callback to call with the return value.",
         "interval": "The interval between calls to the function.",
         "last_time": "The last time the function was called.",
         "next_time": "The next time to call the function."
@@ -289,15 +315,17 @@ class _TimedClockItem:
         interval: float,
         last_time: float,
         next_time: float,
-        func: Callable[..., None],
-        *args: Any,
-        **kwargs: Any
+        func: Callable[PS, TV_co],
+        *args: PS.args,
+        return_callback: Callable[[TV_co], None] | None = None,
+        **kwargs: PS.kwargs
     ) -> None:
         """Create a new timed clock item."""
         # Function to call.
         self.__func = func
         self.__args = args
         self.__kwargs = kwargs
+        self.__return_callback = return_callback
 
         # Timing variables.
         self.interval = interval
@@ -306,7 +334,9 @@ class _TimedClockItem:
 
     def __call__(self) -> None:
         """Call the function."""
-        self.__func(*self.__args, **self.__kwargs)
+        return_: TV_co = self.__func(*self.__args, **self.__kwargs)
+        if self.__return_callback is not None:
+            self.__return_callback(return_)
 
     def __eq__(self, __value: object) -> bool:
         """Return whether the value is equal to the item."""
@@ -320,8 +350,8 @@ class _TimedClockItem:
 @final
 class ClockThread(_ClockBase):
     """
-    Class defining a thread used to run multiple clocks for
-    regularly calling functions at given intervals.
+    Class defining a thread running a clock that regularly calls a set of
+    functions, each with a unique time interval.
     """
 
     def __init__(self) -> None:
@@ -343,9 +373,10 @@ class ClockThread(_ClockBase):
     def schedule(
         self,
         interval: float,
-        func: Tickable | Callable[..., None],
-        *args: Any,
-        **kwargs: Any
+        func: Tickable[PS, TV_co] | Callable[PS, TV_co],
+        *args: PS.args,
+        return_callback: Callable[[TV_co], None] | None = None,
+        **kwargs: PS.kwargs
     ) -> None:
         """
         Schedule an item to be ticked by the clock.
@@ -354,9 +385,13 @@ class ClockThread(_ClockBase):
         ----------
         `interval: float` - The interval between calls to the function.
 
-        `func: Tickable | Callable[..., None]` - The function to call.
+        `func: Tickable[PS, TV_co] | Callable[PS, TV_co]` - The function to
+        call.
 
         `*args: Any` - The positional arguments to pass to the function.
+
+        `return_callback: Callable[[TV_co], None] | None` - A callback to
+        call with the return value of the function every time it is called.
 
         `**kwargs: Any` - The keyword arguments to pass to the function.
         """
@@ -390,11 +425,15 @@ class ClockThread(_ClockBase):
                     next_time,
                     func,
                     *args,
+                    return_callback=return_callback,
                     **kwargs
                 )
             )
 
-    def unschedule(self, func: Tickable | Callable[..., None]) -> None:
+    def unschedule(
+        self,
+        func: Tickable[PS, TV_co] | Callable[PS, TV_co]
+    ) -> None:
         """Unschedule an item from being ticked by the clock."""
         with self._atomic_update_lock:
             if isinstance(func, Tickable):
@@ -436,13 +475,14 @@ class ClockThread(_ClockBase):
                 item.last_time = current_time
 
 
-class _TimedClockFutureItem:
+class _TimedClockFutureItem(Generic[PS, TV_co]):
     """Class defining a timed clock future item."""
 
     __slots__ = {
         "__func": "The function to call.",
         "__args": "The arguments to pass to the function.",
         "__kwargs": "The keyword arguments to pass to the function.",
+        "__return_callback": "The callback to call with the return value.",
         "interval": "The interval between calls to the function.",
         "timeout": "The timeout for the function.",
         "last_time": "The last time the function was called.",
@@ -457,15 +497,17 @@ class _TimedClockFutureItem:
         last_time: float,
         next_time: float,
         next_timeout: float,
-        func: Callable[..., None],
-        *args: Any,
-        **kwargs: Any
+        func: Callable[PS, TV_co],
+        *args: PS.args,
+        return_callback: Callable[[TV_co], None] | None = None,
+        **kwargs: PS.kwargs
     ) -> None:
         """Create a new timed clock future item."""
         # Function to call.
         self.__func = func
         self.__args = args
         self.__kwargs = kwargs
+        self.__return_callback = return_callback
 
         # Timing variables.
         self.interval = interval
@@ -476,7 +518,9 @@ class _TimedClockFutureItem:
 
     def __call__(self) -> None:
         """Call the function."""
-        self.__func(*self.__args, **self.__kwargs)
+        return_: TV_co = self.__func(*self.__args, **self.__kwargs)
+        if self.__return_callback is not None:
+            self.__return_callback(return_)
 
     def __eq__(self, __value: object) -> bool:
         """Return whether the value is equal to the item."""
@@ -519,9 +563,10 @@ class RequesterClockThread(_ClockBase):
         self,
         interval: float,
         timeout: float,
-        func: Tickable | Callable[..., None],
-        *args: Any,
-        **kwargs: Any
+        func: Tickable[PS, TV_co] | Callable[PS, TV_co],
+        *args: PS.args,
+        return_callback: Callable[[TV_co], None] | None = None,
+        **kwargs: PS.kwargs
     ) -> None:
         """
         Schedule an item to be ticked by the clock.
@@ -532,9 +577,13 @@ class RequesterClockThread(_ClockBase):
 
         `timeout: float` - The timeout for the function.
 
-        `func: Tickable | Callable[..., None]` - The function to call.
+        `func: Tickable[PS, TV_co] | Callable[PS, TV_co]` - The function to
+        call.
 
         `*args: Any` - The positional arguments to pass to the function.
+
+        `return_callback: Callable[[TV_co], None] | None` - A callback to
+        call with the return value of the function every time it is called.
 
         `**kwargs: Any` - The keyword arguments to pass to the function.
         """
@@ -572,10 +621,14 @@ class RequesterClockThread(_ClockBase):
                 next_timeout,
                 func,
                 *args,
+                return_callback=return_callback,
                 **kwargs
             )] = None
 
-    def unschedule(self, func: Tickable | Callable[..., None]) -> None:
+    def unschedule(
+        self,
+        func: Tickable[PS, TV_co] | Callable[PS, TV_co]
+    ) -> None:
         """Unschedule an item from being ticked by the clock."""
         with self._atomic_update_lock:
             if isinstance(func, Tickable):
