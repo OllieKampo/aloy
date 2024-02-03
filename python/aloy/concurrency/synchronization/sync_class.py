@@ -19,27 +19,25 @@ import contextlib
 import functools
 import threading
 import types
-import weakref
-from collections import defaultdict
 from typing import (Any, Callable, Concatenate, Iterable, Iterator, Literal,
-                    ParamSpec, Type, TypeVar, final, overload)
+                    ParamSpec, Type, TypeVar, overload)
 
 from aloy.auxiliary.introspection import loads_functions
 from aloy.auxiliary.metaclasses import create_if_not_exists_in_slots
 from aloy.concurrency.atomic import AtomicNumber
 from aloy.datastructures.graph import Graph
 from aloy.datastructures.mappings import ReversableDict
+from aloy.concurrency.synchronization.primitives import OwnedRLock
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
 __version__ = "0.4.0"
 
 __all__ = (
-    "OwnedRLock",
-    "atomic_context",
-    "atomic_update",
     "sync",
-    "SynchronizedMeta"
+    "SynchronizedMeta",
+    "SynchronizedClass",
+    "get_instance_lock"
 )
 
 
@@ -48,295 +46,9 @@ def __dir__() -> tuple[str, ...]:
     return __all__
 
 
-@final
-class OwnedRLock(contextlib.AbstractContextManager):
-    """
-    Class defining a reentrant lock that keeps track of its owner and
-    recursion depth.
-    """
-
-    __slots__ = {
-        "__name": "The name of the lock.",
-        "__lock": "The underlying reentrant lock.",
-        "__owner": "The thread that currently owns the lock.",
-        "__recursion_depth": "The number of times the lock has been acquired "
-                             "by the current thread.",
-        "__waiting_lock": "The lock used to protect the waiting set.",
-        "__waiting": "The threads that are currently waiting to acquire the "
-                     "lock."
-    }
-
-    def __init__(self, lock_name: str | None = None) -> None:
-        """
-        Create a new owned reentrant lock with an optional name.
-
-        Parameters
-        ----------
-        `lock_name : str | None = None` - The name of the lock, or None to
-        give it no name.
-        """
-        self.__name: str | None = lock_name
-        self.__lock = threading.RLock()
-        self.__owner: threading.Thread | None = None
-        self.__recursion_depth: int = 0
-        self.__waiting_lock = threading.Lock()
-        self.__waiting: set[threading.Thread] = set()
-
-    def __str__(self) -> str:
-        """Get a simple string representation of the lock."""
-        return f"{'locked' if self.is_locked else 'unlocked'} " \
-               f"{self.__class__.__name__} {self.__name}, " \
-               f"owned by={self.__owner}, depth={self.__recursion_depth!s}"
-
-    def __repr__(self) -> str:
-        """Get a verbose string representation of the lock."""
-        return f"<{'locked' if self.is_locked else 'unlocked'} " \
-               f"{self.__class__.__name__}, name={self.__name}, " \
-               f"owned by={self.__owner}, " \
-               f"recursion depth={self.__recursion_depth!s}, " \
-               f"lock={self.__lock!r}>"
-
-    @property
-    def name(self) -> str | None:
-        """Get the name of the lock, or None if the lock has no name."""
-        return self.__name
-
-    @property
-    def is_locked(self) -> bool:
-        """Get whether the lock is currently locked."""
-        return self.__owner is not None
-
-    @property
-    def owner(self) -> threading.Thread | None:
-        """
-        Get the thread that currently owns the lock, or None if the lock is
-        not locked.
-        """
-        return self.__owner
-
-    @property
-    def is_owner(self) -> bool:
-        """Get whether the current thread owns the lock."""
-        return threading.current_thread() is self.__owner
-
-    @property
-    def recursion_depth(self) -> int:
-        """
-        Get the number of times the lock has been acquired by the current
-        thread.
-        """
-        return self.__recursion_depth
-
-    @property
-    def any_threads_waiting(self) -> bool:
-        """
-        Get whether any threads are currently waiting to acquire the lock.
-        """
-        return bool(self.__waiting)
-
-    @property
-    def num_threads_waiting(self) -> int:
-        """
-        Get the number of threads that are currently waiting to acquire the
-        lock.
-        """
-        return len(self.__waiting)
-
-    @property
-    def threads_waiting(self) -> frozenset[threading.Thread]:
-        """
-        Get the threads that are currently waiting to acquire the lock.
-        """
-        return frozenset(self.__waiting)
-
-    @property
-    def is_thread_waiting(self) -> bool:
-        """
-        Get whether the current thread is waiting to acquire the lock.
-        """
-        return threading.current_thread() in self.__waiting
-
-    @functools.wraps(
-        threading._RLock.acquire,  # pylint: disable=protected-access
-        assigned=("__doc__",)
-    )
-    def acquire(self, blocking: bool = True, timeout: float = -1.0) -> bool:
-        """
-        Acquire the lock, blocking or non-blocking, with an optional timeout.
-        """
-        current_thread = threading.current_thread()
-        if self.__owner is not current_thread:
-            with self.__waiting_lock:
-                self.__waiting.add(current_thread)
-        if result := self.__lock.acquire(blocking, timeout):
-            if self.__owner is None:
-                with self.__waiting_lock:
-                    self.__waiting.remove(current_thread)
-                self.__owner = current_thread
-            self.__recursion_depth += 1
-        if not result:
-            with self.__waiting_lock:
-                self.__waiting.remove(current_thread)
-        return result
-
-    @functools.wraps(
-        threading._RLock.release,  # pylint: disable=protected-access
-        assigned=("__doc__",)
-    )
-    def release(self) -> None:
-        """Release the lock, if it is locked by the current thread."""
-        if self.__owner is threading.current_thread():
-            self.__lock.release()
-            self.__recursion_depth -= 1
-            if self.__recursion_depth == 0:
-                self.__owner = None
-
-    __enter__ = acquire
-
-    def __exit__(
-        self,
-        exc_type: type | None,
-        exc_val: BaseException | None,
-        exc_tb: types.TracebackType | None
-    ) -> None:
-        """Release the lock when the context manager exits."""
-        self.release()
-
-
-__INSTANCE_ATOMIC_UPDATERS: weakref.WeakKeyDictionary[
-    type,
-    weakref.WeakKeyDictionary[
-        object,
-        dict[str, threading.RLock]
-    ]
-] = weakref.WeakKeyDictionary()
-__CLASS_ATOMIC_UPDATERS: weakref.WeakKeyDictionary[
-    type,
-    dict[
-        str,
-        threading.RLock
-    ]
-] = weakref.WeakKeyDictionary()
-__ARBITRARY_ATOMIC_UPDATERS: dict[
-    str,
-    threading.RLock
-] = defaultdict(threading.RLock)
-
-
-@contextlib.contextmanager
-def atomic_context(
-    context_name: str, /,
-    cls: type | None = None,
-    inst: object | None = None
-) -> Iterator[None]:
-    """
-    Context manager that ensures atomic updates in the context.
-
-    Atomic updates ensure that only one thread can update the context at a
-    time. The same thread can enter the same context multiple times.
-
-    Parameters
-    ----------
-    `context_name: str` - The name of the context.
-
-    `cls: type | None = None` - The class of the context.
-
-    `inst: object | None = None` - The instance of the context.
-    If `cls` is not given or None and `inst` is not None,
-    `cls` will be set to `inst.__class__`.
-    """
-    if inst is not None:
-        if cls is None:
-            cls = inst.__class__
-        lock_ = __INSTANCE_ATOMIC_UPDATERS.setdefault(
-            cls, weakref.WeakKeyDictionary()) \
-            .setdefault(inst, {}).setdefault(
-                context_name, threading.RLock())
-    elif cls is not None:
-        lock_ = __CLASS_ATOMIC_UPDATERS.setdefault(
-            cls, {}) \
-            .setdefault(context_name, threading.RLock())
-    else:
-        lock_ = __ARBITRARY_ATOMIC_UPDATERS[context_name]
-    lock_.acquire()
-    try:
-        yield
-    finally:
-        lock_.release()
-
-
 CT = TypeVar("CT")
 SP = ParamSpec("SP")
 ST = TypeVar("ST")
-
-
-def atomic_update(
-    global_lock: str | None = None,
-    method: bool = False
-) -> Callable[[Callable[SP, ST]], Callable[SP, ST]]:
-    """
-    Decorate a function to ensure atomic updates in the decorated function.
-
-    Atomic updates ensure that only one thread can update the context at a
-    time. The same thread can enter the same context multiple times.
-
-    Parameters
-    ----------
-    `global_lock: str | None = None` - If given and not None, the name of the
-    global lock to use. Whereby, a global lock can be shared between multiple
-    functions. If not given or None, the lock will be a lock unique to the
-    decorated function.
-
-    `method: bool = False` - Whether the decorated function is treated as a
-    method. If True, a unique lock will be used by each instance of a class.
-    If False, a single lock will be used by all instances of a class.
-
-    Example Usage
-    -------------
-    >>> class Foo:
-    ...     def __init__(self):
-    ...         self.x = 0
-    ...     @atomic_update("x")
-    ...     def increment_x(self):
-    ...         self.x += 1
-    ...     @atomic_update("x")
-    ...     def decrement_x(self):
-    ...         self.x -= 1
-    >>> foo = Foo()
-    >>> foo.increment_x()
-    >>> foo.x
-    1
-    >>> foo.decrement_x()
-    >>> foo.x
-    0
-    """
-    def decorator(func: Callable[SP, ST]) -> Callable[SP, ST]:
-        lock_name: str
-        if method:
-            if global_lock is not None:
-                lock_name = f"__method_global__ {global_lock}"
-            else:
-                lock_name = f"__method_local__ {func.__name__}"
-
-            @functools.wraps(func)
-            def wrapper(*args: SP.args, **kwargs: SP.kwargs) -> ST:
-                with atomic_context(lock_name, inst=args[0]):
-                    return func(*args, **kwargs)
-            return wrapper
-
-        else:
-            if global_lock is not None:
-                lock_name = f"__function_global__ {global_lock}"
-            else:
-                lock_name = f"__function_local__ {func.__name__}"
-
-            @functools.wraps(func)
-            def wrapper(*args: SP.args, **kwargs: SP.kwargs) -> ST:
-                with atomic_context(lock_name):
-                    return func(*args, **kwargs)
-
-            return wrapper
-    return decorator
 
 
 @overload
@@ -516,9 +228,11 @@ def synchronize_method(
                     # If a method-locked method is already executing;
                     else:
                         # Simply acquire the method lock.
-                        self.__num_method_threads_waiting__ += 1
+                        with self.__num_method_threads_waiting__:
+                            self.__num_method_threads_waiting__ += 1
                         self.__method_locks__[method.__name__].acquire()
-                        self.__num_method_threads_waiting__ -= 1
+                        with self.__num_method_threads_waiting__:
+                            self.__num_method_threads_waiting__ -= 1
 
                         # Go back to the start of the loop, as another thread
                         # has acquired the instance lock, and we need to wait
@@ -532,7 +246,8 @@ def synchronize_method(
                         # this method-locked method is executing.
                         if (self.__method_locks__[method.__name__]
                                 .recursion_depth == 1):
-                            self.__num_threads_acquired_semaphore__ += 1
+                            with self.__num_threads_acquired_semaphore__:
+                                self.__num_threads_acquired_semaphore__ += 1
                             self.__semaphore__.acquire()
                             self.__event__.clear()
 
@@ -560,7 +275,8 @@ def synchronize_method(
                     # instance-locked methods to execute again.
                     if (not self.__method_locks__[method.__name__]
                             .any_threads_waiting):
-                        self.__num_threads_acquired_semaphore__ = 0
+                        with self.__num_threads_acquired_semaphore__:
+                            self.__num_threads_acquired_semaphore__.set_obj(0)
                         self.__event__.set()
                     # If the number of threads that have acquired the
                     # the semaphore since the last time an instance-locked
@@ -572,7 +288,8 @@ def synchronize_method(
                     elif ((self.__num_threads_acquired_semaphore__
                            - self.__num_method_threads_waiting__)
                           > self.__lock__.num_threads_waiting):
-                        self.__num_threads_acquired_semaphore__ = 0
+                        with self.__num_threads_acquired_semaphore__:
+                            self.__num_threads_acquired_semaphore__.set_obj(0)
                         self.__event__.set()
                 # pylint: enable=protected-access
                 self.__method_locks__[method.__name__].release()

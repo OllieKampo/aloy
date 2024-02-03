@@ -46,9 +46,9 @@ that listeners can subscribe to.
 import functools
 import inspect
 import logging
-from collections import defaultdict, deque
 import queue
 import time
+from collections import defaultdict, deque
 from typing import (Any, Callable, Concatenate, Final, NamedTuple, ParamSpec,
                     Type, TypeVar, final)
 
@@ -57,8 +57,9 @@ from PySide6.QtCore import QTimer  # pylint: disable=no-name-in-module
 from aloy.concurrency.atomic import AtomicBool
 from aloy.concurrency.clocks import SimpleClockThread
 from aloy.concurrency.executors import AloyQTimerExecutor, AloyThreadPool
-from aloy.concurrency.synchronization import (SynchronizedMeta,
-                                              get_instance_lock, sync)
+from aloy.concurrency.synchronization.sync_class import (SynchronizedMeta,
+                                                         get_instance_lock,
+                                                         sync)
 from aloy.datastructures.mappings import TwoWayMap
 from aloy.guis._utils import create_clock
 

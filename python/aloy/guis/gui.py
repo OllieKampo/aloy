@@ -30,7 +30,7 @@ from PySide6 import QtCore, QtWidgets
 
 import aloy.guis.observable as observable
 from aloy.concurrency.clocks import SimpleClockThread
-from aloy.concurrency.synchronization import sync
+from aloy.concurrency.synchronization.sync_class import sync
 from aloy.guis.widgets.placeholders import PlaceholderWidget
 from aloy.moremath.mathutils import closest_integer_factors
 

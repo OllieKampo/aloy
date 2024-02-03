@@ -67,7 +67,7 @@ from typing import (Any, Callable, Concatenate, ParamSpec, TypeVar, final,
 from PySide6.QtCore import QTimer  # pylint: disable=no-name-in-module
 
 from aloy.concurrency.clocks import SimpleClockThread
-from aloy.concurrency.synchronization import SynchronizedClass, sync
+from aloy.concurrency.synchronization.sync_class import SynchronizedClass, sync
 from aloy.datastructures.views import (DictView, ListValuedMappingView,
                                        ListView, SetView)
 from aloy.guis._utils import create_clock
