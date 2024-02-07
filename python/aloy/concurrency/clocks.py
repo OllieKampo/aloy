@@ -672,13 +672,13 @@ class RequesterClockThread(_ClockBase):
             if future is None:
                 if item.next_time <= current_time:
                     self._submit_item(current_time, item)
+            elif future.done():
+                self.__items[item] = None
+                future.result()
             elif item.next_timeout <= current_time:
                 if future.running():
                     future.cancel()
                 self._submit_item(current_time, item)
-            elif future.done():
-                self.__items[item] = None
-                future.result()
 
     def _submit_item(
         self,
