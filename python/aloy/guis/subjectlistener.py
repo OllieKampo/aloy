@@ -410,7 +410,6 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
                 pool_name=f"Subject {name} :: Thread Pool Executor",
                 max_workers=max(max_workers, 1),
                 thread_name_prefix=f"Subject {name} :: Thread",
-                profile=True,
                 log=bool(debug)
             )
         elif isinstance(self.__clock, QTimer):
@@ -507,11 +506,17 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
                 if is_updated:
                     if not is_updating:
                         is_updating.set_obj(True)
-                        self.__executor.submit(
-                            f"Subject Update ({field_name})",
-                            self.__update_all_async,
-                            field_name
-                        )
+                        if isinstance(self.__executor, AloyQTimerExecutor):
+                            self.__executor.submit(
+                                self.__update_all_async,
+                                field_name
+                            )
+                        else:
+                            self.__executor.submit(
+                                f"Subject Update ({field_name})",
+                                self.__update_all_async,
+                                field_name
+                            )
                     is_updated.set_obj(False)
 
     def __update_all_async(self, field_name: str) -> None:

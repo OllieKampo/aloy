@@ -205,7 +205,8 @@ class AloyQTimerExecutor:
     def __execute(self) -> None:
         start_time = time.monotonic()
         try:
-            while (time.monotonic() - start_time) < self.interval:
+            # Execute for at most half the interval time.
+            while (time.monotonic() - start_time) < (self.interval * 0.5):
                 with self.__lock:
                     runnable = self.__queue.get_nowait()
                 runnable.run()
@@ -495,7 +496,8 @@ class AloyThreadPool:
         ]
         futures.reverse()
 
-        return AloyThreadPool.__iter_results(futures, end_time)
+        return AloyThreadPool.__iter_results(
+            futures, end_time)  # type: ignore[arg-type]
 
     @staticmethod
     def __get_result(
