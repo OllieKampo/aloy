@@ -540,8 +540,11 @@ class _TimedClockFutureItem(Generic[PS, TV_co]):
 @final
 class RequesterClockThread(_ClockBase):
     """
-    Class defining a thread used to run multiple clocks for
-    regularly calling functions at given intervals.
+    Class defining a thread running a clock that regularly calls a set of
+    functions, each with a unique time interval and timeout. If the function
+    takes longer than the timeout to complete, the function is cancelled and
+    called again. It is intended for use with functions used to make regular
+    network requests.
     """
 
     def __init__(self, max_workers: int | None = None) -> None:
