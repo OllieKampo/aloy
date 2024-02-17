@@ -112,3 +112,119 @@ def closest_squares(value: int) -> tuple[int, int]:
     if sqrt.is_integer():
         return (int(sqrt),) * 2
     return (math.floor(sqrt) ** 2, math.ceil(sqrt) ** 2)
+
+
+def truncate(value: float, precision: int = 0) -> float:
+    """
+    Truncate a number to a given precision.
+
+    This simply removes digits after the decimal point, such that the
+    remaining number of digits is equal to the given precision.
+
+    Parameters:
+    -----------
+    `value: float` - The number to truncate.
+
+    `precision: int` - The number of decimal places to truncate to.
+
+    Returns:
+    --------
+    `float` - The truncated number.
+
+    Examples:
+    ---------
+    ```python
+    >>> truncate(1.234567)
+    1.0
+    ```
+
+    ```python
+    >>> truncate(1.234567, 2)
+    1.23
+    ```
+
+    ```python
+    >>> truncate(1.234567, 4)
+    1.2345
+    ```
+    """
+    factor: float = 10 ** precision
+    return int(value * factor) / factor
+
+
+def round_up(value: float, precision: int = 0) -> float:
+    """
+    Round a number up to a given precision.
+
+    This removes digits after the decimal point and rounds up the trailing
+    digits, such that the remaining number of digits is equal to the given
+    precision.
+
+    Parameters:
+    -----------
+    `value: float` - The number to round up.
+
+    `precision: int` - The number of decimal places to round to.
+
+    Returns:
+    --------
+    `float` - The rounded number.
+
+    Examples:
+    ---------
+    ```python
+    >>> round_up(1.234567)
+    2.0
+    ```
+
+    ```python
+    >>> round_up(1.234567, 2)
+    1.24
+    ```
+
+    ```python
+    >>> round_up(1.234567, 4)
+    1.2346
+    ```
+    """
+    factor: float = 10 ** precision
+    return math.ceil(value * factor) / factor
+
+
+def round_down(value: float, precision: int = 0) -> float:
+    """
+    Round a number down to a given precision.
+
+    This removes digits after the decimal point and rounds down the trailing
+    digits, such that the remaining number of digits is equal to the given
+    precision.
+
+    Parameters:
+    -----------
+    `value: float` - The number to round down.
+
+    `precision: int` - The number of decimal places to round to.
+
+    Returns:
+    --------
+    `float` - The rounded number.
+
+    Examples:
+    ---------
+    ```python
+    >>> round_down(1.234567)
+    1.0
+    ```
+
+    ```python
+    >>> round_down(1.234567, 2)
+    1.23
+    ```
+
+    ```python
+    >>> round_down(1.234567, 4)
+    1.2345
+    ```
+    """
+    factor: float = 10 ** precision
+    return math.floor(value * factor) / factor
