@@ -1,5 +1,5 @@
 ###############################################################################
-# Copyright (C) 2023 Oliver Michael Kamperis
+# Copyright (C) 2024 Oliver Michael Kamperis
 # Email: olliekampo@gmail.com
 #
 # This program is free software: you can redistribute it and/or modify it under
@@ -15,6 +15,7 @@
 
 """Module containing functions and classes for thread clocks."""
 
+from abc import ABCMeta, abstractmethod
 import math
 import threading
 import time
@@ -27,7 +28,7 @@ from aloy.datahandling.runningstats import MovingAverage
 
 __copyright__ = "Copyright (C) 2024 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = (
     "Tickable",
@@ -42,7 +43,135 @@ def __dir__() -> tuple[str, ...]:
     return __all__
 
 
-class _ClockBase:
+PS = ParamSpec("PS")
+TV_co = TypeVar("TV_co", covariant=True)  # pylint: disable=invalid-name
+
+
+@runtime_checkable
+class Tickable(Protocol[PS, TV_co]):
+    """A protocol for tickable objects."""
+
+    def tick(self, *args: PS.args, **kwargs: PS.kwargs) -> TV_co:
+        """Tick the object."""
+
+
+class _SimpleClockItem(Generic[PS, TV_co]):
+    """Class defining a simple clock item."""
+
+    __slots__ = {
+        "__func": "The function to call.",
+        "__args": "The arguments to pass to the function.",
+        "__kwargs": "The keyword arguments to pass to the function.",
+        "__return_callback": "The callback to call with the return value."
+    }
+
+    def __init__(
+        self,
+        func: Callable[PS, TV_co],
+        *args: PS.args,
+        return_callback: Callable[[TV_co], None] | None = None,
+        **kwargs: PS.kwargs
+    ) -> None:
+        """Create a new simple clock item."""
+        # Function to call.
+        self.__func = func
+        self.__args = args
+        self.__kwargs = kwargs
+        self.__return_callback = return_callback
+
+    def __repr__(self) -> str:
+        """Return a string representation of the item."""
+        return f"{self.__class__.__name__} for {self.__func.__name__}"
+
+    def __call__(self) -> None:
+        """Call the function."""
+        return_: TV_co = self.__func(*self.__args, **self.__kwargs)
+        if self.__return_callback is not None:
+            self.__return_callback(return_)
+
+    def __eq__(self, __value: object) -> bool:
+        """Return whether the value is equal to the item."""
+        if isinstance(__value, _SimpleClockItem):
+            return self.__func == __value.__func  # pylint: disable=W0212
+        if callable(__value):
+            return self.__func == __value
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        """Return the hash of the item."""
+        return hash(self.__func)
+
+
+class _TimedClockItem(_SimpleClockItem[PS, TV_co]):
+    """Class defining a timed clock item."""
+
+    __slots__ = {
+        "interval": "The interval between calls to the function.",
+        "last_time": "The last time the function was called.",
+        "next_time": "The next time to call the function."
+    }
+
+    def __init__(
+        self,
+        interval: float,
+        last_time: float,
+        next_time: float,
+        func: Callable[PS, TV_co],
+        *args: PS.args,
+        return_callback: Callable[[TV_co], None] | None = None,
+        **kwargs: PS.kwargs
+    ) -> None:
+        """Create a new timed clock item."""
+        super().__init__(
+            func,
+            *args,
+            return_callback=return_callback,
+            **kwargs
+        )
+
+        # Primary timing variables.
+        self.interval = interval
+        self.last_time = last_time
+        self.next_time = next_time
+
+
+class _TimedClockFutureItem(_TimedClockItem[PS, TV_co]):
+    """Class defining a timed clock future item."""
+
+    __slots__ = {
+        "timeout": "The timeout for the function.",
+        "next_timeout": "The next timeout for the function."
+    }
+
+    def __init__(
+        self,
+        interval: float,
+        timeout: float,
+        last_time: float,
+        next_time: float,
+        next_timeout: float,
+        func: Callable[PS, TV_co],
+        *args: PS.args,
+        return_callback: Callable[[TV_co], None] | None = None,
+        **kwargs: PS.kwargs
+    ) -> None:
+        """Create a new timed clock future item."""
+        super().__init__(
+            interval,
+            last_time,
+            next_time,
+            func,
+            *args,
+            return_callback=return_callback,
+            **kwargs
+        )
+
+        # Request timeout variables.
+        self.timeout = timeout
+        self.next_timeout = next_timeout
+
+
+class _ClockBase(metaclass=ABCMeta):
     """Base class for clocks."""
 
     __DELAYED_TICKS_WARNING: Final[int] = 100
@@ -71,10 +200,12 @@ class _ClockBase:
         self.__stopped = threading.Event()
         self.__thread.start()
 
+    @abstractmethod
     def _call_items(self) -> None:
         """Call the items."""
         raise NotImplementedError
 
+    @final
     def start(self) -> None:
         """Start the clock."""
         with self._atomic_update_lock:
@@ -82,6 +213,7 @@ class _ClockBase:
                 self.__stopped.clear()
                 self.__running.set()
 
+    @final
     def stop(self) -> None:
         """Stop the clock."""
         with self._atomic_update_lock:
@@ -137,57 +269,6 @@ class _ClockBase:
                                   - (actual_sleep_time + update_time))
 
                 start_sleep_time = time.perf_counter()
-
-
-PS = ParamSpec("PS")
-TV_co = TypeVar("TV_co", covariant=True)  # pylint: disable=invalid-name
-
-
-@runtime_checkable
-class Tickable(Protocol[PS, TV_co]):
-    """A protocol for tickable objects."""
-
-    def tick(self, *args: PS.args, **kwargs: PS.kwargs) -> TV_co:
-        """Tick the object."""
-
-
-@final
-class _SimpleClockItem(Generic[PS, TV_co]):
-    """Class defining a simple clock item."""
-
-    __slots__ = {
-        "__func": "The function to call.",
-        "__args": "The arguments to pass to the function.",
-        "__kwargs": "The keyword arguments to pass to the function.",
-        "__return_callback": "The callback to call with the return value."
-    }
-
-    def __init__(
-        self,
-        func: Callable[PS, TV_co],
-        *args: PS.args,
-        return_callback: Callable[[TV_co], None] | None = None,
-        **kwargs: PS.kwargs
-    ) -> None:
-        """Create a new simple clock item."""
-        self.__func = func
-        self.__args = args
-        self.__kwargs = kwargs
-        self.__return_callback = return_callback
-
-    def __call__(self) -> None:
-        """Call the function."""
-        return_: TV_co = self.__func(*self.__args, **self.__kwargs)
-        if self.__return_callback is not None:
-            self.__return_callback(return_)
-
-    def __eq__(self, __value: object) -> bool:
-        """Return whether the value is equal to the item."""
-        if isinstance(__value, _SimpleClockItem):
-            return self.__func == __value.__func  # pylint: disable=W0212
-        if callable(__value):
-            return self.__func == __value
-        return NotImplemented
 
 
 @final
@@ -296,55 +377,14 @@ class SimpleClockThread(_ClockBase):
             item()
 
 
-@final
-class _TimedClockItem(Generic[PS, TV_co]):
-    """Class defining a timed clock item."""
+def _less_than_or_close(a: float, b: float) -> bool:
+    """
+    Return whether a is less than or close to b.
 
-    __slots__ = {
-        "__func": "The function to call.",
-        "__args": "The arguments to pass to the function.",
-        "__kwargs": "The keyword arguments to pass to the function.",
-        "__return_callback": "The callback to call with the return value.",
-        "interval": "The interval between calls to the function.",
-        "last_time": "The last time the function was called.",
-        "next_time": "The next time to call the function."
-    }
-
-    def __init__(
-        self,
-        interval: float,
-        last_time: float,
-        next_time: float,
-        func: Callable[PS, TV_co],
-        *args: PS.args,
-        return_callback: Callable[[TV_co], None] | None = None,
-        **kwargs: PS.kwargs
-    ) -> None:
-        """Create a new timed clock item."""
-        # Function to call.
-        self.__func = func
-        self.__args = args
-        self.__kwargs = kwargs
-        self.__return_callback = return_callback
-
-        # Timing variables.
-        self.interval = interval
-        self.last_time = last_time
-        self.next_time = next_time
-
-    def __call__(self) -> None:
-        """Call the function."""
-        return_: TV_co = self.__func(*self.__args, **self.__kwargs)
-        if self.__return_callback is not None:
-            self.__return_callback(return_)
-
-    def __eq__(self, __value: object) -> bool:
-        """Return whether the value is equal to the item."""
-        if isinstance(__value, _TimedClockItem):
-            return self.__func == __value.__func  # pylint: disable=W0212
-        if callable(__value):
-            return self.__func == __value
-        return NotImplemented
+    Where a is close to b if the absolute difference between a and b is less
+    than 5e-3, this is equivalent to 5 milliseconds.
+    """
+    return (a < b) or math.isclose(a, b, abs_tol=5e-3)
 
 
 @final
@@ -363,12 +403,21 @@ class ClockThread(_ClockBase):
 
         # Variables for timing.
         self.__last_time: float | None = None
-        self.__frequency = MovingAverage(60)
+        self.__frequency = MovingAverage(60, under_full_initial=False)
 
     @property
     def frequency(self) -> float:
         """Return the frequency of the clock."""
         return 1.0 / self.__frequency.average
+
+    def __update_sleep_time(self) -> None:
+        """Update the sleep time based on the items."""
+        self._sleep_time = math.gcd(
+            *(
+                int(item.interval * 1000)
+                for item in self.__items
+            )
+        ) / 1000
 
     def schedule(
         self,
@@ -423,12 +472,7 @@ class ClockThread(_ClockBase):
                 )
             )
 
-            self._sleep_time = math.gcd(
-                *(
-                    int(item.interval * 100)
-                    for item in self.__items
-                )
-            ) / 100
+            self.__update_sleep_time()
 
     def unschedule(
         self,
@@ -442,21 +486,12 @@ class ClockThread(_ClockBase):
                 raise TypeError(f"Item {func!r} of type {type(func)} is "
                                 "not tickable or callable.")
 
-            update_sleep_time: bool = False
             for item in self.__items:
                 if item == func:
-                    if item.interval <= self._sleep_time:
-                        update_sleep_time = True
                     self.__items.remove(item)
                     break
 
-            if update_sleep_time:
-                self._sleep_time = math.gcd(
-                    *(
-                        int(item.interval * 100)
-                        for item in self.__items
-                    )
-                ) / 100
+            self.__update_sleep_time()
 
     def _call_items(self) -> None:
         """Call the items."""
@@ -468,73 +503,13 @@ class ClockThread(_ClockBase):
         self.__last_time = current_time
 
         for item in self.__items:
-            if item.next_time <= current_time:
+            if _less_than_or_close(item.next_time, current_time):
                 item()
-                next_time = item.last_time + item.interval
+                next_time = item.last_time + (item.interval * 2.0)
                 if next_time <= current_time:
                     next_time = current_time + item.interval
                 item.next_time = next_time
                 item.last_time = current_time
-
-
-class _TimedClockFutureItem(Generic[PS, TV_co]):
-    """Class defining a timed clock future item."""
-
-    __slots__ = {
-        "__func": "The function to call.",
-        "__args": "The arguments to pass to the function.",
-        "__kwargs": "The keyword arguments to pass to the function.",
-        "__return_callback": "The callback to call with the return value.",
-        "interval": "The interval between calls to the function.",
-        "timeout": "The timeout for the function.",
-        "last_time": "The last time the function was called.",
-        "next_time": "The next time to call the function.",
-        "next_timeout": "The next timeout for the function."
-    }
-
-    def __init__(
-        self,
-        interval: float,
-        timeout: float,
-        last_time: float,
-        next_time: float,
-        next_timeout: float,
-        func: Callable[PS, TV_co],
-        *args: PS.args,
-        return_callback: Callable[[TV_co], None] | None = None,
-        **kwargs: PS.kwargs
-    ) -> None:
-        """Create a new timed clock future item."""
-        # Function to call.
-        self.__func = func
-        self.__args = args
-        self.__kwargs = kwargs
-        self.__return_callback = return_callback
-
-        # Timing variables.
-        self.interval = interval
-        self.timeout = timeout
-        self.last_time = last_time
-        self.next_time = next_time
-        self.next_timeout = next_timeout
-
-    def __call__(self) -> None:
-        """Call the function."""
-        return_: TV_co = self.__func(*self.__args, **self.__kwargs)
-        if self.__return_callback is not None:
-            self.__return_callback(return_)
-
-    def __eq__(self, __value: object) -> bool:
-        """Return whether the value is equal to the item."""
-        if isinstance(__value, _TimedClockFutureItem):
-            return self.__func == __value.__func  # pylint: disable=W0212
-        if callable(__value):
-            return self.__func == __value
-        return NotImplemented
-
-    def __hash__(self) -> int:
-        """Return the hash of the item."""
-        return hash(self.__func)
 
 
 @final
@@ -561,12 +536,21 @@ class RequesterClockThread(_ClockBase):
 
         # Variables for timing.
         self.__last_time: float | None = None
-        self.__frequency = MovingAverage(60)
+        self.__frequency = MovingAverage(60, under_full_initial=False)
 
     @property
     def frequency(self) -> float:
         """Return the frequency of the clock."""
         return 1.0 / self.__frequency.average
+
+    def __update_sleep_time(self) -> None:
+        """Update the sleep time based on the items."""
+        self._sleep_time = math.gcd(
+            *(
+                int(item.interval * 1000)
+                for item in self.__items
+            )
+        ) / 1000
 
     def schedule(
         self,
@@ -627,12 +611,7 @@ class RequesterClockThread(_ClockBase):
                 **kwargs
             )] = None
 
-            self._sleep_time = math.gcd(
-                *(
-                    int(item.interval * 100)
-                    for item in self.__items
-                )
-            ) / 100
+            self.__update_sleep_time()
 
     def unschedule(
         self,
@@ -646,21 +625,12 @@ class RequesterClockThread(_ClockBase):
                 raise TypeError(f"Item {func!r} of type {type(func)} is "
                                 "not tickable or callable.")
 
-            update_sleep_time: bool = False
             for item in self.__items:
                 if item == func:
-                    if item.interval <= self._sleep_time:
-                        update_sleep_time = True
                     self.__items[item] = None
                     break
 
-            if update_sleep_time:
-                self._sleep_time = math.gcd(
-                    *(
-                        int(item.interval * 100)
-                        for item in self.__items
-                    )
-                ) / 100
+            self.__update_sleep_time()
 
     def _call_items(self) -> None:
         """Call the items."""
@@ -672,16 +642,17 @@ class RequesterClockThread(_ClockBase):
         self.__last_time = current_time
 
         for item, future in self.__items.items():
-            if future is None:
-                if item.next_time <= current_time:
-                    self._submit_item(current_time, item)
-            elif future.done():
-                self.__items[item] = None
-                future.result()
-            elif item.next_timeout <= current_time:
-                if future.running():
+            print(item.next_time, item.next_timeout, current_time)
+            if future is not None:
+                if future.done():
+                    self.__items[item] = None
+                    future.result()
+                elif _less_than_or_close(item.next_timeout, current_time):
                     future.cancel()
-                self._submit_item(current_time, item)
+                    self._submit_item(current_time, item)
+            if future is None:
+                if _less_than_or_close(item.next_time, current_time):
+                    self._submit_item(current_time, item)
 
     def _submit_item(
         self,
@@ -690,8 +661,8 @@ class RequesterClockThread(_ClockBase):
     ) -> None:
         """Submit an item to the threadpool."""
         self.__items[item] = self.__threadpool.submit(item)
-        next_time = item.last_time + item.interval
-        next_timeout = item.last_time + item.timeout
+        next_time = item.last_time + (item.interval * 2.0)
+        next_timeout = item.last_time + item.interval + item.timeout
         if next_time <= current_time:
             next_time = current_time + item.interval
             next_timeout = current_time + item.timeout
@@ -701,53 +672,83 @@ class RequesterClockThread(_ClockBase):
 
 
 def __main() -> None:
-    simple_clock = SimpleClockThread()
-    simple_clock.schedule(print, "Hello, world!")
-    simple_clock.start()
-    time.sleep(2)
-    simple_clock.stop()
+    """Run clock tests."""
 
-    count1 = 0
-    count2 = 0
-    count3 = 0
-    def print1(text: str) -> None:
-        """Print text."""
-        nonlocal count1
-        count1 += 1
-        print(f"{count1}: {text}")
-    def print2(text: str) -> None:
-        """Print text."""
-        nonlocal count2
-        count2 += 1
-        print(f"{count2}: {text}")
-    def print3(text: str) -> None:
-        """Print text."""
-        nonlocal count3
-        count3 += 1
-        print(f"{count3}: {text}")
+    import argparse
+    parser = argparse.ArgumentParser(description="Run clock tests.")
+    parser.add_argument(
+        "--test-simple-clock",
+        action="store_true",
+        help="Run simple clock tests."
+    )
+    parser.add_argument(
+        "--test-clock",
+        action="store_true",
+        help="Run clock tests."
+    )
+    parser.add_argument(
+        "--test-requester-clock",
+        action="store_true",
+        help="Run requester clock tests."
+    )
+    args = parser.parse_args()
 
-    clock = ClockThread()
-    clock.schedule(0.2, print1, "Hello, world!")
-    clock.schedule(0.4, print2, "Goodbye, world!")
-    clock.schedule(1.0, print3, "See you later!")
-    clock.start()
-    time.sleep(10)
-    clock.stop()
+    if args.test_simple_clock:
+        simple_clock = SimpleClockThread()
+        simple_clock.schedule(print, "Hello, world!")
+        simple_clock.start()
+        time.sleep(2)
+        simple_clock.stop()
 
-    import random
-    def mock_request() -> None:
-        """Mock a request."""
-        time_ = random.random() * 0.8
-        time.sleep(time_)
-        if time_ > 0.5:
-            print("Request took too long.")
-        else:
+    if args.test_clock:
+        count1 = 0
+        count2 = 0
+        count3 = 0
+
+        def print1(text: str) -> None:
+            """Print text."""
+            nonlocal count1
+            count1 += 1
+            print(f"[{time.monotonic():<7.3f}] {count1}: {text}")
+
+        def print2(text: str) -> None:
+            """Print text."""
+            nonlocal count2
+            count2 += 1
+            print(f"[{time.monotonic():<7.3f}] {count2}: {text}")
+
+        def print3(text: str) -> None:
+            """Print text."""
+            nonlocal count3
+            count3 += 1
+            print(f"[{time.monotonic():<7.3f}] {count3}: {text}")
+
+        clock = ClockThread()
+        clock.schedule(0.2, print1, "Hello, world!")
+        clock.schedule(0.3, print2, "Goodbye, world!")
+        clock.schedule(0.4, print3, "See you later!")
+        clock.start()
+        start_time = time.monotonic()
+        while time.monotonic() - start_time < 10:
+            time.sleep(1)
+            print(f"Frequency: {clock.frequency:.3f} Hz")
+        clock.stop()
+
+    if args.test_requester_clock:
+        import random
+
+        def mock_request() -> None:
+            """Mock a request."""
+            print("Requesting...")
+            time_ = random.random() * 0.8
+            time.sleep(time_)
             print("Request complete.")
-    requester_clock = RequesterClockThread()
-    requester_clock.schedule(0.2, 0.5, mock_request)
-    requester_clock.start()
-    time.sleep(10)
-    requester_clock.stop()
+
+        requester_clock = RequesterClockThread()
+        requester_clock.schedule(0.2, 0.3, mock_request)
+        requester_clock.start()
+        time.sleep(10)
+        requester_clock.stop()
 
 
 if __name__ == "__main__":
