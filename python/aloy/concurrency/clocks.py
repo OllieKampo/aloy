@@ -642,7 +642,6 @@ class RequesterClockThread(_ClockBase):
         self.__last_time = current_time
 
         for item, future in self.__items.items():
-            print(item.next_time, item.next_timeout, current_time)
             if future is not None:
                 if future.done():
                     self.__items[item] = None
