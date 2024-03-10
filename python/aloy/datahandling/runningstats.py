@@ -87,9 +87,10 @@ class MovingAverage:
         `initial: float | None = None` - The initial value to use for the
         average. If `None`, the average will start at 0.
 
-        `track_window: bool = True` - If `True`, the data will be stored in a
-        deque and can be accessed via the `data` property. If `False`, the
-        data will be discarded after it is used to calculate the average.
+        `track_window: bool = True` - If `True`, the data will be 'tracked'
+        such that it is stored in a deque and can be accessed via the `data`
+        property. If `False`, the data will is not tracked, and the average
+        is calclulated using the approximate method.
 
         `fast_track: bool = False` - Whether to use the fast track method.
         If `track_window` is `True`; then if `fast_track` is `True`, instead
@@ -115,24 +116,22 @@ class MovingAverage:
                 f"Got; {initial} of {type(initial)} instead."
             )
 
-        self.__total: float = 0 if initial is None else (initial * window)
-        self.__average: float = 0 if initial is None else initial
+        self.__total: float = 0.0 if initial is None else (initial * window)
+        self.__average: float = 0.0 if initial is None else initial
         self.__under_full_initial: bool = under_full_initial
         self.__data: deque[float] | None
-        self.__stored: int | None
+        self.__stored: int = 0
         self.__ratio: float = (window - 1) / window
         self.__append: Callable[[float], None]
 
         if track_window:
             self.__data = deque(maxlen=window)
-            self.__stored = None
             if fast_track:
                 self.__append = self.__append_track_fast
             else:
                 self.__append = self.__append_track
         else:
             self.__data = None
-            self.__stored = 0
             self.__append = self.__append_no_track
 
     def __str__(self) -> str:
@@ -182,19 +181,23 @@ class MovingAverage:
 
     @functools.wraps(append)
     def __append_track(self, value: float) -> None:
-        self.__data.append(value)
-        self.__total = sum(self.__data)
-        if len(self.__data) == self.__window or not self.__under_full_initial:
-            self.__average = self.__total / len(self.__data)
+        self.__data.append(value)  # type: ignore[union-attr]
+        self.__total = sum(self.__data)  # type: ignore[arg-type]
+        if (len(self.__data) == self.__window  # type: ignore[arg-type]
+                or not self.__under_full_initial):
+            self.__average = \
+                self.__total / len(self.__data)  # type: ignore[arg-type]
 
     @functools.wraps(append)
     def __append_track_fast(self, value: float) -> None:
-        if len(self.__data) == self.__window:
-            self.__total -= self.__data[0]
-        self.__data.append(value)
+        if len(self.__data) == self.__window:  # type: ignore[arg-type]
+            self.__total -= self.__data[0]  # type: ignore[index]
+        self.__data.append(value)  # type: ignore[union-attr]
         self.__total += value
-        if len(self.__data) == self.__window or not self.__under_full_initial:
-            self.__average = self.__total / len(self.__data)
+        if (len(self.__data) == self.__window  # type: ignore[arg-type]
+                or not self.__under_full_initial):
+            self.__average = \
+                self.__total / len(self.__data)  # type: ignore[arg-type]
 
     @functools.wraps(append)
     def __append_no_track(self, value: float) -> None:
