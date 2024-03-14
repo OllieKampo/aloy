@@ -60,13 +60,14 @@ class Tickable(Protocol[PS, TV_co]):
 class CallStats:
     """
     Class for call statistics of functions submitted to a
-    SimpleClockThread or ClockThread."""
+    SimpleClockThread or ClockThread.
+    """
 
     __slots__ = {
         "time_since_submitted": "The time since the call was submitted.",
         "delta_time": "The time since the last call.",
         "total_calls": "The total number of calls.",
-        "frequency": "The average frequency of calls."
+        "tick_rate": "The average tick rate of calls."
     }
 
     def __init__(
@@ -74,13 +75,22 @@ class CallStats:
         time_since_submitted: float,
         delta_time: float | None,
         total_calls: int,
-        frequency: float
+        tick_rate: float
     ) -> None:
         """Create a new call statistics object."""
         self.time_since_submitted: float = time_since_submitted
         self.delta_time: float | None = delta_time
         self.total_calls: int = total_calls
-        self.frequency: float = frequency
+        self.tick_rate: float = tick_rate
+
+    def __str__(self) -> str:
+        """Return a string representation of the call statistics."""
+        return (
+            f"CallStats [total time={self.time_since_submitted:.3f}s, "
+            f"delta time={self.delta_time:.3f}s, "
+            f"total calls={self.total_calls}, "
+            f"tick rate={self.tick_rate:.3f}Hz]"
+        )
 
 
 class RequestCallStats(CallStats):
@@ -98,7 +108,7 @@ class RequestCallStats(CallStats):
         time_since_submitted: float,
         delta_time: float | None,
         total_calls: int,
-        frequency: float,
+        tick_rate: float,
         total_lag_calls: int
     ) -> None:
         """Create a new call statistics object."""
@@ -106,7 +116,7 @@ class RequestCallStats(CallStats):
             time_since_submitted,
             delta_time,
             total_calls,
-            frequency
+            tick_rate
         )
         self.total_lag_calls: int = total_lag_calls
 
@@ -124,7 +134,7 @@ class _SimpleClockItem(Generic[PS, TV_co]):
                            "exception.",
         "__time_submitted": "The time the item was submitted.",
         "__total_calls": "The total number of calls.",
-        "__frequency": "The average frequency of calls."
+        "__tick_rate": "The average tick rate of calls."
     }
 
     def __init__(
@@ -151,9 +161,30 @@ class _SimpleClockItem(Generic[PS, TV_co]):
         # Call statistics.
         self.__time_submitted = time.monotonic()
         self.__total_calls = 0
-        self.__frequency = MovingAverage(
+        self.__tick_rate = MovingAverage(
             window=10,
+            initial=0.0,
             under_full_initial=False
+        )
+
+    @property
+    def tick_rate(self) -> float:
+        """Return the tick rate of the item."""
+        if self.__tick_rate.average:
+            return 1.0 / self.__tick_rate.average
+        return 0.0
+
+    def _get_call_stats(
+        self,
+        delta_time: float | None,
+        current_time: float
+    ) -> CallStats:
+        """Return the call statistics of the item."""
+        return CallStats(
+            time_since_submitted=current_time - self.__time_submitted,
+            delta_time=delta_time,
+            total_calls=self.__total_calls,
+            tick_rate=self.tick_rate
         )
 
     def __repr__(self) -> str:
@@ -164,13 +195,8 @@ class _SimpleClockItem(Generic[PS, TV_co]):
         """Call the function."""
         self.__total_calls += 1
         if delta_time is not None:
-            self.__frequency.append(delta_time)
-        call_stats = CallStats(
-            time_since_submitted=current_time - self.__time_submitted,
-            delta_time=delta_time,
-            total_calls=self.__total_calls,
-            frequency=1.0 / self.__frequency.average
-        )
+            self.__tick_rate.append(delta_time)
+        call_stats = self._get_call_stats(delta_time, current_time)
         try:
             return_: TV_co = self.__func(
                 call_stats,
@@ -304,6 +330,21 @@ class _TimedClockFutureItem(_TimedClockItem[PS, TV_co]):
         # Call statistics.
         self.__total_lag_calls = 0
 
+    def _get_call_stats(
+        self,
+        delta_time: float | None,
+        current_time: float
+    ) -> RequestCallStats:
+        """Return the call statistics of the item."""
+        stats = super()._get_call_stats(delta_time, current_time)
+        return RequestCallStats(
+            time_since_submitted=stats.time_since_submitted,
+            delta_time=delta_time,
+            total_calls=stats.total_calls,
+            tick_rate=self.tick_rate,
+            total_lag_calls=self.__total_lag_calls
+        )
+
     def call_lag_callback(
         self,
         delta_time: float | None,
@@ -312,13 +353,7 @@ class _TimedClockFutureItem(_TimedClockItem[PS, TV_co]):
         """Call the lag callback."""
         self.__total_lag_calls += 1
         if self.lag_callback is not None:
-            call_stats = RequestCallStats(
-                time_since_submitted=current_time - self.__time_submitted,
-                delta_time=delta_time,
-                total_calls=self.__total_calls,
-                frequency=1.0 / self.__frequency.average,
-                total_lag_calls=self.__total_lag_calls
-            )
+            call_stats = self._get_call_stats(delta_time, current_time)
             try:
                 self.lag_callback(call_stats)
             except Exception as exc_1:  # pylint: disable=W0703
@@ -378,7 +413,9 @@ class _ClockBase(Generic[CI], metaclass=ABCMeta):
     @property
     def tick_rate(self) -> float:
         """Return the tick rate of the clock."""
-        return 1.0 / self.__tick_rate.average
+        if self.__tick_rate.average:
+            return 1.0 / self.__tick_rate.average
+        return 0.0
 
     @abstractmethod
     def _call_items(self) -> None:
@@ -712,12 +749,11 @@ class ClockThread(_ClockBase[_TimedClockItem]):
         """Call the clock's items."""
         current_time: float
         delta_time: float | None = None
-        last_time: float | None = self._last_time
         for item in self._items:
             current_time = time.monotonic()
             if _less_than_or_close(item.next_time, current_time):
-                if last_time is not None:
-                    delta_time = current_time - last_time
+                if item.last_time is not None:
+                    delta_time = current_time - item.last_time
                 else:
                     delta_time = None
                 item(delta_time=delta_time, current_time=current_time)
@@ -830,22 +866,17 @@ class RequesterClockThread(_ClockBase[_TimedClockFutureItem]):
         """Call the clock's items."""
         current_time: float
         delta_time: float | None = None
-        last_time: float | None = self._last_time
         for item, future in self._items.items():
             current_time = time.monotonic()
-            if last_time is not None:
-                delta_time = current_time - last_time
+            if item.last_time is not None:
+                delta_time = current_time - item.last_time
             else:
                 delta_time = None
-            if future is None:
+            if future is None or future.done():
                 if _less_than_or_close(item.next_time, current_time):
                     self._submit_item(item, delta_time, current_time)
-            else:
-                if future.done():
-                    self._items[item] = None
-                    future.result()
-                elif _less_than_or_close(item.next_lag_time, current_time):
-                    item.call_lag_callback(delta_time, current_time)
+            elif _less_than_or_close(item.next_lag_time, current_time):
+                item.call_lag_callback(delta_time, current_time)
 
     def _submit_item(
         self,
@@ -860,12 +891,12 @@ class RequesterClockThread(_ClockBase[_TimedClockFutureItem]):
             current_time=current_time
         )
         next_time = item.last_time + (item.interval * 2.0)
-        next_timeout = item.last_time + item.interval + item.lag_interval
+        next_lag_time = item.last_time + item.interval + item.lag_interval
         if next_time <= current_time:
             next_time = current_time + item.interval
-            next_timeout = current_time + item.lag_interval
+            next_lag_time = current_time + item.lag_interval
         item.next_time = next_time
-        item.next_lag_time = next_timeout
+        item.next_lag_time = next_lag_time
         item.last_time = current_time
 
 
@@ -903,23 +934,23 @@ def __main() -> None:
         count2 = 0
         count3 = 0
 
-        def print1(text: str) -> None:
+        def print1(stats: CallStats, text: str) -> None:
             """Print text."""
             nonlocal count1
             count1 += 1
-            print(f"[{time.monotonic():<7.3f}] {count1}: {text}")
+            print(f"[{stats!s}] {count1}: {text}")
 
-        def print2(text: str) -> None:
+        def print2(stats: CallStats, text: str) -> None:
             """Print text."""
             nonlocal count2
             count2 += 1
-            print(f"[{time.monotonic():<7.3f}] {count2}: {text}")
+            print(f"[{stats!s}] {count2}: {text}")
 
-        def print3(text: str) -> None:
+        def print3(stats: CallStats, text: str) -> None:
             """Print text."""
             nonlocal count3
             count3 += 1
-            print(f"[{time.monotonic():<7.3f}] {count3}: {text}")
+            print(f"[{stats!s}] {count3}: {text}")
 
         clock = ClockThread()
         clock.schedule(0.2, print1, "Hello, world!")
@@ -929,23 +960,32 @@ def __main() -> None:
         start_time = time.monotonic()
         while time.monotonic() - start_time < 10:
             time.sleep(1)
-            print(f"Frequency: {clock.frequency:.3f} Hz")
+            print(f"Frequency: {clock.tick_rate:.3f} Hz")
         clock.stop()
 
     if args.test_requester_clock:
         import random
 
-        def mock_request() -> None:
+        def mock_request(stats: RequestCallStats) -> None:
             """Mock a request."""
-            print("Requesting...")
-            time_ = random.random() * 0.8
+            print(f"Requesting {stats!s}...")
+            time_ = random.random() * 0.4
             time.sleep(time_)
             print("Request complete.")
+        def lag_callback(stats: RequestCallStats) -> None:
+            """Call the lag callback."""
+            print(f"Lagging {stats!s}...")
 
         requester_clock = RequesterClockThread()
-        requester_clock.schedule(0.2, 0.3, mock_request)
+        requester_clock.schedule(
+            0.2, 0.3, mock_request,
+            lag_callback=lag_callback
+        )
         requester_clock.start()
-        time.sleep(10)
+        start_time = time.monotonic()
+        while time.monotonic() - start_time < 10:
+            time.sleep(1)
+            print(f"Frequency: {requester_clock.tick_rate:.3f} Hz")
         requester_clock.stop()
 
 
