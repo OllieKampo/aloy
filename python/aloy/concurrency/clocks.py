@@ -33,10 +33,10 @@ __version__ = "0.6.0"
 __all__ = (
     "Tickable",
     "CallStats",
-    "RequestCallStats",
+    "AsyncCallStats",
     "SimpleClockThread",
     "ClockThread",
-    "RequesterClockThread"
+    "AsyncClockThread"
 )
 
 
@@ -93,7 +93,7 @@ class CallStats:
         )
 
 
-class RequestCallStats(CallStats):
+class AsyncCallStats(CallStats):
     """
     Class for call statistics of functions submitted to a
     RequesterClockThread.
@@ -295,16 +295,16 @@ class _TimedClockFutureItem(_TimedClockItem[PS, TV_co]):
         last_time: float,
         next_time: float,
         next_lag_time: float,
-        func: Callable[Concatenate[RequestCallStats, PS], TV_co],
+        func: Callable[Concatenate[AsyncCallStats, PS], TV_co],
         *args: PS.args,
         return_callback: Callable[
-            [RequestCallStats, TV_co], None] | None = None,
+            [AsyncCallStats, TV_co], None] | None = None,
         except_callback: Callable[
-            [RequestCallStats, Exception], None] | None = None,
+            [AsyncCallStats, Exception], None] | None = None,
         dual_callback: Callable[
-            [RequestCallStats, TV_co | None, Exception | None], None
+            [AsyncCallStats, TV_co | None, Exception | None], None
         ] | None = None,
-        lag_callback: Callable[[RequestCallStats], None] | None = None,
+        lag_callback: Callable[[AsyncCallStats], None] | None = None,
         **kwargs: PS.kwargs
     ) -> None:
         """Create a new timed clock future item."""
@@ -334,10 +334,10 @@ class _TimedClockFutureItem(_TimedClockItem[PS, TV_co]):
         self,
         delta_time: float | None,
         current_time: float
-    ) -> RequestCallStats:
+    ) -> AsyncCallStats:
         """Return the call statistics of the item."""
         stats = super()._get_call_stats(delta_time, current_time)
-        return RequestCallStats(
+        return AsyncCallStats(
             time_since_submitted=stats.time_since_submitted,
             delta_time=delta_time,
             total_calls=stats.total_calls,
@@ -684,7 +684,7 @@ class ClockThread(_ClockBase[_TimedClockItem]):
 
         Parameters
         ----------
-        `interval: float` - The interval between calls to the function.
+        `interval: float` - The time interval between calls to the function.
 
         `func: Tickable[(CallStats, PS), TV_co] | ((CallStats, PS) -> TV_co)`
         - The function to call. Must take a CallStats object as the first
@@ -773,13 +773,22 @@ class ClockThread(_ClockBase[_TimedClockItem]):
 
 
 @final
-class RequesterClockThread(_ClockBase[_TimedClockFutureItem]):
+class AsyncClockThread(_ClockBase[_TimedClockFutureItem]):
     """
     Class defining a thread running a clock that regularly calls a set of
-    functions, each with a unique time interval and timeout. If the function
-    takes longer than the timeout to complete, the function is cancelled and
-    called again. It is intended for use with functions used to make regular
-    network requests.
+    functions asynchronously, each with a unique time interval and lag
+    interval. If the function takes longer than the lag interval to complete,
+    a lag callback is called.
+
+    This version of the clock thread is intended for use with functions used
+    to make regular network requests. It is advisable to schedule your
+    network request functions as follows:
+    - Set the time interval to how often you want to make the request.
+    - Set the lag interval to how long you expect the request to take. This
+      should therefore be less than the time interval. The desire is to allow
+      the lag callback to be called if the request takes longer than expected.
+    - Set a timeout on the request function itself. This should be longer than
+      the lag interval, but typically less than the time interval.
     """
 
     __slots__ = {
@@ -799,37 +808,52 @@ class RequesterClockThread(_ClockBase[_TimedClockFutureItem]):
         self,
         interval: float,
         lag_interval: float,
-        func: Tickable[Concatenate[RequestCallStats, PS], TV_co] | Callable[
-            Concatenate[RequestCallStats, PS], TV_co],
+        func: Tickable[Concatenate[AsyncCallStats, PS], TV_co] | Callable[
+            Concatenate[AsyncCallStats, PS], TV_co],
         *args: PS.args,
         return_callback: Callable[
-            [RequestCallStats, TV_co], None
+            [AsyncCallStats, TV_co], None
         ] | None = None,
         except_callback: Callable[
-            [RequestCallStats, Exception], None
+            [AsyncCallStats, Exception], None
         ] | None = None,
         dual_callback: Callable[
-            [RequestCallStats, TV_co | None, Exception | None], None
+            [AsyncCallStats, TV_co | None, Exception | None], None
         ] | None = None,
-        lag_callback: Callable[[RequestCallStats], None] | None = None,
+        lag_callback: Callable[[AsyncCallStats], None] | None = None,
         **kwargs: PS.kwargs
     ) -> None:
         """
-        Schedule an item to be ticked by the clock.
+        Schedule an item to be ticked asynchronously by the clock.
 
         Parameters
         ----------
-        `interval: float` - The interval between calls to the function.
+        `interval: float` - The time interval between calls to the function.
 
-        `timeout: float` - The timeout for the function.
+        `lag_interval: float` - The interval between calls to the lag callback.
 
         `func: Tickable[PS, TV_co] | Callable[PS, TV_co]` - The function to
         call.
 
         `*args: Any` - The positional arguments to pass to the function.
 
-        `return_callback: Callable[[TV_co], None] | None` - A callback to
-        call with the return value of the function every time it is called.
+        `return_callback: ((AsyncCallStats, TV_co) -> None) | None` - A
+        callback to call with the return value of the function every time it is
+        called if the function does not raise an exception. Must take a
+        AsyncCallStats object as the first argument.
+
+        `except_callback: ((AsyncCallStats, Exception) -> None) | None` - A
+        callback to call if any exception raised by the function when it is
+        called. Must take a AsyncCallStats object as the first argument.
+
+        `dual_callback: ((AsyncCallStats, TV_co | None, Exception | None)
+        -> None) | None` - A callback to call with the return value and
+        exception of the function every time it is called. Must take a
+        AsyncCallStats object as the first argument.
+
+        `lag_callback: ((AsyncCallStats) -> None) | None` - A callback to call
+        when the function takes longer than the lag interval to return. Must
+        take a AsyncCallStats object as the first argument.
 
         `**kwargs: Any` - The keyword arguments to pass to the function.
         """
@@ -935,9 +959,9 @@ def __main() -> None:
         help="Run clock tests."
     )
     parser.add_argument(
-        "--test-requester-clock",
+        "--test-async-clock",
         action="store_true",
-        help="Run requester clock tests."
+        help="Run async clock tests."
     )
     args = parser.parse_args()
 
@@ -985,27 +1009,27 @@ def __main() -> None:
     if args.test_requester_clock:
         import random
 
-        def mock_request(stats: RequestCallStats) -> None:
+        def mock_request(stats: AsyncCallStats) -> None:
             """Mock a request."""
-            print(f"Requesting {stats!s}...")
-            time_ = random.random() * 0.4
+            print(f"Requesting: {stats!s}...")
+            time_ = random.random() * 0.1
             time.sleep(time_)
             print("Request complete.")
-        def lag_callback(stats: RequestCallStats) -> None:
+        def lag_callback(stats: AsyncCallStats) -> None:
             """Call the lag callback."""
             print(f"Lagging {stats!s}...")
 
-        requester_clock = RequesterClockThread()
-        requester_clock.schedule(
+        async_clock = AsyncClockThread()
+        async_clock.schedule(
             0.2, 0.3, mock_request,
             lag_callback=lag_callback
         )
-        requester_clock.start()
+        async_clock.start()
         start_time = time.monotonic()
         while time.monotonic() - start_time < 10:
             time.sleep(1)
-            print(f"Frequency: {requester_clock.tick_rate:.3f} Hz")
-        requester_clock.stop()
+            print(f"Frequency: {async_clock.tick_rate:.3f} Hz")
+        async_clock.stop()
 
 
 if __name__ == "__main__":
