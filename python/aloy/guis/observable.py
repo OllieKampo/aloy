@@ -66,8 +66,8 @@ from typing import (Any, Callable, Concatenate, ParamSpec, TypeVar, final,
 
 from PySide6.QtCore import QTimer  # pylint: disable=no-name-in-module
 
-from aloy.concurrency.clocks import ClockThread
-from aloy.concurrency.synchronization import SynchronizedClass, sync
+from aloy.concurrency.clocks import SimpleClockThread
+from aloy.concurrency.synchronization.sync_class import SynchronizedClass, sync
 from aloy.datastructures.views import (DictView, ListValuedMappingView,
                                        ListView, SetView)
 from aloy.guis._utils import create_clock
@@ -217,7 +217,7 @@ class Observable(SynchronizedClass):
         self,
         name: str | None = None,
         var_dict: dict[str, Any] | None = None,
-        clock: ClockThread | QTimer | None = None,
+        clock: SimpleClockThread | QTimer | None = None,
         tick_rate: int = 10,
         start_clock: bool = True,
         debug: bool = False
@@ -282,7 +282,7 @@ class Observable(SynchronizedClass):
 
         # The lock and clock used when updateding the observers.
         self.__notify_update_lock = threading.Lock()
-        self.__clock: ClockThread | QTimer = create_clock(
+        self.__clock: SimpleClockThread | QTimer = create_clock(
             self.__update_observers,
             name=self.__name,
             clock=clock,
@@ -373,7 +373,7 @@ class Observable(SynchronizedClass):
     @sync(group_name="__observable_tick_rate__")
     def tick_rate(self) -> int:
         """Return the tick rate of the internal update clock."""
-        if isinstance(self.__clock, ClockThread):
+        if isinstance(self.__clock, SimpleClockThread):
             return self.__clock.tick_rate
         return int(1.0 / (self.__clock.interval() * 1000))
 
@@ -385,7 +385,7 @@ class Observable(SynchronizedClass):
 
         If the clock is a QTimer, this will have no effect.
         """
-        if isinstance(self.__clock, ClockThread):
+        if isinstance(self.__clock, SimpleClockThread):
             if self.__debug:
                 self.__OBSERVABLE_LOGGER.debug(
                     "%s: Setting tick rate to %s.",

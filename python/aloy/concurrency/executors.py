@@ -205,7 +205,8 @@ class AloyQTimerExecutor:
     def __execute(self) -> None:
         start_time = time.monotonic()
         try:
-            while (time.monotonic() - start_time) < self.interval:
+            # Execute for at most half the interval time.
+            while (time.monotonic() - start_time) < (self.interval * 0.5):
                 with self.__lock:
                     runnable = self.__queue.get_nowait()
                 runnable.run()
@@ -251,7 +252,7 @@ class AloyThreadJob:
     func: Callable[SP, ST]  # type: ignore
     args: tuple[Any, ...]
     kwargs: dict[str, Any] = field(hash=False)
-    start_time: float | None = field(default=None, hash=False)
+    start_time: float = field(default=0.0, hash=False)
 
     def __iter__(self) -> Iterable:
         return iter(getattr(self, field.name) for field in fields(self))
@@ -279,7 +280,6 @@ class AloyThreadPool:
         "__name": "The name of the thread pool.",
         "__logger": "The logger used to log jobs.",
         "__log": "Whether to log jobs.",
-        "__profile": "Whether to profile jobs.",
         "__submitted_jobs": "The jobs submitted to the thread pool.",
         "__finished_jobs": "The jobs that have finished execution.",
         "__queued_jobs": "The number of jobs in the queue.",
@@ -301,7 +301,6 @@ class AloyThreadPool:
         pool_name: str | None = None,
         max_workers: int | None = None,
         thread_name_prefix: str = "",
-        profile: bool = False,
         log: bool = False,
         initializer: Callable[SP, None] | None = None,
         initargs: tuple[Any, ...] = ()
@@ -342,7 +341,6 @@ class AloyThreadPool:
         self.__logger = logging.getLogger("AloyThreadPool")
         self.__logger.setLevel(logging.DEBUG)
         self.__log: bool = log
-        self.__profile: bool = profile
 
         self.__submitted_jobs: dict[Future, AloyThreadJob] = {}
         self.__finished_jobs: dict[Future, AloyThreadFinishedJob] = {}
@@ -419,9 +417,7 @@ class AloyThreadPool:
                                  self.__max_workers)
             self.__active_threads.set_obj(active_threads)
 
-        start_time: float | None = None
-        if self.__profile:
-            start_time = time.monotonic()
+        start_time: float = time.monotonic()
 
         if self.__log:
             self.__logger.debug(
@@ -450,9 +446,7 @@ class AloyThreadPool:
                 self.__name, job.name, job.func.__name__, job.args, job.kwargs
             )
 
-        elapsed_time: float | None = None
-        if self.__profile:
-            elapsed_time = time.perf_counter() - job.start_time  # type: ignore
+        elapsed_time: float = time.perf_counter() - job.start_time
 
         self.__finished_jobs[future] = AloyThreadFinishedJob(  # type: ignore
             *job,
@@ -464,11 +458,25 @@ class AloyThreadPool:
             if self.__queued_jobs.get_obj() < self.__max_workers:
                 self.__active_threads -= 1
 
-    def get_job(self, future: Future) -> AloyThreadJob | AloyThreadFinishedJob:
-        """Returns the job associated with the given future."""
-        if future in self.__finished_jobs:
-            return self.__finished_jobs[future]
+    def get_job(self, future: Future) -> AloyThreadJob:
+        """Return the job associated with the given future."""
         return self.__submitted_jobs.pop(future)
+
+    def get_finished_job(self, future: Future) -> AloyThreadFinishedJob:
+        """
+        Return the finished job associated with the given future.
+
+        Raises a ValueError if the future is not a finished job.
+        """
+        if future not in self.__finished_jobs:
+            raise ValueError(f"Future {future} is not a finished job.")
+        return self.__finished_jobs.pop(future)
+
+    def is_finished(self, future: Future) -> bool:
+        """
+        Return True if the given future is a finished job, False otherwise.
+        """
+        return future in self.__finished_jobs
 
     @functools.wraps(ThreadPoolExecutor.map,
                      assigned=("__doc__",))
@@ -488,7 +496,8 @@ class AloyThreadPool:
         ]
         futures.reverse()
 
-        return AloyThreadPool.__iter_results(futures, end_time)
+        return AloyThreadPool.__iter_results(
+            futures, end_time)  # type: ignore[arg-type]
 
     @staticmethod
     def __get_result(

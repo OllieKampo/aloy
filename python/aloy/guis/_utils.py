@@ -20,18 +20,18 @@ from typing import Any, Callable
 
 from PySide6.QtCore import QTimer  # pylint: disable=no-name-in-module
 
-from aloy.concurrency.clocks import ClockThread
+from aloy.concurrency.clocks import SimpleClockThread
 
 
 def create_clock(
-    *functions: Callable[..., Any],
+    *functions: Callable[[], Any],
     name: str,
-    clock: ClockThread | QTimer | None,
+    clock: SimpleClockThread | QTimer | None,
     tick_rate: int,
     start_clock: bool,
     logger: logging.Logger,
     debug: bool
-) -> ClockThread | QTimer:
+) -> SimpleClockThread | QTimer:
     """
     Utility function for creating a clock of a messaging system for
     calling the given functions at a given tick rate.
@@ -61,13 +61,12 @@ def create_clock(
     if clock is None:
         if debug:
             logger.debug(
-                "%s: Creating new ClockThread with tick rate %s.",
+                "%s: Creating new SimpleClockThread with tick rate %s.",
                 name, tick_rate
             )
-        clock = ClockThread(
-            *functions,
-            tick_rate=tick_rate
-        )
+        clock = SimpleClockThread(tick_rate=tick_rate)
+        for function_ in functions:
+            clock.schedule(function_)
         clock.start()
     else:
         if debug:
@@ -75,8 +74,9 @@ def create_clock(
                 "%s: Using existing clock of type %s.",
                 name, type(clock)
             )
-        if isinstance(clock, ClockThread):
-            clock.schedule(*functions)
+        if isinstance(clock, SimpleClockThread):
+            for function_ in functions:
+                clock.schedule(function_)
             if start_clock:
                 clock.start()
         elif isinstance(clock, QTimer):
@@ -85,6 +85,8 @@ def create_clock(
             if start_clock:
                 clock.start()
         else:
-            raise TypeError("Clock must be of type ClockThread or QTimer."
-                            f"Got; {clock} of {type(clock)}.")
+            raise TypeError(
+                "Clock must be of type SimpleClockThread or QTimer."
+                f"Got; {clock} of {type(clock)}."
+            )
     return clock

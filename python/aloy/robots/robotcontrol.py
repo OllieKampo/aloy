@@ -3,7 +3,7 @@
 from typing import Any
 from PySide6.QtCore import QTimer  # pylint: disable=E0611
 
-from aloy.concurrency.clocks import ClockThread
+from aloy.concurrency.clocks import SimpleClockThread
 from aloy.guis.gui import AloyGuiWindow, AloySystemData
 from aloy.guis.observable import Observable, notifies_observers
 
@@ -55,7 +55,7 @@ class AloyRobotControlData(AloySystemData):
         name: str | None = None,
         gui: AloyGuiWindow | None = None,
         data_dict: dict[str, Any] | None = None,
-        clock: ClockThread | QTimer | None = None, *,
+        clock: SimpleClockThread | QTimer | None = None, *,
         debug: bool = False
     ) -> None:
         """
