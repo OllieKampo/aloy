@@ -453,7 +453,9 @@ class _ClockBase(Generic[CI], metaclass=ABCMeta):
             if isinstance(self._items, list):
                 self._items.remove(func)  # type: ignore[arg-type]
             else:
-                self._items.pop(func)  # type: ignore[arg-type]
+                self._items.pop(
+                    func  # type: ignore[arg-type,call-overload]
+                )
 
     def __run(self) -> None:
         """Run the clock."""
@@ -605,7 +607,7 @@ class SimpleClockThread(_ClockBase[_SimpleClockItem]):
                 raise TypeError(f"Item {func!r} of type {type(func)} is "
                                 "not tickable or callable.")
 
-            self._items.append(
+            self._items.append(  # type: ignore[union-attr]
                 _SimpleClockItem(
                     func,
                     *args,
@@ -640,7 +642,9 @@ def _less_than_or_close(a: float, b: float) -> bool:
     return (a < b) or math.isclose(a, b, abs_tol=5e-3)
 
 
-def _get_sleep_time(items: list[_TimedClockItem]) -> float:
+def _get_sleep_time(
+    items: list[_TimedClockItem] | dict[_TimedClockFutureItem, Future]
+) -> float:
     """Return the sleep time based on the items."""
     return math.gcd(
         *(
@@ -718,7 +722,7 @@ class ClockThread(_ClockBase[_TimedClockItem]):
                 last_time = self._last_time
             next_time: float = last_time + interval
 
-            self._items.append(
+            self._items.append(  # type: ignore[union-attr]
                 _TimedClockItem(
                     interval,
                     last_time,
@@ -732,7 +736,9 @@ class ClockThread(_ClockBase[_TimedClockItem]):
                 )
             )
 
-            self._sleep_time = _get_sleep_time(self._items)
+            self._sleep_time = (  # pylint: disable=assigning-non-slot
+                _get_sleep_time(self._items)  # type: ignore[arg-type]
+            )
 
     def unschedule(
         self,
@@ -743,7 +749,9 @@ class ClockThread(_ClockBase[_TimedClockItem]):
         with self._atomic_update_lock:
             super().unschedule(func)
 
-            self._sleep_time = _get_sleep_time(self._items)
+            self._sleep_time = (  # pylint: disable=assigning-non-slot
+                _get_sleep_time(self._items)  # type: ignore[arg-type]
+            )
 
     def _call_items(self) -> None:
         """Call the clock's items."""
@@ -774,6 +782,10 @@ class RequesterClockThread(_ClockBase[_TimedClockFutureItem]):
     network requests.
     """
 
+    __slots__ = {
+        "__threadpool": "The threadpool for running requests."
+    }
+
     def __init__(self, max_workers: int | None = None) -> None:
         """Create a new requester clock thread."""
         super().__init__(init_items={})
@@ -790,13 +802,15 @@ class RequesterClockThread(_ClockBase[_TimedClockFutureItem]):
         func: Tickable[Concatenate[RequestCallStats, PS], TV_co] | Callable[
             Concatenate[RequestCallStats, PS], TV_co],
         *args: PS.args,
-        return_callback: Callable[[RequestCallStats, TV_co], None]
-            | None = None,
+        return_callback: Callable[
+            [RequestCallStats, TV_co], None
+        ] | None = None,
         except_callback: Callable[
-            [RequestCallStats, Exception], None] | None = None,
+            [RequestCallStats, Exception], None
+        ] | None = None,
         dual_callback: Callable[
-            [RequestCallStats, TV_co | None, Exception | None], None]
-            | None = None,
+            [RequestCallStats, TV_co | None, Exception | None], None
+        ] | None = None,
         lag_callback: Callable[[RequestCallStats], None] | None = None,
         **kwargs: PS.kwargs
     ) -> None:
@@ -834,7 +848,7 @@ class RequesterClockThread(_ClockBase[_TimedClockFutureItem]):
             next_time: float = last_time + interval
             next_lag_time: float = last_time + lag_interval
 
-            self._items[_TimedClockFutureItem(
+            self._items[_TimedClockFutureItem(  # type: ignore[call-overload]
                 interval,
                 lag_interval,
                 last_time,
@@ -847,9 +861,11 @@ class RequesterClockThread(_ClockBase[_TimedClockFutureItem]):
                 dual_callback=dual_callback,
                 lag_callback=lag_callback,
                 **kwargs
-            )] = None
+            )] = None  # type: ignore[assignment]
 
-            self._sleep_time = _get_sleep_time(self._items)
+            self._sleep_time = (  # pylint: disable=assigning-non-slot
+                _get_sleep_time(self._items)  # type: ignore[arg-type]
+            )
 
     def unschedule(
         self,
@@ -860,13 +876,15 @@ class RequesterClockThread(_ClockBase[_TimedClockFutureItem]):
         with self._atomic_update_lock:
             super().unschedule(func)
 
-            self._sleep_time = _get_sleep_time(self._items)
+            self._sleep_time = (  # pylint: disable=assigning-non-slot
+                _get_sleep_time(self._items)  # type: ignore[arg-type]
+            )
 
     def _call_items(self) -> None:
         """Call the clock's items."""
         current_time: float
         delta_time: float | None = None
-        for item, future in self._items.items():
+        for item, future in self._items.items():  # type: ignore[union-attr]
             current_time = time.monotonic()
             if item.last_time is not None:
                 delta_time = current_time - item.last_time
@@ -885,10 +903,12 @@ class RequesterClockThread(_ClockBase[_TimedClockFutureItem]):
         current_time: float
     ) -> None:
         """Submit an item to the threadpool."""
-        self._items[item] = self.__threadpool.submit(
-            item,
-            delta_time=delta_time,
-            current_time=current_time
+        self._items[item] = (  # type: ignore[call-overload]
+            self.__threadpool.submit(
+                item,
+                delta_time=delta_time,
+                current_time=current_time
+            )
         )
         next_time = item.last_time + (item.interval * 2.0)
         next_lag_time = item.last_time + item.interval + item.lag_interval
@@ -902,8 +922,7 @@ class RequesterClockThread(_ClockBase[_TimedClockFutureItem]):
 
 def __main() -> None:
     """Run clock tests."""
-
-    import argparse
+    import argparse  # pylint: disable=import-outside-toplevel
     parser = argparse.ArgumentParser(description="Run clock tests.")
     parser.add_argument(
         "--test-simple-clock",
