@@ -36,6 +36,14 @@ impl Tree {
         self.adjacency_list[parent_index].push(child_index);
     }
 
+    fn disconnect(&mut self, parent_index: usize, child_index: usize) {
+        let index = self.adjacency_list[parent_index]
+            .iter()
+            .position(|&x| x == child_index)
+            .unwrap();
+        self.adjacency_list[parent_index].remove(index);
+    }
+
     fn __getitem__(&self, index: usize) -> Vec<f64> {
         self.nodes[index].clone()
     }
@@ -152,15 +160,27 @@ pub fn rrt(
     let mut tree = Tree::new(start, goal);
     let mut i = 0;
     while i < max_iterations {
-        // Generate random point.
+        // Generate a random point that is not in an obstacle.
         let (random_point, nearest_index) = new_random_point(
             &tree, &obstacles, &boundaries, step_size);
+
+        // Get the nearest neighbor to the random point.
+        let nearest_point = &tree[nearest_index];
+
+        // Check that the path from the nearest neighbor to the new point is collision-free.
+        // if !collision_free_path(nearest_point, &random_point, &obstacles) {
+        //     continue;
+        // }
+
         // Move the nearest neighbor towards the random point.
-        let new_point = move_point(&tree[nearest_index], &random_point, step_size);
+        let new_point = move_point(nearest_point, &random_point, step_size);
+
         // Add new point to the tree.
         tree.push(new_point);
+
         // Connect the nearest neighbor to the new point.
         tree.connect(nearest_index, tree.len()-1);
+
         // Stop if the nearest neighbor was the goal.
         if nearest_index == 1 {
             return Ok(tree);
@@ -184,7 +204,6 @@ pub fn rrt(
 /// # Returns
 /// 
 /// A vector of floats representing the random point.
-/// 
 fn new_random_point(
     tree: &Tree,
     obstacles: &Vec<Vec<f64>>,
@@ -226,7 +245,7 @@ fn new_random_point(
 }
 
 
-/// Finds the nearest neighbor in a tree to a given point.
+/// Finds the nearest neighbor point in a tree to a given point.
 ///
 /// # Arguments
 ///
@@ -252,7 +271,8 @@ fn nearest_neighbor(tree: &Tree, point: &Vec<f64>) -> usize {
 }
 
 
-/// Moves a point towards a random point within a given step size.
+/// Create a new point that lies in the direction of the random point from the nearest point but is
+/// at most `step_size` away from the nearest point.
 ///
 /// # Arguments
 ///
@@ -262,7 +282,7 @@ fn nearest_neighbor(tree: &Tree, point: &Vec<f64>) -> usize {
 ///
 /// # Returns
 ///
-/// The new point after moving towards the random point.
+/// The new point.
 fn move_point(nearest_point: &Vec<f64>, random_point: &Vec<f64>, step_size: f64) -> Vec<f64> {
     let distance = distance(&nearest_point, &random_point);
     if distance <= step_size {
@@ -312,4 +332,44 @@ fn distance(point_a: &Vec<f64>, point_b: &Vec<f64>) -> f64 {
         sum += (a - b).powi(2);
     }
     return sum.sqrt();
+}
+
+
+/// Checks if the path between two points is collision-free.
+/// 
+/// # Arguments
+/// 
+/// * `point_a` - The coordinates of the first point.
+/// * `point_b` - The coordinates of the second point.
+/// * `obstacles` - A list of obstacles, where each obstacle is represented by a list of coordinates.
+/// 
+/// # Returns
+/// 
+/// Returns `true` if the path between the two points is collision-free, `false` otherwise.
+fn collision_free_path(point_a: &Vec<f64>, point_b: &Vec<f64>, obstacles: &Vec<Vec<Vec<f64>>>) -> bool {
+    let (m_line, c_line) = line_from_points(point_a, point_b);
+    for obstacle in obstacles {
+        for i in 0..obstacle.len() {
+            let point_1 = &obstacle[i];
+            let point_2 = &obstacle[(i + 1) % obstacle.len()];
+            let (m_obstacle, c_obstacle) = line_from_points(point_1, point_2);
+            if m_line == m_obstacle {
+                continue;
+            }
+            let x = (c_obstacle - c_line) / (m_line - m_obstacle);
+            let y = m_line * x + c_line;
+            if x < point_1[0] || x > point_2[0] || y < point_1[1] || y > point_2[1] {
+                continue;
+            }
+            return false;
+        }
+    }
+    return true;
+}
+
+
+fn line_from_points(point_a: &Vec<f64>, point_b: &Vec<f64>) -> (f64, f64) {
+    let m = (point_b[1] - point_a[1]) / (point_b[0] - point_a[0]);
+    let c = point_a[1] - m * point_a[0];
+    return (m, c);
 }
