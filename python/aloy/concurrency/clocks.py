@@ -64,6 +64,8 @@ class CallStats:
     """
 
     __slots__ = {
+        "current_time": "The current time.",
+        "time_submitted": "The time the call was submitted.",
         "time_since_submitted": "The time since the call was submitted.",
         "delta_time": "The time since the last call.",
         "total_calls": "The total number of calls.",
@@ -72,12 +74,16 @@ class CallStats:
 
     def __init__(
         self,
+        current_time: float,
+        time_submitted: float,
         time_since_submitted: float,
         delta_time: float | None,
         total_calls: int,
         tick_rate: float
     ) -> None:
         """Create a new call statistics object."""
+        self.current_time: float = current_time
+        self.time_submitted: float = time_submitted
         self.time_since_submitted: float = time_since_submitted
         self.delta_time: float | None = delta_time
         self.total_calls: int = total_calls
@@ -105,6 +111,8 @@ class AsyncCallStats(CallStats):
 
     def __init__(
         self,
+        current_time: float,
+        time_submitted: float,
         time_since_submitted: float,
         delta_time: float | None,
         total_calls: int,
@@ -113,6 +121,8 @@ class AsyncCallStats(CallStats):
     ) -> None:
         """Create a new call statistics object."""
         super().__init__(
+            current_time,
+            time_submitted,
             time_since_submitted,
             delta_time,
             total_calls,
@@ -181,6 +191,8 @@ class _SimpleClockItem(Generic[PS, TV_co]):
     ) -> CallStats:
         """Return the call statistics of the item."""
         return CallStats(
+            current_time=current_time,
+            time_submitted=self.__time_submitted,
             time_since_submitted=current_time - self.__time_submitted,
             delta_time=delta_time,
             total_calls=self.__total_calls,
@@ -338,6 +350,8 @@ class _TimedClockFutureItem(_TimedClockItem[PS, TV_co]):
         """Return the call statistics of the item."""
         stats = super()._get_call_stats(delta_time, current_time)
         return AsyncCallStats(
+            current_time=current_time,
+            time_submitted=stats.time_submitted,
             time_since_submitted=stats.time_since_submitted,
             delta_time=delta_time,
             total_calls=stats.total_calls,
