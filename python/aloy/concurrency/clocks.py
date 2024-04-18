@@ -303,10 +303,8 @@ class _TimedClockFutureItem(_TimedClockItem[PS, TV_co]):
     def __init__(
         self,
         interval: float,
-        lag_interval: float,
         last_time: float,
         next_time: float,
-        next_lag_time: float,
         func: Callable[Concatenate[AsyncCallStats, PS], TV_co],
         *args: PS.args,
         return_callback: Callable[
@@ -316,6 +314,8 @@ class _TimedClockFutureItem(_TimedClockItem[PS, TV_co]):
         dual_callback: Callable[
             [AsyncCallStats, TV_co | None, Exception | None], None
         ] | None = None,
+        lag_interval: float | None = None,
+        next_lag_time: float | None = None,
         lag_callback: Callable[[AsyncCallStats], None] | None = None,
         **kwargs: PS.kwargs
     ) -> None:
@@ -821,7 +821,6 @@ class AsyncClockThread(_ClockBase[_TimedClockFutureItem]):
     def schedule(
         self,
         interval: float,
-        lag_interval: float,
         func: Tickable[Concatenate[AsyncCallStats, PS], TV_co] | Callable[
             Concatenate[AsyncCallStats, PS], TV_co],
         *args: PS.args,
@@ -834,6 +833,7 @@ class AsyncClockThread(_ClockBase[_TimedClockFutureItem]):
         dual_callback: Callable[
             [AsyncCallStats, TV_co | None, Exception | None], None
         ] | None = None,
+        lag_interval: float | None = None,
         lag_callback: Callable[[AsyncCallStats], None] | None = None,
         **kwargs: PS.kwargs
     ) -> None:
@@ -843,8 +843,6 @@ class AsyncClockThread(_ClockBase[_TimedClockFutureItem]):
         Parameters
         ----------
         `interval: float` - The time interval between calls to the function.
-
-        `lag_interval: float` - The interval between calls to the lag callback.
 
         `func: Tickable[PS, TV_co] | Callable[PS, TV_co]` - The function to
         call.
@@ -865,6 +863,9 @@ class AsyncClockThread(_ClockBase[_TimedClockFutureItem]):
         exception of the function every time it is called. Must take a
         AsyncCallStats object as the first argument.
 
+        `lag_interval: float | None` - The interval between calls to the lag
+        callback. If None, the lag callback will not be called.
+
         `lag_callback: ((AsyncCallStats) -> None) | None` - A callback to call
         when the function takes longer than the lag interval to return. Must
         take a AsyncCallStats object as the first argument.
@@ -884,19 +885,21 @@ class AsyncClockThread(_ClockBase[_TimedClockFutureItem]):
             else:
                 last_time = self._last_time
             next_time: float = last_time + interval
-            next_lag_time: float = last_time + lag_interval
+            next_lag_time: float | None = None
+            if lag_interval is not None:
+                next_lag_time = last_time + lag_interval
 
             self._items[_TimedClockFutureItem(  # type: ignore[call-overload]
                 interval,
-                lag_interval,
                 last_time,
                 next_time,
-                next_lag_time,
                 func,
                 *args,
                 return_callback=return_callback,
                 except_callback=except_callback,
                 dual_callback=dual_callback,
+                lag_interval=lag_interval,
+                next_lag_time=next_lag_time,
                 lag_callback=lag_callback,
                 **kwargs
             )] = None  # type: ignore[assignment]
@@ -931,7 +934,8 @@ class AsyncClockThread(_ClockBase[_TimedClockFutureItem]):
             if future is None or future.done():
                 if _less_than_or_close(item.next_time, current_time):
                     self._submit_item(item, delta_time, current_time)
-            elif _less_than_or_close(item.next_lag_time, current_time):
+            elif (item.next_lag_time is not None
+                  and _less_than_or_close(item.next_lag_time, current_time)):
                 item.call_lag_callback(delta_time, current_time)
 
     def _submit_item(
@@ -1020,7 +1024,7 @@ def __main() -> None:
             print(f"Frequency: {clock.tick_rate:.3f} Hz")
         clock.stop()
 
-    if args.test_requester_clock:
+    if args.test_async_clock:
         import random
 
         def mock_request(stats: AsyncCallStats) -> None:
@@ -1035,7 +1039,8 @@ def __main() -> None:
 
         async_clock = AsyncClockThread()
         async_clock.schedule(
-            0.2, 0.3, mock_request,
+            0.2, mock_request,
+            lag_interval=0.3,
             lag_callback=lag_callback
         )
         async_clock.start()
