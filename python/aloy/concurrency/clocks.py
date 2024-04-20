@@ -28,7 +28,7 @@ from aloy.datahandling.runningstats import MovingAverage
 
 __copyright__ = "Copyright (C) 2024 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 __all__ = (
     "Tickable",

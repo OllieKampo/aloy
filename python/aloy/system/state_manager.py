@@ -19,12 +19,12 @@ import functools
 import threading
 import time
 import types
-from typing import Any, Callable, Generic, NamedTuple, TypeVar, overload
+from typing import Any, Callable, Generic, NamedTuple, Protocol, TypeVar, overload
 from aloy.concurrency.clocks import AsyncClockThread, AsyncCallStats
 
 __copyright__ = "Copyright (C) 2024 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = (
 )
@@ -65,18 +65,43 @@ class ExternalState(Generic[VT]):
         self.tick_rate: float = tick_rate
 
 
-RT = TypeVar("RT")
-
-
+RT = TypeVar("RT", covariant=True)
+ESM = TypeVar("ESM", bound="ExternalStateManager", contravariant=True)
 _WRAPPER_ASSIGNMENTS = ("__module__", "__name__", "__qualname__", "__doc__")
+
+
+class GetStateHint(Protocol[RT]):
+    """Protocol hint for the get state method."""
+
+    def __call__(
+        self,
+        threshold: float,
+        timeout: float | None = None
+    ) -> RT:
+        ...
+
+
+class GetState(Protocol[ESM, RT]):
+    """Protocol for the get state method."""
+
+    def __get__(self, instance: ESM, owner: type[ESM]) -> GetStateHint[RT]:
+        ...
+
+    def __call__(
+        self,
+        __manager: ESM,
+        threshold: float,
+        timeout: float | None = None
+    ) -> RT:
+        ...
 
 
 def declare_state(
     name: str,
     interval: float
 ) -> Callable[
-    [Callable[["ExternalStateManager"], RT]],
-    Callable[["ExternalStateManager", float, float | None], RT]
+    [Callable[[ESM], RT]],
+    GetState
 ]:
     """
     Decorator to declare a method of an external state manager as an external
@@ -94,12 +119,12 @@ def declare_state(
     in seconds.
     """
     def decorator(
-        getter: Callable[["ExternalStateManager"], RT]
-    ) -> Callable[["ExternalStateManager", float, float | None], RT]:
+        getter: Callable[[ESM], RT]
+    ) -> GetState:
         """Decorator converts the getter method."""
 
         def wrapper(
-            manager: "ExternalStateManager",
+            manager: ESM,
             threshold: float = 0.0,
             timeout: float | None = None
         ) -> RT:
@@ -349,6 +374,9 @@ class ExternalStateManager(metaclass=ExternalStateManagerMeta):
 
 def __main() -> None:
     """Main function for testing the module."""
+    import time  # pylint: disable=import-outside-toplevel
+    import requests  # pylint: disable=import-outside-toplevel
+
     class TestExternalStateManager(ExternalStateManager):
         """Test class for the external state manager."""
 
@@ -357,10 +385,18 @@ def __main() -> None:
             """Get the test state."""
             return 42
 
+        @declare_state("test_request", 2.0)
+        def get_test_request(self) -> int:
+            """Get the test request."""
+            return len(requests.get("https://www.google.com").text)
+
     manager = TestExternalStateManager()
     manager.start()
+    time.sleep(1.0)
     for _ in range(5):
-        print(manager.get_state("test_state", 0.5))
+        print(manager.get_test_state(threshold=0.5))
+        print(manager.get_test_request(threshold=0.5))
+        time.sleep(1.0)
     manager.stop()
     manager.shutdown()
 
