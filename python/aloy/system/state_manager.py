@@ -204,6 +204,18 @@ class ExternalStateManager(metaclass=ExternalStateManagerMeta):
                 getter=functools.partial(state_getter.getter, self)
             )
 
+    def start(self) -> None:
+        """Start the external state manager."""
+        self.__clock.start()
+
+    def stop(self) -> None:
+        """Stop the external state manager."""
+        self.__clock.stop()
+
+    def shutdown(self) -> None:
+        """Shutdown the external state manager."""
+        self.__clock.shutdown()
+
     @overload
     def add_state(
         self,
@@ -333,3 +345,25 @@ class ExternalStateManager(metaclass=ExternalStateManagerMeta):
                         f"Timeout waiting for external state '{name}'."
                     )
             return self.__states[name].state
+
+
+def __main() -> None:
+    """Main function for testing the module."""
+    class TestExternalStateManager(ExternalStateManager):
+        """Test class for the external state manager."""
+
+        @declare_state("test_state", 1.0)
+        def get_test_state(self) -> int:
+            """Get the test state."""
+            return 42
+
+    manager = TestExternalStateManager()
+    manager.start()
+    for _ in range(5):
+        print(manager.get_state("test_state", 0.5))
+    manager.stop()
+    manager.shutdown()
+
+
+if __name__ == "__main__":
+    __main()
