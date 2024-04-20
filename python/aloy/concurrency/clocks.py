@@ -466,9 +466,12 @@ class _ClockBase(Generic[CI], metaclass=ABCMeta):
         Once a clock has been shutdown, it cannot be restarted.
         """
         with self._atomic_update_lock:
-            self.stop()
-            self.__shutdown.set()
-            self.__thread.join()
+            if not self.__shutdown.is_set():
+                self.__shutdown.set()
+                if not self.__running.is_set():
+                    self.__stopped.set()
+                    self.__running.set()
+                self.__thread.join()
 
     def unschedule(
         self,
@@ -983,12 +986,15 @@ class AsyncClockThread(_ClockBase[_TimedClockFutureItem]):
             )
         )
         next_time = item.last_time + (item.interval * 2.0)
-        next_lag_time = item.last_time + item.interval + item.lag_interval
+        if item.lag_interval is not None:
+            next_lag_time = item.last_time + item.interval + item.lag_interval
         if next_time <= current_time:
             next_time = current_time + item.interval
-            next_lag_time = current_time + item.lag_interval
+            if item.lag_interval is not None:
+                next_lag_time = current_time + item.lag_interval
         item.next_time = next_time
-        item.next_lag_time = next_lag_time
+        if item.lag_interval is not None:
+            item.next_lag_time = next_lag_time
         item.last_time = current_time
 
 
