@@ -394,6 +394,7 @@ class _ClockBase(Generic[CI], metaclass=ABCMeta):
         "__thread": "The thread that runs the clock.",
         "__running": "Event handling whether the clock is running.",
         "__stopped": "Event handling whether the clock should stop.",
+        "__shutdown": "Event handling whether the clock has been shutdown.",
         "__tick_rate": "The moving average of the clock's tick rate."
     }
 
@@ -414,6 +415,7 @@ class _ClockBase(Generic[CI], metaclass=ABCMeta):
         self.__thread.daemon = True
         self.__running = threading.Event()
         self.__stopped = threading.Event()
+        self.__shutdown = threading.Event()
         self.__thread.start()
 
         # Track the tick rate of the clock.
@@ -440,6 +442,11 @@ class _ClockBase(Generic[CI], metaclass=ABCMeta):
     def start(self) -> None:
         """Start the clock."""
         with self._atomic_update_lock:
+            if self.__shutdown.is_set():
+                raise RuntimeError(
+                    f"The clock {self} has been shutdown and cannot be "
+                    "restarted."
+                )
             if not self.__running.is_set():
                 self.__stopped.clear()
                 self.__running.set()
@@ -449,8 +456,19 @@ class _ClockBase(Generic[CI], metaclass=ABCMeta):
         """Stop the clock."""
         with self._atomic_update_lock:
             if self.__running.is_set():
-                self.__stopped.set()
                 self.__running.clear()
+                self.__stopped.set()
+
+    def shutdown(self) -> None:
+        """
+        Shutdown the clock, killing its thread.
+
+        Once a clock has been shutdown, it cannot be restarted.
+        """
+        with self._atomic_update_lock:
+            self.stop()
+            self.__shutdown.set()
+            self.__thread.join()
 
     def unschedule(
         self,
@@ -473,7 +491,7 @@ class _ClockBase(Generic[CI], metaclass=ABCMeta):
 
     def __run(self) -> None:
         """Run the clock."""
-        while True:
+        while not self.__shutdown.is_set():
             self.__running.wait()
 
             sleep_time: float = self._sleep_time
@@ -817,6 +835,18 @@ class AsyncClockThread(_ClockBase[_TimedClockFutureItem]):
         self.__threadpool = ThreadPoolExecutor(
             max_workers=max_workers
         )
+
+    def shutdown(self) -> None:
+        """
+        Shutdown the clock, killing its thread and threadpool.
+
+        This cancels all pending requests, but waits for any running requests
+        to complete.
+
+        Once a clock has been shutdown, it cannot be restarted.
+        """
+        self.__threadpool.shutdown(cancel_futures=True)
+        super().shutdown()
 
     def schedule(
         self,
