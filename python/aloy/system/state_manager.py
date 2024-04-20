@@ -15,6 +15,7 @@
 
 """Module containing Aloy's external state manager."""
 
+import functools
 import threading
 import time
 from typing import Any, Callable, Generic, TypeVar
@@ -51,19 +52,68 @@ class ExternalState(Generic[VT]):
         self,
         state: VT,
         time_obtained: float,
-        delta_time: float,
+        delta_time: float | None,
         total_updates: int,
         tick_rate: float
     ) -> None:
         """Initialize the external state."""
-        self.state = state
-        self.time_obtained = time_obtained
-        self.delta_time = delta_time
-        self.total_updates = total_updates
-        self.tick_rate = tick_rate
+        self.state: VT = state
+        self.time_obtained: float = time_obtained
+        self.delta_time: float | None = delta_time
+        self.total_updates: int = total_updates
+        self.tick_rate: float = tick_rate
 
 
-class ExternalStateManager:
+RT = TypeVar("RT")
+
+
+def declare_state(
+    name: str,
+    interval: float
+) -> Callable[
+    [Callable[["ExternalStateManager"], RT]],
+    Callable[["ExternalStateManager", float, float | None], RT]
+]:
+    def decorator(
+        getter: Callable[["ExternalStateManager"], RT]
+    ) -> Callable[["ExternalStateManager", float, float | None], RT]:
+        @functools.wraps(getter)
+        def wrapper(
+            manager: "ExternalStateManager",
+            threshold: float = 0.0,
+            timeout: float | None = None
+        ) -> RT:
+            return manager.get_state(
+                name=name,
+                timethreshold=threshold,
+                timeout=timeout
+            )
+        wrapper.__state_name__ = name
+        wrapper.__state_interval__ = interval
+        return wrapper
+    return decorator
+
+
+class ExternalStateMeta(type):
+    """Metaclass for external state classes."""
+
+    def __new__(
+        mcs,
+        name: str,
+        bases: tuple[type, ...],
+        namespace: dict[str, Any]
+    ) -> type:
+        """Create a new external state class."""
+        cls = super().__new__(mcs, name, bases, namespace)
+        for attr_name in dir(cls):
+            attr = getattr(cls, attr_name)
+            if callable(attr):
+                if hasattr(attr, "__state_name__"):
+                    cls.__states__[attr.__state_name__] = attr.__state_interval__
+        return cls
+
+
+class ExternalStateManager(metaclass=ExternalStateMeta):
     """Class to manage regular polling and storage of external state."""
 
     __slots__ = {
@@ -78,24 +128,41 @@ class ExternalStateManager:
         self.__clock = AsyncClockThread(max_workers)
         self.__states: dict[str, ExternalState] = {}
         self.__conditions: dict[str, threading.Condition] = {}
-        self.__callbacks: dict[str, list[Callable[[ExternalState], None]]] = {}
+        self.__callbacks: dict[
+            str, list[Callable[[str, ExternalState], None]]
+        ] = {}
 
-    def declare_state(self, name: str, interval: float, getter: Callable[[], Any]) -> None:
+    def add_state(
+        self,
+        name: str,
+        interval: float,
+        getter: Callable[[], Any]
+    ) -> None:
         """Declare a setter for external state."""
         if name in self.__conditions:
-            raise ValueError(f"External state '{name}' has already been declared.")
+            raise ValueError(
+                f"External state '{name}' has already been declared."
+            )
         self.__conditions[name] = threading.Condition()
         getter_ = self.__make_getter(getter)
-        setter_ = self.__make_setter_callback(name)
+        setter_ = self.__make_setter(name)
         self.__clock.schedule(interval, getter_, return_callback=setter_)
 
-    def __make_getter(self, getter: Callable[[], Any]) -> Callable[[AsyncCallStats], Any]:
+    def __make_getter(
+        self,
+        getter: Callable[[], Any]
+    ) -> Callable[[AsyncCallStats], Any]:
         """Make a getter for external state."""
-        def getter_callback(call_stats: AsyncCallStats) -> Any:
+        def getter_callback(
+            call_stats: AsyncCallStats  # pylint: disable=unused-argument
+        ) -> Any:
             return getter()
         return getter_callback
 
-    def __make_setter_callback(self, name: str) -> Callable[[AsyncCallStats, Any], None]:
+    def __make_setter(
+        self,
+        name: str
+    ) -> Callable[[AsyncCallStats, Any], None]:
         """Make a setter callback for external state."""
         def setter_callback(call_stats: AsyncCallStats, state: Any) -> None:
             self.__set_state(
@@ -117,21 +184,34 @@ class ExternalStateManager:
             self.__conditions[name].notify_all()
         if name in self.__callbacks:
             for callback in self.__callbacks[name]:
-                callback(state)
+                callback(name, state)
 
-    def declare_state_callback(self, name: str, setter: Callable[[str, Any], None]) -> None:
+    def add_callback(
+        self,
+        name: str,
+        setter: Callable[[str, ExternalState], None]
+    ) -> None:
         """Declare a setter for external state."""
         if name not in self.__conditions:
             raise ValueError(f"External state '{name}' has not been declared.")
         self.__callbacks.setdefault(name, []).append(setter)
 
-    def get_external_state(self, name: str, timethreshold: float, timeout: float = 1.0) -> Any:
+    def get_state(
+        self,
+        name: str,
+        timethreshold: float,
+        timeout: float | None = None
+    ) -> Any:
         """Get the external state."""
         if name not in self.__conditions:
             raise ValueError(f"External state '{name}' has not been declared.")
         with self.__conditions[name]:
-            if name not in self.__states or self.__states[name].time_obtained < (time.monotonic() - timethreshold):
+            if (name not in self.__states
+                    or (self.__states[name].time_obtained
+                        < (time.monotonic() - timethreshold))):
                 notified = self.__conditions[name].wait(timeout)
                 if not notified:
-                    raise TimeoutError(f"Timeout waiting for external state '{name}'.")
+                    raise TimeoutError(
+                        f"Timeout waiting for external state '{name}'."
+                    )
             return self.__states[name].state
