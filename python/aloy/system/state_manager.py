@@ -19,14 +19,19 @@ import functools
 import threading
 import time
 import types
-from typing import Any, Callable, Generic, NamedTuple, Protocol, TypeVar, overload
-from aloy.concurrency.clocks import AsyncClockThread, AsyncCallStats
+from typing import (Any, Callable, Generic, NamedTuple, Protocol, TypeVar,
+                    overload)
+
+from aloy.concurrency.clocks import AsyncCallStats, AsyncClockThread
 
 __copyright__ = "Copyright (C) 2024 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
 __version__ = "0.2.0"
 
 __all__ = (
+    "ExternalState",
+    "ExternalStateManager",
+    "declare_state"
 )
 
 
@@ -42,15 +47,17 @@ class ExternalState(Generic[VT]):
     """Class to manage the external state of the system."""
 
     __slots__ = {
-        "state": "The external state.",
-        "time_obtained": "The time this state value was obtained.",
-        "delta_time": "The time since the state was last obtained.",
-        "total_updates": "The total number of updates to this state.",
-        "tick_rate": "The average rate at which the state is updated."
+        "__name": "The name of the external state.",
+        "__state": "The external state.",
+        "__time_obtained": "The time this state value was obtained.",
+        "_delta_time": "The time since the state was last obtained.",
+        "__total_updates": "The total number of updates to this state.",
+        "__tick_rate": "The average rate at which the state is updated."
     }
 
     def __init__(
         self,
+        name: str,
         state: VT,
         time_obtained: float,
         delta_time: float | None,
@@ -58,16 +65,63 @@ class ExternalState(Generic[VT]):
         tick_rate: float
     ) -> None:
         """Initialize the external state."""
-        self.state: VT = state
-        self.time_obtained: float = time_obtained
-        self.delta_time: float | None = delta_time
-        self.total_updates: int = total_updates
-        self.tick_rate: float = tick_rate
+        self.__name: str = name
+        self.__state: VT = state
+        self.__time_obtained: float = time_obtained
+        self._delta_time: float | None = delta_time
+        self.__total_updates: int = total_updates
+        self.__tick_rate: float = tick_rate
+
+    def __str__(self) -> str:
+        """Return the string representation of the external state."""
+        return (
+            "ExternalState("
+            f"name={self.__name!r}, "
+            f"state={self.__state}, "
+            f"time_obtained={self.__time_obtained:.3f}, "
+            f"delta_time={self._delta_time:.3f}, "
+            f"total_updates={self.__total_updates:d}, "
+            f"tick_rate={self.__tick_rate:.3f}"
+            ")"
+        )
+
+    @property
+    def name(self) -> str:
+        """Get the name of the external state."""
+        return self.__name
+
+    @property
+    def state(self) -> VT:
+        """Get the state of the external state."""
+        return self.__state
+
+    @property
+    def time_obtained(self) -> float:
+        """Get the time the state was obtained."""
+        return self.__time_obtained
+
+    @property
+    def delta_time(self) -> float | None:
+        """Get the time since the state was last obtained."""
+        return self._delta_time
+
+    @property
+    def total_updates(self) -> int:
+        """Get the total number of updates to the state."""
+        return self.__total_updates
+
+    @property
+    def tick_rate(self) -> float:
+        """Get the average rate at which the state is updated."""
+        return self.__tick_rate
 
 
-RT = TypeVar("RT", covariant=True)
-ESM = TypeVar("ESM", bound="ExternalStateManager", contravariant=True)
-_WRAPPER_ASSIGNMENTS = ("__module__", "__name__", "__qualname__", "__doc__")
+RT = TypeVar("RT")
+ESM_contra = TypeVar(
+    "ESM_contra",
+    bound="ExternalStateManager",
+    contravariant=True
+)
 
 
 class GetStateHint(Protocol[RT]):
@@ -77,31 +131,38 @@ class GetStateHint(Protocol[RT]):
         self,
         threshold: float,
         timeout: float | None = None
-    ) -> RT:
+    ) -> ExternalState[RT]:
         ...
 
 
-class GetState(Protocol[ESM, RT]):
+class GetState(Protocol[ESM_contra, RT]):
     """Protocol for the get state method."""
 
-    def __get__(self, instance: ESM, owner: type[ESM]) -> GetStateHint[RT]:
+    def __get__(
+        self,
+        instance: ESM_contra,
+        owner: type[ESM_contra]
+    ) -> GetStateHint[RT]:
         ...
 
-    def __call__(
-        self,
-        __manager: ESM,
+    def __call__(  # pylint: disable=no-self-argument
+        _self,
+        self: ESM_contra,
         threshold: float,
         timeout: float | None = None
-    ) -> RT:
+    ) -> ExternalState[RT]:
         ...
+
+
+_WRAPPER_ASSIGNMENTS = ("__module__", "__name__", "__qualname__", "__doc__")
 
 
 def declare_state(
     name: str,
     interval: float
 ) -> Callable[
-    [Callable[[ESM], RT]],
-    GetState
+    [Callable[[ESM_contra], RT]],
+    GetState[ESM_contra, RT]
 ]:
     """
     Decorator to declare a method of an external state manager as an external
@@ -119,19 +180,19 @@ def declare_state(
     in seconds.
     """
     def decorator(
-        getter: Callable[[ESM], RT]
-    ) -> GetState:
+        getter: Callable[[ESM_contra], RT]
+    ) -> GetState[ESM_contra, RT]:
         """Decorator converts the getter method."""
 
         def wrapper(
-            manager: ESM,
+            self: ESM_contra,
             threshold: float = 0.0,
             timeout: float | None = None
-        ) -> RT:
+        ) -> ExternalState[RT]:
             """Wrapper simply gets the state from the manager."""
-            return manager.get_state(
+            return self.get_state(
                 name=name,
-                timethreshold=threshold,
+                threshold=threshold,
                 timeout=timeout
             )
 
@@ -320,26 +381,21 @@ class ExternalStateManager(metaclass=ExternalStateManagerMeta):
     ) -> Callable[[AsyncCallStats, Any], None]:
         """Make a setter callback for external state."""
         def setter_callback(call_stats: AsyncCallStats, state: Any) -> None:
-            self.__set_state(
-                name=name,
-                state=ExternalState(
-                    state=state,
-                    time_obtained=call_stats.current_time,
-                    delta_time=call_stats.delta_time,
-                    total_updates=call_stats.total_calls,
-                    tick_rate=call_stats.tick_rate
-                )
+            state = ExternalState(
+                name=state,
+                state=state,
+                time_obtained=call_stats.current_time,
+                delta_time=0.0,
+                total_updates=call_stats.total_calls,
+                tick_rate=call_stats.tick_rate
             )
+            with self.__conditions[name]:
+                self.__states[name] = state
+                self.__conditions[name].notify_all()
+            if name in self.__callbacks:
+                for callback in self.__callbacks[name]:
+                    callback(name, state)
         return setter_callback
-
-    def __set_state(self, name: str, state: ExternalState) -> None:
-        """Set the external state."""
-        with self.__conditions[name]:
-            self.__states[name] = state
-            self.__conditions[name].notify_all()
-        if name in self.__callbacks:
-            for callback in self.__callbacks[name]:
-                callback(name, state)
 
     def add_callback(
         self,
@@ -354,27 +410,31 @@ class ExternalStateManager(metaclass=ExternalStateManagerMeta):
     def get_state(
         self,
         name: str,
-        timethreshold: float,
+        threshold: float,
         timeout: float | None = None
-    ) -> Any:
+    ) -> ExternalState[Any]:
         """Get the external state."""
         if name not in self.__conditions:
             raise ValueError(f"External state '{name}' has not been declared.")
         with self.__conditions[name]:
             if (name not in self.__states
                     or (self.__states[name].time_obtained
-                        < (time.monotonic() - timethreshold))):
+                        < (time.monotonic() - threshold))):
                 notified = self.__conditions[name].wait(timeout)
                 if not notified:
                     raise TimeoutError(
                         f"Timeout waiting for external state '{name}'."
                     )
-            return self.__states[name].state
+            state = self.__states[name]
+            state._delta_time = (  # pylint: disable=protected-access
+                time.monotonic() - state.time_obtained)
+            return state
 
 
 def __main() -> None:
     """Main function for testing the module."""
     import time  # pylint: disable=import-outside-toplevel
+
     import requests  # pylint: disable=import-outside-toplevel
 
     class TestExternalStateManager(ExternalStateManager):
@@ -391,14 +451,29 @@ def __main() -> None:
             return len(requests.get("https://www.google.com").text)
 
     manager = TestExternalStateManager()
+
+    manager.add_state("test_add_state", 3.0, lambda: 99)
+
+    @manager.add_state("test_add_state_decorator", 4.0)
+    def test_add_state_decorator() -> str:
+        """Test the add state decorator."""
+        return "So long, and thanks for all the fish!"
+
     manager.start()
-    time.sleep(1.0)
-    for _ in range(5):
-        print(manager.get_test_state(threshold=0.5))
-        print(manager.get_test_request(threshold=0.5))
-        time.sleep(1.0)
-    manager.stop()
-    manager.shutdown()
+    time.sleep(0.2)
+    print(manager.get_test_state(threshold=1.0))
+    print(manager.get_state("test_add_state", threshold=1.0))
+    print(manager.get_state("test_add_state_decorator", threshold=1.0))
+    try:
+        while True:
+            # print(manager.get_test_state(threshold=10.0))
+            print(manager.get_test_request(threshold=1.0))
+            time.sleep(0.2)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        manager.stop()
+        manager.shutdown()
 
 
 if __name__ == "__main__":
