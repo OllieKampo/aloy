@@ -296,7 +296,8 @@ fn move_point(nearest_point: &Vec<f64>, random_point: &Vec<f64>, step_size: f64)
 }
 
 
-/// Checks if a given point is collision-free with a set of obstacles.
+/// Checks if a given point is collision-free with a set of obstacles such that it is not 
+/// inside an obstacle.
 ///
 /// # Arguments
 ///
@@ -306,9 +307,33 @@ fn move_point(nearest_point: &Vec<f64>, random_point: &Vec<f64>, step_size: f64)
 /// # Returns
 ///
 /// Returns `true` if the point is collision-free, `false` otherwise.
-fn collision_free(point: &Vec<f64>, obstacles: &Vec<Vec<f64>>) -> bool {
+fn collision_free(point: &Vec<f64>, obstacles: &Vec<Vec<Vec<f64>>>) -> bool {
     for obstacle in obstacles {
-        if distance(&point, &obstacle) < 1.0 {
+        // Perform a point-in-polygon test using a ray-casting algorithm.
+        // The point is inside the polygon if the number of intersections of the ray with the polygon
+        // is odd.
+        // The ray is cast from the point to the right and the number of intersections with the polygon
+        // is counted.
+        let mut count = 0;
+        for i in 0..obstacle.len() {
+            // Get the two points that make up the edge of the polygon.
+            let point_1 = &obstacle[i];
+            let point_2 = &obstacle[(i + 1) % obstacle.len()];
+            // Check if the edge is horizontal such that the ray does not intersect the edge.
+            if point_1[1] == point_2[1] {
+                continue;
+            }
+            // Check if the point is above or below the edge such that the ray does not intersect the edge.
+            if point[1] < point_1[1].min(point_2[1]) || point[1] >= point_1[1].max(point_2[1]) {
+                continue;
+            }
+            // Check if the point is to the right of the edge such that the ray does not intersect the edge.
+            let x_intersect = (point[1] - point_1[1]) * (point_2[0] - point_1[0]) / (point_2[1] - point_1[1]) + point_1[0];
+            if x_intersect > point[0] {
+                count += 1;
+            }
+        }
+        if count % 2 == 0 {
             return false;
         }
     }
