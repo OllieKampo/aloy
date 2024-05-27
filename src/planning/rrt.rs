@@ -97,7 +97,7 @@ pub fn simple_rrt(
     start: Vec<f64>,
     goal: Vec<f64>,
     boundaries: Vec<f64>,
-    obstacles: Vec<Vec<f64>>,
+    obstacles: Vec<Vec<Vec<f64>>>,
     max_iterations: usize,
 ) -> PyResult<Tree> {
     return rrt(_py, start, goal, boundaries, obstacles, max_iterations, -1.0);
@@ -111,7 +111,8 @@ pub fn simple_rrt(
 /// * `start` - A vector of floats representing the start point.
 /// * `goal` - A vector of floats representing the goal point.
 /// * `boundaries` - A vector of floats representing the boundaries of the space.
-/// * `obstacles` - A vector of vectors representing the obstacles.
+/// * `obstacles` - A vector of vectors of vectors representing the obstacles. Each obstacle is a
+/// is a polygon represented by a sequence of 2-dimensional coordinates.
 /// * `max_iterations` - An integer representing the maximum number of iterations to run the
 /// algorithm for.
 /// * `step_size` - A float representing the maximum distance the random point can be from the
@@ -153,7 +154,7 @@ pub fn rrt(
     start: Vec<f64>,
     goal: Vec<f64>,
     boundaries: Vec<f64>,
-    obstacles: Vec<Vec<f64>>,
+    obstacles: Vec<Vec<Vec<f64>>>,
     max_iterations: usize,
     step_size: f64,
 ) -> PyResult<Tree> {
@@ -164,27 +165,12 @@ pub fn rrt(
         let (random_point, nearest_index) = new_random_point(
             &tree, &obstacles, &boundaries, step_size);
 
-        // Get the nearest neighbor to the random point.
-        let nearest_point = &tree[nearest_index];
-
-        // Check that the path from the nearest neighbor to the new point is collision-free.
-        // if !collision_free_path(nearest_point, &random_point, &obstacles) {
-        //     continue;
-        // }
-
-        // Move the nearest neighbor towards the random point.
-        let new_point = move_point(nearest_point, &random_point, step_size);
-
         // Add new point to the tree.
-        tree.push(new_point);
+        tree.push(random_point);
 
         // Connect the nearest neighbor to the new point.
         tree.connect(nearest_index, tree.len()-1);
 
-        // Stop if the nearest neighbor was the goal.
-        if nearest_index == 1 {
-            return Ok(tree);
-        }
         i += 1;
     }
     return Ok(tree);
@@ -196,7 +182,8 @@ pub fn rrt(
 /// # Arguments
 /// 
 /// * `tree` - A vector of vectors representing the tree.
-/// * `obstacles` - A vector of vectors representing the obstacles.
+/// * `obstacles` - A vector of vectors of vectors representing the obstacles. Each obstacle is a
+/// is a polygon represented by a sequence of 2-dimensional coordinates.
 /// * `boundaries` - A vector of floats representing the boundaries of the space.
 /// * `step_size` - A float representing the maximum distance the random point can be from the
 /// nearest neighbor.
@@ -206,7 +193,7 @@ pub fn rrt(
 /// A vector of floats representing the random point.
 fn new_random_point(
     tree: &Tree,
-    obstacles: &Vec<Vec<f64>>,
+    obstacles: &Vec<Vec<Vec<f64>>>,
     boundaries: &Vec<f64>,
     step_size: f64
 ) -> (Vec<f64>, usize) {
@@ -218,7 +205,7 @@ fn new_random_point(
                 rand::thread_rng().gen_range(0.0..boundaries[1]),
             ];
             // Check if random point is not in an obstacle.
-            if !collision_free(&random_point, &obstacles) {
+            if !not_inside_obstacle(&random_point, &obstacles) {
                 continue;
             }
             // Find nearest neighbor to the random point.
@@ -237,7 +224,11 @@ fn new_random_point(
         // Move the random point closer to the nearest neighbor.
         let moved_point = move_point(&tree[nearest_index], &random_point, step_size);
         // Check if random point is not in an obstacle.
-        if !collision_free(&moved_point, &obstacles) {
+        if !not_inside_obstacle(&moved_point, &obstacles) {
+            continue;
+        }
+        // Check if the path between the nearest neighbor and the random point is collision-free.
+        if !collision_free_path(&tree[nearest_index], &moved_point, &obstacles) {
             continue;
         }
         return (moved_point, nearest_index);
@@ -258,10 +249,10 @@ fn new_random_point(
 fn nearest_neighbor(tree: &Tree, point: &Vec<f64>) -> usize {
     let mut nearest_index: usize = 0;
     let nearest_point = &tree[nearest_index];
-    let mut min_distance = distance(&nearest_point, &point);
+    let mut min_distance = euclidean_distance(&nearest_point, &point);
     for index in 1..tree.len() {
         let node = &tree[index];
-        let distance = distance(&node, &point);
+        let distance = euclidean_distance(&node, &point);
         if distance < min_distance {
             min_distance = distance;
             nearest_index = index;
@@ -284,7 +275,7 @@ fn nearest_neighbor(tree: &Tree, point: &Vec<f64>) -> usize {
 ///
 /// The new point.
 fn move_point(nearest_point: &Vec<f64>, random_point: &Vec<f64>, step_size: f64) -> Vec<f64> {
-    let distance = distance(&nearest_point, &random_point);
+    let distance = euclidean_distance(&nearest_point, &random_point);
     if distance <= step_size {
         return random_point.clone();
     }
@@ -307,7 +298,7 @@ fn move_point(nearest_point: &Vec<f64>, random_point: &Vec<f64>, step_size: f64)
 /// # Returns
 ///
 /// Returns `true` if the point is collision-free, `false` otherwise.
-fn collision_free(point: &Vec<f64>, obstacles: &Vec<Vec<Vec<f64>>>) -> bool {
+fn not_inside_obstacle(point: &Vec<f64>, obstacles: &Vec<Vec<Vec<f64>>>) -> bool {
     for obstacle in obstacles {
         // Perform a point-in-polygon test using a ray-casting algorithm.
         // The point is inside the polygon if the number of intersections of the ray with the polygon
@@ -351,7 +342,7 @@ fn collision_free(point: &Vec<f64>, obstacles: &Vec<Vec<Vec<f64>>>) -> bool {
 /// # Returns
 ///
 /// The Euclidean distance between `point_a` and `point_b`.
-fn distance(point_a: &Vec<f64>, point_b: &Vec<f64>) -> f64 {
+fn euclidean_distance(point_a: &Vec<f64>, point_b: &Vec<f64>) -> f64 {
     let mut sum = 0.0;
     for (a, b) in point_a.iter().zip(point_b.iter()) {
         sum += (a - b).powi(2);
@@ -366,7 +357,8 @@ fn distance(point_a: &Vec<f64>, point_b: &Vec<f64>) -> f64 {
 /// 
 /// * `point_a` - The coordinates of the first point.
 /// * `point_b` - The coordinates of the second point.
-/// * `obstacles` - A list of obstacles, where each obstacle is represented by a list of coordinates.
+/// * `obstacles` - A vector of vectors of vectors representing the obstacles. Each obstacle is a
+/// is a polygon represented by a sequence of 2-dimensional coordinates.
 /// 
 /// # Returns
 /// 
