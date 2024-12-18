@@ -29,8 +29,8 @@ from typing import Any, Literal, NamedTuple, Sequence, Union, final
 from PySide6 import QtCore, QtWidgets
 
 import aloy.guis.observable as observable
-from aloy.concurrency.clocks import ClockThread
-from aloy.concurrency.synchronization import sync
+from aloy.concurrency.clocks import SimpleClockThread
+from aloy.concurrency.synchronization.sync_class import sync
 from aloy.guis.widgets.placeholders import PlaceholderWidget
 from aloy.moremath.mathutils import closest_integer_factors
 
@@ -440,7 +440,7 @@ class AloySystemData(observable.Observable):
         name: str | None = None,
         gui: Union["AloyGuiWindow", None] = None,
         var_dict: dict[str, Any] | None = None,
-        clock: ClockThread | QtCore.QTimer | None = None,
+        clock: SimpleClockThread | QtCore.QTimer | None = None,
         tick_rate: int = 10,
         start_clock: bool = True,
         debug: bool = False

@@ -46,19 +46,20 @@ that listeners can subscribe to.
 import functools
 import inspect
 import logging
-from collections import defaultdict, deque
 import queue
 import time
+from collections import defaultdict, deque
 from typing import (Any, Callable, Concatenate, Final, NamedTuple, ParamSpec,
                     Type, TypeVar, final)
 
 from PySide6.QtCore import QTimer  # pylint: disable=no-name-in-module
 
 from aloy.concurrency.atomic import AtomicBool
-from aloy.concurrency.clocks import ClockThread
+from aloy.concurrency.clocks import SimpleClockThread
 from aloy.concurrency.executors import AloyQTimerExecutor, AloyThreadPool
-from aloy.concurrency.synchronization import (SynchronizedMeta,
-                                              get_instance_lock, sync)
+from aloy.concurrency.synchronization.sync_class import (SynchronizedMeta,
+                                                         get_instance_lock,
+                                                         sync)
 from aloy.datastructures.mappings import TwoWayMap
 from aloy.guis._utils import create_clock
 
@@ -347,7 +348,7 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
     def __init__(
         self,
         name: str | None = None,
-        clock: ClockThread | QTimer | None = None,
+        clock: SimpleClockThread | QTimer | None = None,
         tick_rate: int = 10,
         start_clock: bool = True,
         max_workers: int = 10,
@@ -394,7 +395,7 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
         self.__update_queue: dict[str, queue.SimpleQueue[tuple[Any, Any]]] = \
             defaultdict(queue.SimpleQueue)
 
-        self.__clock: ClockThread | QTimer = create_clock(
+        self.__clock: SimpleClockThread | QTimer = create_clock(
             self.__schedule_updates,
             name=self.__name if self.__name is not None else "New Subject",
             clock=clock,
@@ -404,12 +405,11 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
             debug=self.__debug
         )
         self.__executor: AloyThreadPool | AloyQTimerExecutor
-        if isinstance(self.__clock, ClockThread):
+        if isinstance(self.__clock, SimpleClockThread):
             self.__executor = AloyThreadPool(
                 pool_name=f"Subject {name} :: Thread Pool Executor",
                 max_workers=max(max_workers, 1),
                 thread_name_prefix=f"Subject {name} :: Thread",
-                profile=True,
                 log=bool(debug)
             )
         elif isinstance(self.__clock, QTimer):
@@ -506,11 +506,17 @@ class Subject(metaclass=_SubjectSynchronizedMeta):
                 if is_updated:
                     if not is_updating:
                         is_updating.set_obj(True)
-                        self.__executor.submit(
-                            f"Subject Update ({field_name})",
-                            self.__update_all_async,
-                            field_name
-                        )
+                        if isinstance(self.__executor, AloyQTimerExecutor):
+                            self.__executor.submit(
+                                self.__update_all_async,
+                                field_name
+                            )
+                        else:
+                            self.__executor.submit(
+                                f"Subject Update ({field_name})",
+                                self.__update_all_async,
+                                field_name
+                            )
                     is_updated.set_obj(False)
 
     def __update_all_async(self, field_name: str) -> None:

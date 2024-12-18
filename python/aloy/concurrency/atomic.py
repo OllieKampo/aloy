@@ -36,15 +36,20 @@ whilst some other thread is updating the object.
 """
 
 from abc import ABCMeta, abstractmethod
+from collections import defaultdict
 import collections.abc
+import contextlib
+import functools
 import sys
+import threading
 import types
 from typing import (
     Any, Callable, Concatenate, Generic, Hashable, ItemsView, Iterable,
     Iterator, KeysView, Mapping, ParamSpec, TypeVar, ValuesView, final,
     overload
 )
-from aloy.concurrency.synchronization import OwnedRLock
+import weakref
+from aloy.concurrency.synchronization.primitives import OwnedRLock
 from aloy.datastructures.views import DequeView, DictView, ListView, SetView
 
 __copyright__ = "Copyright (C) 2023 Oliver Michael Kamperis"
@@ -65,6 +70,142 @@ __all__ = (
 def __dir__() -> tuple[str, ...]:
     """Get the names of module attributes."""
     return __all__
+
+
+__INSTANCE_ATOMIC_UPDATERS: weakref.WeakKeyDictionary[
+    type,
+    weakref.WeakKeyDictionary[
+        object,
+        dict[str, threading.RLock]
+    ]
+] = weakref.WeakKeyDictionary()
+__CLASS_ATOMIC_UPDATERS: weakref.WeakKeyDictionary[
+    type,
+    dict[
+        str,
+        threading.RLock
+    ]
+] = weakref.WeakKeyDictionary()
+__ARBITRARY_ATOMIC_UPDATERS: dict[
+    str,
+    threading.RLock
+] = defaultdict(threading.RLock)
+
+
+@contextlib.contextmanager
+def atomic_context(
+    context_name: str, /,
+    cls: type | None = None,
+    inst: object | None = None
+) -> Iterator[None]:
+    """
+    Context manager that ensures atomic updates in the context.
+
+    Atomic updates ensure that only one thread can update the context at a
+    time. The same thread can enter the same context multiple times.
+
+    Parameters
+    ----------
+    `context_name: str` - The name of the context.
+
+    `cls: type | None = None` - The class of the context.
+
+    `inst: object | None = None` - The instance of the context.
+    If `cls` is not given or None and `inst` is not None,
+    `cls` will be set to `inst.__class__`.
+    """
+    if inst is not None:
+        if cls is None:
+            cls = inst.__class__
+        lock_ = __INSTANCE_ATOMIC_UPDATERS.setdefault(
+            cls, weakref.WeakKeyDictionary()) \
+            .setdefault(inst, {}).setdefault(
+                context_name, threading.RLock())
+    elif cls is not None:
+        lock_ = __CLASS_ATOMIC_UPDATERS.setdefault(
+            cls, {}) \
+            .setdefault(context_name, threading.RLock())
+    else:
+        lock_ = __ARBITRARY_ATOMIC_UPDATERS[context_name]
+    lock_.acquire()
+    try:
+        yield
+    finally:
+        lock_.release()
+
+
+CT = TypeVar("CT")
+SP = ParamSpec("SP")
+ST = TypeVar("ST")
+
+
+def atomic_update(
+    global_lock: str | None = None,
+    method: bool = False
+) -> Callable[[Callable[SP, ST]], Callable[SP, ST]]:
+    """
+    Decorate a function to ensure atomic updates in the decorated function.
+
+    Atomic updates ensure that only one thread can update the context at a
+    time. The same thread can enter the same context multiple times.
+
+    Parameters
+    ----------
+    `global_lock: str | None = None` - If given and not None, the name of the
+    global lock to use. Whereby, a global lock can be shared between multiple
+    functions. If not given or None, the lock will be a lock unique to the
+    decorated function.
+
+    `method: bool = False` - Whether the decorated function is treated as a
+    method. If True, a unique lock will be used by each instance of a class.
+    If False, a single lock will be used by all instances of a class.
+
+    Example Usage
+    -------------
+    >>> class Foo:
+    ...     def __init__(self):
+    ...         self.x = 0
+    ...     @atomic_update("x")
+    ...     def increment_x(self):
+    ...         self.x += 1
+    ...     @atomic_update("x")
+    ...     def decrement_x(self):
+    ...         self.x -= 1
+    >>> foo = Foo()
+    >>> foo.increment_x()
+    >>> foo.x
+    1
+    >>> foo.decrement_x()
+    >>> foo.x
+    0
+    """
+    def decorator(func: Callable[SP, ST]) -> Callable[SP, ST]:
+        lock_name: str
+        if method:
+            if global_lock is not None:
+                lock_name = f"__method_global__ {global_lock}"
+            else:
+                lock_name = f"__method_local__ {func.__name__}"
+
+            @functools.wraps(func)
+            def wrapper(*args: SP.args, **kwargs: SP.kwargs) -> ST:
+                with atomic_context(lock_name, inst=args[0]):
+                    return func(*args, **kwargs)
+            return wrapper
+
+        else:
+            if global_lock is not None:
+                lock_name = f"__function_global__ {global_lock}"
+            else:
+                lock_name = f"__function_local__ {func.__name__}"
+
+            @functools.wraps(func)
+            def wrapper(*args: SP.args, **kwargs: SP.kwargs) -> ST:
+                with atomic_context(lock_name):
+                    return func(*args, **kwargs)
+
+            return wrapper
+    return decorator
 
 
 class AloyAtomicObjectError(RuntimeError):
