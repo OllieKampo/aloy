@@ -1,7 +1,7 @@
 
 import unittest
 
-from datastructures.disjointset import DisjointSet
+from aloy.datastructures.disjointset import DisjointSet
 
 class TestDisjointSet(unittest.TestCase):
     def test_parents(self):

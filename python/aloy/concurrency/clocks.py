@@ -28,7 +28,7 @@ from aloy.datahandling.runningstats import MovingAverage
 
 __copyright__ = "Copyright (C) 2024 Oliver Michael Kamperis"
 __license__ = "GPL-3.0"
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 __all__ = (
     "Tickable",
@@ -64,6 +64,8 @@ class CallStats:
     """
 
     __slots__ = {
+        "current_time": "The current time.",
+        "time_submitted": "The time the call was submitted.",
         "time_since_submitted": "The time since the call was submitted.",
         "delta_time": "The time since the last call.",
         "total_calls": "The total number of calls.",
@@ -72,12 +74,16 @@ class CallStats:
 
     def __init__(
         self,
+        current_time: float,
+        time_submitted: float,
         time_since_submitted: float,
         delta_time: float | None,
         total_calls: int,
         tick_rate: float
     ) -> None:
         """Create a new call statistics object."""
+        self.current_time: float = current_time
+        self.time_submitted: float = time_submitted
         self.time_since_submitted: float = time_since_submitted
         self.delta_time: float | None = delta_time
         self.total_calls: int = total_calls
@@ -105,6 +111,8 @@ class AsyncCallStats(CallStats):
 
     def __init__(
         self,
+        current_time: float,
+        time_submitted: float,
         time_since_submitted: float,
         delta_time: float | None,
         total_calls: int,
@@ -113,6 +121,8 @@ class AsyncCallStats(CallStats):
     ) -> None:
         """Create a new call statistics object."""
         super().__init__(
+            current_time,
+            time_submitted,
             time_since_submitted,
             delta_time,
             total_calls,
@@ -181,6 +191,8 @@ class _SimpleClockItem(Generic[PS, TV_co]):
     ) -> CallStats:
         """Return the call statistics of the item."""
         return CallStats(
+            current_time=current_time,
+            time_submitted=self.__time_submitted,
             time_since_submitted=current_time - self.__time_submitted,
             delta_time=delta_time,
             total_calls=self.__total_calls,
@@ -291,10 +303,8 @@ class _TimedClockFutureItem(_TimedClockItem[PS, TV_co]):
     def __init__(
         self,
         interval: float,
-        lag_interval: float,
         last_time: float,
         next_time: float,
-        next_lag_time: float,
         func: Callable[Concatenate[AsyncCallStats, PS], TV_co],
         *args: PS.args,
         return_callback: Callable[
@@ -304,6 +314,8 @@ class _TimedClockFutureItem(_TimedClockItem[PS, TV_co]):
         dual_callback: Callable[
             [AsyncCallStats, TV_co | None, Exception | None], None
         ] | None = None,
+        lag_interval: float | None = None,
+        next_lag_time: float | None = None,
         lag_callback: Callable[[AsyncCallStats], None] | None = None,
         **kwargs: PS.kwargs
     ) -> None:
@@ -338,6 +350,8 @@ class _TimedClockFutureItem(_TimedClockItem[PS, TV_co]):
         """Return the call statistics of the item."""
         stats = super()._get_call_stats(delta_time, current_time)
         return AsyncCallStats(
+            current_time=current_time,
+            time_submitted=stats.time_submitted,
             time_since_submitted=stats.time_since_submitted,
             delta_time=delta_time,
             total_calls=stats.total_calls,
@@ -380,6 +394,7 @@ class _ClockBase(Generic[CI], metaclass=ABCMeta):
         "__thread": "The thread that runs the clock.",
         "__running": "Event handling whether the clock is running.",
         "__stopped": "Event handling whether the clock should stop.",
+        "__shutdown": "Event handling whether the clock has been shutdown.",
         "__tick_rate": "The moving average of the clock's tick rate."
     }
 
@@ -400,6 +415,7 @@ class _ClockBase(Generic[CI], metaclass=ABCMeta):
         self.__thread.daemon = True
         self.__running = threading.Event()
         self.__stopped = threading.Event()
+        self.__shutdown = threading.Event()
         self.__thread.start()
 
         # Track the tick rate of the clock.
@@ -426,6 +442,11 @@ class _ClockBase(Generic[CI], metaclass=ABCMeta):
     def start(self) -> None:
         """Start the clock."""
         with self._atomic_update_lock:
+            if self.__shutdown.is_set():
+                raise RuntimeError(
+                    f"The clock {self} has been shutdown and cannot be "
+                    "restarted."
+                )
             if not self.__running.is_set():
                 self.__stopped.clear()
                 self.__running.set()
@@ -435,8 +456,22 @@ class _ClockBase(Generic[CI], metaclass=ABCMeta):
         """Stop the clock."""
         with self._atomic_update_lock:
             if self.__running.is_set():
-                self.__stopped.set()
                 self.__running.clear()
+                self.__stopped.set()
+
+    def shutdown(self) -> None:
+        """
+        Shutdown the clock, killing its thread.
+
+        Once a clock has been shutdown, it cannot be restarted.
+        """
+        with self._atomic_update_lock:
+            if not self.__shutdown.is_set():
+                self.__shutdown.set()
+                if not self.__running.is_set():
+                    self.__stopped.set()
+                    self.__running.set()
+                self.__thread.join()
 
     def unschedule(
         self,
@@ -459,7 +494,7 @@ class _ClockBase(Generic[CI], metaclass=ABCMeta):
 
     def __run(self) -> None:
         """Run the clock."""
-        while True:
+        while not self.__shutdown.is_set():
             self.__running.wait()
 
             sleep_time: float = self._sleep_time
@@ -804,10 +839,21 @@ class AsyncClockThread(_ClockBase[_TimedClockFutureItem]):
             max_workers=max_workers
         )
 
+    def shutdown(self) -> None:
+        """
+        Shutdown the clock, killing its thread and threadpool.
+
+        This cancels all pending requests, but waits for any running requests
+        to complete.
+
+        Once a clock has been shutdown, it cannot be restarted.
+        """
+        self.__threadpool.shutdown(cancel_futures=True)
+        super().shutdown()
+
     def schedule(
         self,
         interval: float,
-        lag_interval: float,
         func: Tickable[Concatenate[AsyncCallStats, PS], TV_co] | Callable[
             Concatenate[AsyncCallStats, PS], TV_co],
         *args: PS.args,
@@ -820,6 +866,7 @@ class AsyncClockThread(_ClockBase[_TimedClockFutureItem]):
         dual_callback: Callable[
             [AsyncCallStats, TV_co | None, Exception | None], None
         ] | None = None,
+        lag_interval: float | None = None,
         lag_callback: Callable[[AsyncCallStats], None] | None = None,
         **kwargs: PS.kwargs
     ) -> None:
@@ -829,8 +876,6 @@ class AsyncClockThread(_ClockBase[_TimedClockFutureItem]):
         Parameters
         ----------
         `interval: float` - The time interval between calls to the function.
-
-        `lag_interval: float` - The interval between calls to the lag callback.
 
         `func: Tickable[PS, TV_co] | Callable[PS, TV_co]` - The function to
         call.
@@ -851,6 +896,9 @@ class AsyncClockThread(_ClockBase[_TimedClockFutureItem]):
         exception of the function every time it is called. Must take a
         AsyncCallStats object as the first argument.
 
+        `lag_interval: float | None` - The interval between calls to the lag
+        callback. If None, the lag callback will not be called.
+
         `lag_callback: ((AsyncCallStats) -> None) | None` - A callback to call
         when the function takes longer than the lag interval to return. Must
         take a AsyncCallStats object as the first argument.
@@ -870,19 +918,21 @@ class AsyncClockThread(_ClockBase[_TimedClockFutureItem]):
             else:
                 last_time = self._last_time
             next_time: float = last_time + interval
-            next_lag_time: float = last_time + lag_interval
+            next_lag_time: float | None = None
+            if lag_interval is not None:
+                next_lag_time = last_time + lag_interval
 
             self._items[_TimedClockFutureItem(  # type: ignore[call-overload]
                 interval,
-                lag_interval,
                 last_time,
                 next_time,
-                next_lag_time,
                 func,
                 *args,
                 return_callback=return_callback,
                 except_callback=except_callback,
                 dual_callback=dual_callback,
+                lag_interval=lag_interval,
+                next_lag_time=next_lag_time,
                 lag_callback=lag_callback,
                 **kwargs
             )] = None  # type: ignore[assignment]
@@ -917,7 +967,8 @@ class AsyncClockThread(_ClockBase[_TimedClockFutureItem]):
             if future is None or future.done():
                 if _less_than_or_close(item.next_time, current_time):
                     self._submit_item(item, delta_time, current_time)
-            elif _less_than_or_close(item.next_lag_time, current_time):
+            elif (item.next_lag_time is not None
+                  and _less_than_or_close(item.next_lag_time, current_time)):
                 item.call_lag_callback(delta_time, current_time)
 
     def _submit_item(
@@ -935,12 +986,15 @@ class AsyncClockThread(_ClockBase[_TimedClockFutureItem]):
             )
         )
         next_time = item.last_time + (item.interval * 2.0)
-        next_lag_time = item.last_time + item.interval + item.lag_interval
+        if item.lag_interval is not None:
+            next_lag_time = item.last_time + item.interval + item.lag_interval
         if next_time <= current_time:
             next_time = current_time + item.interval
-            next_lag_time = current_time + item.lag_interval
+            if item.lag_interval is not None:
+                next_lag_time = current_time + item.lag_interval
         item.next_time = next_time
-        item.next_lag_time = next_lag_time
+        if item.lag_interval is not None:
+            item.next_lag_time = next_lag_time
         item.last_time = current_time
 
 
@@ -1006,7 +1060,7 @@ def __main() -> None:
             print(f"Frequency: {clock.tick_rate:.3f} Hz")
         clock.stop()
 
-    if args.test_requester_clock:
+    if args.test_async_clock:
         import random
 
         def mock_request(stats: AsyncCallStats) -> None:
@@ -1021,7 +1075,8 @@ def __main() -> None:
 
         async_clock = AsyncClockThread()
         async_clock.schedule(
-            0.2, 0.3, mock_request,
+            0.2, mock_request,
+            lag_interval=0.3,
             lag_callback=lag_callback
         )
         async_clock.start()

@@ -1,5 +1,5 @@
-import control.controllers as controllers
-import control.pid as pid
+import aloy.control.controllers as controllers
+import aloy.control.pid as pid
 
 if __name__ == "__main__":
     mvc = controllers.MultiVariateController()

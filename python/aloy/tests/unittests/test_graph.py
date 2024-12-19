@@ -1,7 +1,7 @@
 
 import unittest
 
-from datastructures.graph import Graph
+from aloy.datastructures.graph import Graph
 
 class TestGraph(unittest.TestCase):
     def test_undirected_graph(self):
